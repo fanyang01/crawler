@@ -9,6 +9,8 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -82,10 +84,36 @@ func (resp *Response) parse() (ok bool) {
 		resp.LastModified, _ = time.Parse(http.TimeFormat, t)
 	}
 	if t := resp.Header.Get("Expires"); t != "" {
+		resp.Cacheable = true
 		resp.Expires, _ = time.Parse(http.TimeFormat, t)
 	}
+
+	if a := resp.Header.Get("Age"); a != "" {
+		if seconds, err := strconv.ParseInt(a, 0, 32); err == nil {
+			resp.Age = time.Duration(seconds) * time.Second
+		}
+	}
+	if c := resp.Header.Get("Cache-Control"); c != "" {
+		if strings.HasPrefix(c, "s-maxage") {
+			resp.Cacheable = true
+			if seconds, err := strconv.ParseInt(
+				strings.TrimPrefix(c, "s-maxage="), 0, 32); err == nil {
+				resp.MaxAge = time.Duration(seconds) * time.Second
+			}
+		} else if strings.HasPrefix(c, "max-age") {
+			resp.Cacheable = true
+			if seconds, err := strconv.ParseInt(
+				strings.TrimPrefix(c, "max-age="), 0, 32); err == nil {
+				resp.MaxAge = time.Duration(seconds) * time.Second
+			}
+		}
+	}
+	baseurl := resp.Request.URL
 	if l, err := resp.Location(); err == nil {
-		resp.Locations = *newURL(l)
+		baseurl, resp.Locations = l, l
+	}
+	if l, err := baseurl.Parse(resp.Header.Get("Content-Location")); err == nil {
+		resp.ContentLocation = l
 	}
 
 	// Detect MIME types
@@ -117,12 +145,21 @@ func (r *Request) fetch() (resp *Response, err error) {
 func (resp *Response) detectMIME() {
 	if t := resp.Header.Get("Content-Type"); t != "" {
 		resp.ContentType = t
-	} else if resp.Location != nil {
-		if t := mime.TypeByExtension(
-			path.Ext(resp.Locations.Path)); t != "" {
+	} else if resp.Locations != nil || resp.ContentLocation != nil {
+		var ext string
+		if resp.Locations != nil {
+			ext = path.Ext(resp.Locations.Path)
+		}
+		if ext == "" && resp.ContentLocation != nil {
+			ext = path.Ext(resp.ContentLocation.Path)
+		}
+		if ext == "" {
+			resp.ContentType = ""
+		} else if t := mime.TypeByExtension(ext); t != "" {
 			resp.ContentType = t
 		}
-	} else {
+	}
+	if resp.ContentType == "" {
 		resp.ContentType = http.DetectContentType(resp.Content)
 	}
 }

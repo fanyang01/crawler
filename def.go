@@ -32,12 +32,16 @@ type Request struct {
 
 type Response struct {
 	*http.Response
-	Locations    URL // distinguish with method Location
-	ContentType  string
-	Content      []byte
-	Time         time.Time
-	LastModified time.Time
-	Expires      time.Time
+	Locations       *url.URL // distinguish with method Location
+	ContentLocation *url.URL
+	ContentType     string
+	Content         []byte
+	Time            *time.Time
+	LastModified    *time.Time
+	Expires         *time.Time
+	Cacheable       bool
+	Age             time.Duration
+	MaxAge          time.Duration
 }
 
 type Pool struct {
