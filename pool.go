@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"errors"
 	"log"
 	"net/http"
 )
@@ -35,6 +36,20 @@ func (w *Worker) work() {
 		if err != nil {
 			w.err <- err
 			continue
+		}
+
+		// Only status code 2xx is ok
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			w.err <- errors.New(resp.Status)
+			continue
+		}
+		resp.parseHeader()
+		// Only prefetch html content
+		if CT_HTML.match(resp.ContentType) {
+			if err := resp.ReadBody(MaxHTMLLength); err != nil {
+				w.err <- err
+				continue
+			}
 		}
 		w.resp <- resp
 	}
@@ -78,12 +93,10 @@ func (pool *Pool) doRequest(reqChan <-chan *Request, respChan chan<- *Response) 
 			defer worker.Release()
 			resp, err := worker.Do(req)
 			if err != nil {
-				log.Printf("doRequest: %v\n", err)
+				log.Printf("do request: %v\n", err)
 				return
 			}
-			if resp.parse() {
-				respChan <- resp
-			}
+			respChan <- resp
 		}(req)
 	}
 }

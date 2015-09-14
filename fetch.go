@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
+	"errors"
+	"fmt"
 	"io/ioutil"
-	"log"
 	"mime"
 	"net/http"
 	"path"
@@ -15,61 +16,36 @@ import (
 )
 
 var (
-	EnableUnkownLength       = false
-	MaxContentLength   int64 = 1 << 20
+	EnableUnkownLength           = false
+	MaxHTMLLength          int64 = 1 << 20
+	ErrTooManyEncodings          = errors.New("read response: too many encodings")
+	ErrContentTooLong            = errors.New("read response: content length too long")
+	ErrUnkownContentLength       = errors.New("read response: unkown content length")
 )
 
-func (resp *Response) parse() (ok bool) {
-	defer resp.Body.Close()
-	if resp.ContentLength > MaxContentLength {
-		return
+func (r *Request) fetch() (resp *Response, err error) {
+	if r.method == "" {
+		r.method = "GET"
 	}
-	if resp.ContentLength < 0 && !EnableUnkownLength {
-		return
-	}
-
-	// Uncompress http compression
-	// We prefer Content-Encoding than Tranfer-Encoding
-	var encoding string
-	if encoding = resp.Header.Get("Content-Encoding"); encoding == "" {
-		if len(resp.TransferEncoding) == 0 {
-			encoding = "identity"
-		} else if len(resp.TransferEncoding) == 1 {
-			encoding = resp.TransferEncoding[0]
-		} else {
-			log.Printf("too many encodings: %v\n", resp.TransferEncoding)
-			return
-		}
+	if r.client == nil {
+		r.client = DefaultClient
 	}
 
-	rc := resp.Body
-	needclose := false // resp.Body.Close() is defered
-	switch encoding {
-	case "identity":
-	case "gzip":
-		r, err := gzip.NewReader(rc)
-		if err != nil {
-			log.Printf("uncompress: %v\n", err)
-			return
-		}
-		rc, needclose = ioutil.NopCloser(r), true
-	case "deflate":
-		rc, needclose = flate.NewReader(rc), true
-	default:
-		log.Printf("unsupported content encoding: %s\n", encoding)
-		return
-	}
-
-	var err error
-	resp.Content, err = ioutil.ReadAll(rc)
-	if needclose {
-		rc.Close()
-	}
+	req, err := http.NewRequest(r.method, r.url, bytes.NewReader(r.body))
 	if err != nil {
-		log.Printf("read response body: %v\n", err)
 		return
 	}
 
+	if r.config != nil {
+		r.config(req)
+	}
+	resp = new(Response)
+	resp.Response, err = r.client.Do(req)
+	return
+}
+
+func (resp *Response) parseHeader() {
+	var err error
 	// Parse neccesary headers
 	if t := resp.Header.Get("Time"); t != "" {
 		resp.Time, err = time.Parse(http.TimeFormat, t)
@@ -118,30 +94,63 @@ func (resp *Response) parse() (ok bool) {
 
 	// Detect MIME types
 	resp.detectMIME()
-	return true
-}
-
-func (r *Request) fetch() (resp *Response, err error) {
-	if r.method == "" {
-		r.method = "GET"
-	}
-	if r.client == nil {
-		r.client = DefaultClient
-	}
-
-	req, err := http.NewRequest(r.method, r.url, bytes.NewReader(r.body))
-	if err != nil {
-		return
-	}
-
-	if r.config != nil {
-		r.config(req)
-	}
-	resp = new(Response)
-	resp.Response, err = r.client.Do(req)
 	return
 }
 
+func (resp *Response) ReadBody(maxLen int64) error {
+	if resp.Close {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.ContentLength > maxLen {
+		return ErrContentTooLong
+	}
+	if resp.ContentLength < 0 && !EnableUnkownLength {
+		return ErrUnkownContentLength
+	}
+
+	// Uncompress http compression
+	// We prefer Content-Encoding than Tranfer-Encoding
+	var encoding string
+	if encoding = resp.Header.Get("Content-Encoding"); encoding == "" {
+		if len(resp.TransferEncoding) == 0 {
+			encoding = "identity"
+		} else if len(resp.TransferEncoding) == 1 {
+			encoding = resp.TransferEncoding[0]
+		} else {
+			return fmt.Errorf("too many encodings: %v", resp.TransferEncoding)
+		}
+	}
+
+	rc := resp.Body
+	needclose := false // resp.Body.Close() is defered
+	switch encoding {
+	case "identity":
+	case "gzip":
+		r, err := gzip.NewReader(rc)
+		if err != nil {
+			return err
+		}
+		rc, needclose = ioutil.NopCloser(r), true
+	case "deflate":
+		rc, needclose = flate.NewReader(rc), true
+	default:
+		return fmt.Errorf("unsupported content encoding: %s", encoding)
+	}
+
+	var err error
+	resp.Content, err = ioutil.ReadAll(rc)
+	if needclose {
+		rc.Close()
+	}
+	return err
+}
+
+func (resp *Response) closeBody() {
+	resp.Body.Close()
+}
+
+// When nessary, detectMIME will prefetch 512 bytes from body
 func (resp *Response) detectMIME() {
 	if t := resp.Header.Get("Content-Type"); t != "" {
 		resp.ContentType = t
@@ -153,13 +162,8 @@ func (resp *Response) detectMIME() {
 		if ext == "" && resp.ContentLocation != nil {
 			ext = path.Ext(resp.ContentLocation.Path)
 		}
-		if ext == "" {
-			resp.ContentType = ""
-		} else if t := mime.TypeByExtension(ext); t != "" {
-			resp.ContentType = t
+		if ext != "" {
+			resp.ContentType = mime.TypeByExtension(ext)
 		}
-	}
-	if resp.ContentType == "" {
-		resp.ContentType = http.DetectContentType(resp.Content)
 	}
 }

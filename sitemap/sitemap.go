@@ -1,8 +1,9 @@
-package crawler
+package sitemap
 
 import (
 	"encoding/xml"
 	"errors"
+	"net/url"
 	"time"
 )
 
@@ -66,13 +67,33 @@ func (t *Time) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	return err
 }
 
-type SiteURL struct {
-	Loc          string  `xml:"loc"`
-	LastModified Time    `xml:"lastmod"`
-	ChangeFreq   Freq    `xml:"changefreq"`
-	Priority     float64 `xml:"priority"`
+func (u *URL) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	var tmp struct {
+		Loc          string  `xml:"loc"`
+		Priority     float64 `xml:"priority"`
+		ChangeFreq   Freq    `xml:"changefreq"`
+		LastModified Time    `xml:"lastmod"`
+	}
+	var err error
+	if err = d.DecodeElement(&tmp, &start); err != nil {
+		return err
+	}
+	if u.Loc, err = url.Parse(tmp.Loc); err != nil {
+		return err
+	}
+	u.LastModified = tmp.LastModified.Time
+	u.ChangeFreq = tmp.ChangeFreq.Duration
+	u.Priority = tmp.Priority
+	return nil
 }
 
-type SiteMap struct {
-	URLSet []SiteURL `xml:"url"`
+type URL struct {
+	Loc          *url.URL
+	Priority     float64
+	ChangeFreq   time.Duration
+	LastModified time.Time
+}
+
+type Sitemap struct {
+	URLSet []URL `xml:"url"`
 }

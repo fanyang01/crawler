@@ -1,7 +1,8 @@
-package crawler
+package sitemap
 
 import (
 	"encoding/xml"
+	"net/url"
 	"reflect"
 	"testing"
 	"time"
@@ -61,35 +62,35 @@ func TestSiteMap(t *testing.T) {
 
 </urlset>
 `
-	expected := SiteMap{
-		URLSet: []SiteURL{
+	expected := Sitemap{
+		URLSet: []URL{
 			{
-				Loc:          "http://www.example.com/",
-				LastModified: Time{time.Date(2005, 1, 1, 0, 0, 0, 0, time.UTC)},
-				ChangeFreq:   Freq{30 * 24 * time.Hour},
+				Loc:          mustParseURL("http://www.example.com/"),
+				LastModified: time.Date(2005, 1, 1, 0, 0, 0, 0, time.UTC),
+				ChangeFreq:   30 * 24 * time.Hour,
 				Priority:     0.8,
 			},
 			{
-				Loc:        "http://www.example.com/catalog?item=12&desc=vacation_hawaii",
-				ChangeFreq: Freq{7 * 24 * time.Hour},
+				Loc:        mustParseURL("http://www.example.com/catalog?item=12&desc=vacation_hawaii"),
+				ChangeFreq: 7 * 24 * time.Hour,
 			},
 			{
-				Loc:          "http://www.example.com/catalog?item=73&desc=vacation_new_zealand",
-				LastModified: Time{time.Date(2004, 12, 23, 0, 0, 0, 0, time.UTC)},
-				ChangeFreq:   Freq{7 * 24 * time.Hour},
+				Loc:          mustParseURL("http://www.example.com/catalog?item=73&desc=vacation_new_zealand"),
+				LastModified: time.Date(2004, 12, 23, 0, 0, 0, 0, time.UTC),
+				ChangeFreq:   7 * 24 * time.Hour,
 			},
 			{
-				Loc:          "http://www.example.com/catalog?item=74&desc=vacation_newfoundland",
-				LastModified: Time{mustParseTime(time.RFC3339, "2004-12-23T18:00:15+00:00")},
+				Loc:          mustParseURL("http://www.example.com/catalog?item=74&desc=vacation_newfoundland"),
+				LastModified: mustParseTime(time.RFC3339, "2004-12-23T18:00:15+00:00"),
 				Priority:     0.3,
 			},
 			{
-				Loc:          "http://www.example.com/catalog?item=83&desc=vacation_usa",
-				LastModified: Time{time.Date(2004, 11, 23, 0, 0, 0, 0, time.UTC)},
+				Loc:          mustParseURL("http://www.example.com/catalog?item=83&desc=vacation_usa"),
+				LastModified: time.Date(2004, 11, 23, 0, 0, 0, 0, time.UTC),
 			},
 		},
 	}
-	var sm SiteMap
+	var sm Sitemap
 	err := xml.Unmarshal([]byte(XML), &sm)
 	if err != nil {
 		t.Fatal(err)
@@ -104,5 +105,13 @@ func mustParseTime(layout, v string) time.Time {
 		panic(err)
 	} else {
 		return t
+	}
+}
+
+func mustParseURL(u string) *url.URL {
+	if uu, err := url.Parse(u); err != nil {
+		panic(err)
+	} else {
+		return uu
 	}
 }

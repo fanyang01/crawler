@@ -7,26 +7,31 @@ import (
 )
 
 type SiteTree struct {
-	host string
-	root *Node
+	host   string
+	scheme string // http, https
+	root   *SiteNode
 }
 
-type Node struct {
-	Child    *Node
-	Siblings *Node
+type SiteNode struct {
+	Child    *SiteNode
+	Siblings *SiteNode
 	Value    string
-	Ending   bool
-	URL      []url.URL // a database set should be used instead.
+	RawQuery map[string]bool
+	Fragment map[string]bool
+	End      bool
 }
 
-func NewSiteTree(host string) *SiteTree {
+var EmptyValue struct{}
+
+func NewSiteTree(scheme, host string) *SiteTree {
 	return &SiteTree{
-		host: host,
+		scheme: scheme,
+		host:   host,
 	}
 }
 
-func (st *SiteTree) Insert(u url.URL) (*Node, bool) {
-	if st.host != u.Host {
+func (st *SiteTree) Insert(u url.URL) (*SiteNode, bool) {
+	if st.scheme != u.Scheme || st.host != u.Host {
 		return nil, false
 	}
 
@@ -42,8 +47,10 @@ func (st *SiteTree) Insert(u url.URL) (*Node, bool) {
 	pp, node := &st.root, st.root
 	for i, section := range sections {
 		if node == nil {
-			node = &Node{
-				Value: section,
+			node = &SiteNode{
+				Value:    section,
+				RawQuery: make(map[string]bool),
+				Fragment: make(map[string]bool),
 			}
 			*pp = node
 		} else if node.Value != section {
@@ -51,9 +58,11 @@ func (st *SiteTree) Insert(u url.URL) (*Node, bool) {
 				pp, node = &node.Siblings, node.Siblings
 			}
 			if node == nil || node.Value != section {
-				node = &Node{
+				node = &SiteNode{
 					Value:    section,
 					Siblings: node,
+					RawQuery: make(map[string]bool),
+					Fragment: make(map[string]bool),
 				}
 				*pp = node
 			}
@@ -62,12 +71,13 @@ func (st *SiteTree) Insert(u url.URL) (*Node, bool) {
 			pp, node = &node.Child, node.Child
 		}
 	}
-	node.Ending = true
-	node.URL = append(node.URL, u)
+	node.RawQuery[u.Query().Encode()] = true
+	node.Fragment[u.Fragment] = true
+	node.End = true
 	return node, true
 }
 
-func (st *SiteTree) Search(u url.URL) (node *Node, appear bool) {
+func (st *SiteTree) Search(u url.URL) (node *SiteNode) {
 	if st.host != u.Host {
 		return
 	}
@@ -88,19 +98,18 @@ func (st *SiteTree) Search(u url.URL) (node *Node, appear bool) {
 				node = node.Siblings
 			}
 			if node == nil || node.Value != section {
-				return nil, false
+				return nil
 			}
 		}
 		if i != len(sections)-1 {
 			node = node.Child
 		}
 	}
-	return node, true
+	return node
 }
 
-func (st *SiteTree) Contain(u url.URL) (yes bool) {
-	var node *Node
-	node, yes = st.Search(u)
-	yes = yes && node.Ending
-	return
+func (st *SiteTree) Contain(u url.URL) bool {
+	node := st.Search(u)
+	return node != nil && node.End &&
+		node.RawQuery[u.Query().Encode()] && node.Fragment[u.Fragment]
 }

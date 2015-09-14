@@ -6,21 +6,14 @@ import (
 	"time"
 )
 
-type URL struct {
-	*url.URL
-	Str string
-}
-
-type Page struct {
-	URL           URL
-	Content       []byte
-	ContentType   string
-	ContentLength int64
-}
-
 type Doc struct {
-	baseURL URL
-	HTML    []byte
+	URL
+	SecondURL   *url.URL
+	SubURLs     []*url.URL
+	Content     []byte
+	ContentType string
+	Time        time.Time
+	Expires     time.Time
 }
 
 type Request struct {
@@ -36,9 +29,9 @@ type Response struct {
 	ContentLocation *url.URL
 	ContentType     string
 	Content         []byte
-	Time            *time.Time
-	LastModified    *time.Time
-	Expires         *time.Time
+	Time            time.Time
+	LastModified    time.Time
+	Expires         time.Time
 	Cacheable       bool
 	Age             time.Duration
 	MaxAge          time.Duration
