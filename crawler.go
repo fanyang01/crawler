@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"errors"
+	"log"
 	"net/url"
 )
 
@@ -20,7 +21,7 @@ type Option struct {
 
 type Ctrl struct{}
 
-func (c Ctrl) HandleResponse(resp *Response) {}
+func (c Ctrl) HandleResponse(resp *Response) { log.Println(resp.Locations) }
 func (c Ctrl) Score(u *url.URL) float64      { return 0.5 }
 
 var (
@@ -30,7 +31,7 @@ var (
 	DefaultController = &Ctrl{}
 )
 
-func newCrawler(ctrl Controller, option *Option) *Crawler {
+func NewCrawler(ctrl Controller, option *Option) *Crawler {
 	if ctrl == nil {
 		ctrl = DefaultController
 	}
@@ -41,6 +42,7 @@ func newCrawler(ctrl Controller, option *Option) *Crawler {
 		queue:   newURLQueue(),
 		handler: NewRespHandler(),
 		pool:    NewPool(option.PoolSize),
+		sites:   make(map[string]*Site),
 	}
 }
 
@@ -57,11 +59,17 @@ func (c *Crawler) Begin(seeds ...string) error {
 		return errors.New("crawler: no seed provided")
 	}
 	for _, seed := range seeds {
-		if site, err := NewSite(seed); err != nil {
+		u, err := url.Parse(seed)
+		if err != nil {
+			return err
+		}
+		if site, err := NewSiteFromURL(u); err != nil {
 			return err
 		} else {
 			c.sites[site.Root] = site
-			// c.queue.Push(url)
+			uu := new(URL)
+			uu.Loc = u
+			c.queue.Push(uu)
 		}
 	}
 	return nil
@@ -69,21 +77,25 @@ func (c *Crawler) Begin(seeds ...string) error {
 
 func (c *Crawler) Crawl() {
 	c.pool.Work()
-	urlChan := make(chan *URL)
+	log.Println("here 1")
+	urlChan := make(chan *URL, 64)
 	go func() {
 		for {
 			urlChan <- c.queue.Pop()
 		}
 	}()
-	c.handler.Handle(c.pool.DoRequest(NewRequest(urlChan)))
+	log.Println("here 2")
+	go c.handler.Handle(c.pool.DoRequest(NewRequest(urlChan)))
 	go func() {
 		ch := ParseLink(c.handler.parser.ch)
 		for doc := range ch {
 			for _, u := range doc.SubURLs {
+				log.Println(u)
 				uu := new(URL)
 				uu.Loc = u
 				c.queue.Push(uu)
 			}
 		}
 	}()
+	log.Println("here 3")
 }

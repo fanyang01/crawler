@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"mime"
 	"net/http"
 	"path"
@@ -17,7 +18,7 @@ import (
 
 var (
 	DefaultClient                = http.DefaultClient
-	EnableUnkownLength           = false
+	EnableUnkownLength           = true
 	MaxHTMLLength          int64 = 1 << 20
 	ErrTooManyEncodings          = errors.New("read response: too many encodings")
 	ErrContentTooLong            = errors.New("read response: content length too long")
@@ -104,6 +105,9 @@ func (resp *Response) parseHeader() {
 	baseurl := resp.Request.URL
 	if l, err := resp.Location(); err == nil {
 		baseurl, resp.Locations = l, l
+	} else {
+		log.Println(err)
+		resp.Locations = baseurl
 	}
 	if l, err := baseurl.Parse(resp.Header.Get("Content-Location")); err == nil {
 		resp.ContentLocation = l
@@ -142,7 +146,7 @@ func (resp *Response) ReadBody(maxLen int64) error {
 	rc := resp.Body
 	needclose := false // resp.Body.Close() is defered
 	switch encoding {
-	case "identity":
+	case "identity", "chunked":
 	case "gzip":
 		r, err := gzip.NewReader(rc)
 		if err != nil {
