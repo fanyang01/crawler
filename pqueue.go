@@ -18,7 +18,7 @@ type urlHeap struct {
 	*sync.Cond
 }
 
-func newURLQueue(length int) *urlHeap {
+func newURLQueue() *urlHeap {
 	h := new(urlHeap)
 	h.RWMutex = new(sync.RWMutex)
 	h.Heap = bheap.New(less)
@@ -40,9 +40,7 @@ func (h *urlHeap) Pop() (u *URL) {
 		h.Wait()
 	}
 	defer h.Unlock()
-	i := h.Heap.Pop()
-	if i == nil {
-		return
-	}
+	// In this usage, it's impossible for Pop to return nil and false
+	i, _ := h.Heap.Pop()
 	return i.(*URL)
 }

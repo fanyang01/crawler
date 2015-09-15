@@ -11,7 +11,5 @@ type Controller interface {
 	Score(u *url.URL) float64
 	// HandleResponse handles a response. The body of the response may be prefetched.
 	HandleResponse(*Response)
-	// DoRequest performs HTTP request or other stuffs to return a response.
-	DoRequest(*Request) (*Response, error)
 	// Log(...interface{})
 }

@@ -30,7 +30,7 @@ func (ct ContentType) match(s string) bool {
 	return strings.HasPrefix(s, string(ct))
 }
 
-type Handler interface {
+type rHandler interface {
 	Handle(*Response)
 }
 
@@ -81,7 +81,7 @@ func NewRespHandler() *RespHandler {
 	}
 }
 
-func (h *RespHandler) Handle(in <-chan *Response, handlers ...Handler) {
+func (h *RespHandler) Handle(in <-chan *Response, handlers ...rHandler) {
 	for resp := range in {
 		go func(r *Response) {
 			h.parser.Handle(r)

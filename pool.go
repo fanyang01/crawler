@@ -1,14 +1,9 @@
 package crawler
 
-import (
-	"errors"
-	"log"
-	"net/http"
-)
+import "log"
 
 var (
-	DefaultClient = http.DefaultClient
-	RespBufSize   = 64
+	RespBufSize = 64
 )
 
 func NewPool(size int) (pool *Pool) {
@@ -24,32 +19,23 @@ func NewPool(size int) (pool *Pool) {
 			err:  make(chan error),
 			pool: pool,
 		}
-		go pool.workers[i].work()
-		pool.free <- &pool.workers[i]
 	}
 	return
 }
 
+func (pool *Pool) Work() {
+	for i := 0; i < pool.size; i++ {
+		go pool.workers[i].work()
+		pool.free <- &pool.workers[i]
+	}
+}
+
 func (w *Worker) work() {
 	for req := range w.req {
-		resp, err := req.fetch()
+		resp, err := w.fetch(req)
 		if err != nil {
 			w.err <- err
 			continue
-		}
-
-		// Only status code 2xx is ok
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			w.err <- errors.New(resp.Status)
-			continue
-		}
-		resp.parseHeader()
-		// Only prefetch html content
-		if CT_HTML.match(resp.ContentType) {
-			if err := resp.ReadBody(MaxHTMLLength); err != nil {
-				w.err <- err
-				continue
-			}
 		}
 		w.resp <- resp
 	}

@@ -16,6 +16,7 @@ import (
 )
 
 var (
+	DefaultClient                = http.DefaultClient
 	EnableUnkownLength           = false
 	MaxHTMLLength          int64 = 1 << 20
 	ErrTooManyEncodings          = errors.New("read response: too many encodings")
@@ -23,7 +24,7 @@ var (
 	ErrUnkownContentLength       = errors.New("read response: unkown content length")
 )
 
-func (r *Request) fetch() (resp *Response, err error) {
+func (w *Worker) fetch(r *Request) (resp *Response, err error) {
 	if r.method == "" {
 		r.method = "GET"
 	}
@@ -41,6 +42,22 @@ func (r *Request) fetch() (resp *Response, err error) {
 	}
 	resp = new(Response)
 	resp.Response, err = r.client.Do(req)
+	if err != nil {
+		return
+	}
+
+	// Only status code 2xx is ok
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		err = errors.New(resp.Status)
+		return
+	}
+	resp.parseHeader()
+	// Only prefetch html content
+	if CT_HTML.match(resp.ContentType) {
+		if err = resp.ReadBody(MaxHTMLLength); err != nil {
+			return
+		}
+	}
 	return
 }
 
@@ -98,10 +115,10 @@ func (resp *Response) parseHeader() {
 }
 
 func (resp *Response) ReadBody(maxLen int64) error {
-	if resp.Close {
+	if resp.closed {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer resp.closeBody()
 	if resp.ContentLength > maxLen {
 		return ErrContentTooLong
 	}
@@ -147,7 +164,11 @@ func (resp *Response) ReadBody(maxLen int64) error {
 }
 
 func (resp *Response) closeBody() {
+	if resp.closed {
+		return
+	}
 	resp.Body.Close()
+	resp.closed = true
 }
 
 // When nessary, detectMIME will prefetch 512 bytes from body

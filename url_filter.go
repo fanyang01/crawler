@@ -6,16 +6,36 @@ var (
 	UrlBufSize = 64
 )
 
-func URLFilter(in <-chan *url.URL) <-chan *url.URL {
+type URLFilter interface {
+	Filter(*url.URL) bool
+}
+
+func FilterURL(in <-chan *url.URL, filter URLFilter) <-chan *url.URL {
 	out := make(chan *url.URL, UrlBufSize)
-	go urlFilter(in, out)
+	go func() {
+		for u := range in {
+			if ok := filter.Filter(u); ok {
+				out <- u
+			}
+		}
+		close(out)
+	}()
 	return out
 }
 
-func urlFilter(in <-chan *url.URL, out chan<- *url.URL) {
-	for url := range in {
-		// TODO: do real filter works
-		out <- url
+func newRequest(u *url.URL) *Request {
+	return &Request{
+		method: "GET",
+		url:    u.String(),
 	}
-	close(out)
+}
+
+func NewRequest(in <-chan *URL) <-chan *Request {
+	out := make(chan *Request, UrlBufSize)
+	go func() {
+		for u := range in {
+			out <- newRequest(u.Loc)
+		}
+	}()
+	return out
 }

@@ -36,7 +36,7 @@ var (
 	ErrNoHost              = errors.New("site: host can't be empty")
 )
 
-func NewFromURL(u *url.URL) (*Site, error) {
+func NewSiteFromURL(u *url.URL) (*Site, error) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, ErrUnsupportedProtocol
 	}
@@ -56,12 +56,12 @@ func NewFromURL(u *url.URL) (*Site, error) {
 	}, nil
 }
 
-func New(root string) (*Site, error) {
+func NewSite(root string) (*Site, error) {
 	u, err := url.Parse(root)
 	if err != nil {
 		return nil, err
 	}
-	return NewFromURL(u)
+	return NewSiteFromURL(u)
 }
 
 func (m *URLMap) Add(u *URL) {

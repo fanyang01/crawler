@@ -25,6 +25,7 @@ type Request struct {
 
 type Response struct {
 	*http.Response
+	closed          bool     // body closed?
 	Locations       *url.URL // distinguish with method Location
 	ContentLocation *url.URL
 	ContentType     string
@@ -41,6 +42,7 @@ type Pool struct {
 	size    int
 	workers []Worker
 	free    chan *Worker
+	client  *http.Client
 }
 
 type Worker struct {
