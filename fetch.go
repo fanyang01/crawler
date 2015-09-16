@@ -22,7 +22,7 @@ var (
 	ErrUnkownContentLength = errors.New("read response: unkown content length")
 )
 
-func (w *Worker) fetch(r *Request) (resp *Response, err error) {
+func (fc *fetcher) fetch(r *Request) (resp *Response, err error) {
 	if r.method == "" {
 		r.method = "GET"
 	}
@@ -30,7 +30,8 @@ func (w *Worker) fetch(r *Request) (resp *Response, err error) {
 		r.client = DefaultClient
 	}
 
-	req, err := http.NewRequest(r.method, r.url, bytes.NewReader(r.body))
+	var req *http.Request
+	req, err = http.NewRequest(r.method, r.url, bytes.NewReader(r.body))
 	if err != nil {
 		return
 	}
@@ -55,8 +56,8 @@ func (w *Worker) fetch(r *Request) (resp *Response, err error) {
 	// Only prefetch html content
 	if CT_HTML.match(resp.ContentType) {
 		if err = resp.ReadBody(
-			w.pool.option.MaxHTMLLen,
-			w.pool.option.EnableUnkownLen); err != nil {
+			fc.option.MaxHTMLLen,
+			fc.option.EnableUnkownLen); err != nil {
 			return
 		}
 	}
@@ -67,20 +68,22 @@ func (resp *Response) parseHeader() {
 	var err error
 	// Parse neccesary headers
 	if t := resp.Header.Get("Date"); t != "" {
-		resp.Time, err = time.Parse(http.TimeFormat, t)
+		resp.Date, err = time.Parse(http.TimeFormat, t)
 		if err != nil {
-			resp.Time = time.Now()
+			resp.Date = time.Now()
 		}
 	} else {
-		resp.Time = time.Now()
+		resp.Date = time.Now()
 	}
 	if t := resp.Header.Get("Last-Modified"); t != "" {
 		// on error, Time's zero value is used.
 		resp.LastModified, _ = time.Parse(http.TimeFormat, t)
 	}
 	if t := resp.Header.Get("Expires"); t != "" {
-		resp.Cacheable = true
-		resp.Expires, _ = time.Parse(http.TimeFormat, t)
+		resp.Expires, err = time.Parse(http.TimeFormat, t)
+		if err == nil {
+			resp.Cacheable = true
+		}
 	}
 
 	if a := resp.Header.Get("Age"); a != "" {
@@ -90,24 +93,26 @@ func (resp *Response) parseHeader() {
 	}
 	if c := resp.Header.Get("Cache-Control"); c != "" {
 		if strings.HasPrefix(c, "s-maxage") {
-			resp.Cacheable = true
 			if seconds, err := strconv.ParseInt(
 				strings.TrimPrefix(c, "s-maxage="), 0, 32); err == nil {
 				resp.MaxAge = time.Duration(seconds) * time.Second
+				resp.Cacheable = true
 			}
 		} else if strings.HasPrefix(c, "max-age") {
-			resp.Cacheable = true
 			if seconds, err := strconv.ParseInt(
 				strings.TrimPrefix(c, "max-age="), 0, 32); err == nil {
 				resp.MaxAge = time.Duration(seconds) * time.Second
+				resp.Cacheable = true
 			}
+		}
+		if resp.MaxAge != 0 {
+			resp.Expires = resp.Date.Add(resp.MaxAge)
 		}
 	}
 	baseurl := resp.Request.URL
 	if l, err := resp.Location(); err == nil {
 		baseurl, resp.Locations = l, l
 	} else {
-		log.Println(err)
 		resp.Locations = baseurl
 	}
 	if l, err := baseurl.Parse(resp.Header.Get("Content-Location")); err == nil {

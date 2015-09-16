@@ -12,25 +12,31 @@ var (
 )
 
 type linkParser struct {
-	In     chan *Doc
-	Out    chan *Doc
-	option *Option
+	In      chan *Doc
+	Out     chan *Doc
+	option  *Option
+	workers chan struct{}
 }
 
 func newLinkParser(opt *Option) *linkParser {
 	return &linkParser{
-		Out:    make(chan *Doc, opt.LinkParser.OutQueueLen),
-		option: opt,
+		Out:     make(chan *Doc, opt.LinkParser.OutQueueLen),
+		option:  opt,
+		workers: make(chan struct{}, opt.LinkParser.NumOfWorkers),
 	}
 }
 
 func (lp *linkParser) Start() {
+	for i := 0; i < lp.option.LinkParser.NumOfWorkers; i++ {
+		lp.workers <- struct{}{}
+	}
 	go func() {
 		for doc := range lp.In {
-			// TODO: naive implemention, may result in too many goroutines
-			go func(doc *Doc) {
-				extractLink(doc)
-				lp.Out <- doc
+			<-lp.workers
+			go func(d *Doc) {
+				extractLink(d)
+				lp.Out <- d
+				lp.workers <- struct{}{}
 			}(doc)
 		}
 		close(lp.Out)

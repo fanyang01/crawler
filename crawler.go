@@ -10,12 +10,11 @@ type Crawler struct {
 	ctrl        Controller
 	option      *Option
 	queue       *urlHeap
-	pool        *Pool
+	fetcher     *fetcher
 	handler     *respHandler
 	filter      *filter
 	constructor *requestConstructor
 	parser      *linkParser
-	sites       map[string]*Site
 }
 
 type Ctrl struct{}
@@ -38,11 +37,10 @@ func NewCrawler(ctrl Controller, opt *Option) *Crawler {
 		option:      opt,
 		queue:       newURLQueue(),
 		handler:     newRespHandler(opt),
-		pool:        newPool(opt),
+		fetcher:     newFetcher(opt),
 		filter:      newFilter(opt),
 		constructor: newRequestConstructor(opt),
 		parser:      newLinkParser(opt),
-		sites:       make(map[string]*Site),
 	}
 }
 
@@ -63,20 +61,17 @@ func (c *Crawler) Begin(seeds ...string) error {
 		if err != nil {
 			return err
 		}
-		if site, err := NewSiteFromURL(u); err != nil {
+		uu := new(URL)
+		uu.Loc = u
+		if err := c.filter.sites.addURLs(uu); err != nil {
 			return err
-		} else {
-			c.sites[site.Root] = site
-			uu := new(URL)
-			uu.Loc = u
-			c.queue.Push(uu)
 		}
+		c.queue.Push(uu)
 	}
 	return nil
 }
 
 func (c *Crawler) Crawl() {
-	c.pool.Serve()
 	ch := make(chan *URL, c.option.PriorityQueueBufLen)
 	go func() {
 		for {
@@ -87,22 +82,21 @@ func (c *Crawler) Crawl() {
 	c.constructor.In = ch
 	c.constructor.Start()
 
-	c.pool.In = c.constructor.Out
-	c.pool.Start()
+	c.fetcher.In = c.constructor.Out
+	c.fetcher.Start()
 
-	c.handler.In = c.pool.Out
+	c.handler.In = c.fetcher.Out
 	c.handler.Start()
 
 	c.parser.In = c.handler.Out
 	c.parser.Start()
 
+	c.filter.In = c.parser.Out
+	c.filter.Start()
+
 	go func() {
-		for doc := range c.parser.Out {
-			for _, u := range doc.SubURLs {
-				uu := new(URL)
-				uu.Loc = u
-				c.queue.Push(uu)
-			}
+		for u := range c.filter.Out {
+			c.queue.Push(u)
 		}
 	}()
 }

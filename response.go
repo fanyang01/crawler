@@ -39,7 +39,7 @@ func newDoc(resp *Response) *Doc {
 		SecondURL:   resp.ContentLocation,
 		Content:     resp.Content,
 		ContentType: resp.ContentType,
-		Time:        resp.Time,
+		Time:        resp.Date,
 		Expires:     resp.Expires,
 	}
 	doc.Loc = resp.Locations
@@ -52,30 +52,37 @@ func newDoc(resp *Response) *Doc {
 }
 
 type respHandler struct {
-	option *Option
-	In     chan *Response
-	Out    chan *Doc
+	option  *Option
+	In      chan *Response
+	Out     chan *Doc
+	workers chan struct{}
 }
 
 func newRespHandler(opt *Option) *respHandler {
 	return &respHandler{
-		Out:    make(chan *Doc, opt.RespHandler.OutQueueLen),
-		option: opt,
+		Out:     make(chan *Doc, opt.RespHandler.OutQueueLen),
+		option:  opt,
+		workers: make(chan struct{}, opt.RespHandler.NumOfWorkers),
 	}
 }
 
 func (h *respHandler) Start(handlers ...RHandler) {
+	for i := 0; i < h.option.RespHandler.NumOfWorkers; i++ {
+		h.workers <- struct{}{}
+	}
 	go func() {
 		for resp := range h.In {
+			<-h.workers
 			go func(r *Response) {
-				if match := CT_HTML.match(resp.ContentType); !match {
+				defer func() { h.workers <- struct{}{} }()
+				if match := CT_HTML.match(r.ContentType); !match {
 					return
 				}
-				h.Out <- newDoc(resp)
+				h.Out <- newDoc(r)
 				for _, handler := range handlers {
 					handler.Handle(r)
 				}
-				resp.closeBody()
+				r.closeBody()
 			}(resp)
 		}
 		close(h.Out)

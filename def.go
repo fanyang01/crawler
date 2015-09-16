@@ -23,7 +23,7 @@ type Response struct {
 	ContentLocation *url.URL
 	ContentType     string
 	Content         []byte
-	Time            time.Time
+	Date            time.Time
 	LastModified    time.Time
 	Expires         time.Time
 	Cacheable       bool

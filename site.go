@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/fanyang01/crawler/sitemap"
 	robot "github.com/temoto/robotstxt-go"
@@ -14,6 +15,10 @@ import (
 
 type URL struct {
 	sitemap.URL
+	Visited struct {
+		Count int
+		Time  time.Time
+	}
 }
 
 type URLMap struct {

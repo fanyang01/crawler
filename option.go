@@ -4,58 +4,42 @@ import "net/http"
 
 var DefaultClient = http.DefaultClient
 
-type PoolOption struct {
-	Size        int
-	OutQueueLen int
-}
-
-type LinkParserOption struct {
-	OutQueueLen int
-}
-
-type RespHandlerOption struct {
-	OutQueueLen int
-}
-
-type URLFilterOption struct {
-	OutQueueLen int
-}
-
-type RequestConstructorOption struct {
-	OutQueueLen int
+type WorkerOption struct {
+	NumOfWorkers int
+	OutQueueLen  int
 }
 
 var DefaultOption = &Option{
-	Pool: PoolOption{
-		Size:        64,
-		OutQueueLen: 64,
+	PriorityQueueBufLen: 64,
+	Fetcher: WorkerOption{
+		NumOfWorkers: 64,
+		OutQueueLen:  64,
 	},
 	EnableUnkownLen: true,
 	MaxHTMLLen:      1 << 20,
-	LinkParser: LinkParserOption{
+	LinkParser: WorkerOption{
+		OutQueueLen:  64,
+		NumOfWorkers: 64,
+	},
+	RespHandler: WorkerOption{
+		OutQueueLen:  64,
+		NumOfWorkers: 8,
+	},
+	URLFilter: WorkerOption{
 		OutQueueLen: 64,
 	},
-	RespHandler: RespHandlerOption{
-		OutQueueLen: 64,
-	},
-	URLFilter: URLFilterOption{
-		OutQueueLen: 64,
-	},
-	RequestConstructor: RequestConstructorOption{
+	RequestConstructor: WorkerOption{
 		OutQueueLen: 64,
 	},
 }
 
 type Option struct {
-	Pool struct {
-		Size        int
-		OutQueueLen int
-	}
 	EnableUnkownLen     bool
 	MaxHTMLLen          int64
 	PriorityQueueBufLen int
-	LinkParser          LinkParserOption
-	RespHandler         RespHandlerOption
-	URLFilter           URLFilterOption
-	RequestConstructor  RequestConstructorOption
+	Fetcher             WorkerOption
+	LinkParser          WorkerOption
+	RespHandler         WorkerOption
+	URLFilter           WorkerOption
+	RequestConstructor  WorkerOption
 }
