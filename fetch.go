@@ -66,7 +66,7 @@ func (w *Worker) fetch(r *Request) (resp *Response, err error) {
 func (resp *Response) parseHeader() {
 	var err error
 	// Parse neccesary headers
-	if t := resp.Header.Get("Time"); t != "" {
+	if t := resp.Header.Get("Date"); t != "" {
 		resp.Time, err = time.Parse(http.TimeFormat, t)
 		if err != nil {
 			resp.Time = time.Now()
