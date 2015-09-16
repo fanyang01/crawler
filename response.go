@@ -30,19 +30,8 @@ func (ct ContentType) match(s string) bool {
 	return strings.HasPrefix(s, string(ct))
 }
 
-type rHandler interface {
+type RHandler interface {
 	Handle(*Response)
-}
-
-type htmlHandler struct {
-	ch chan *Doc
-}
-
-func (h htmlHandler) Handle(resp *Response) {
-	if match := CT_HTML.match(resp.ContentType); !match {
-		return
-	}
-	h.ch <- newDoc(resp)
 }
 
 func newDoc(resp *Response) *Doc {
@@ -62,33 +51,33 @@ func newDoc(resp *Response) *Doc {
 	return doc
 }
 
-type closeHandler struct{}
-
-func (c closeHandler) Handle(resp *Response) {
-	resp.closeBody()
+type respHandler struct {
+	option *Option
+	In     chan *Response
+	Out    chan *Doc
 }
 
-type RespHandler struct {
-	parser htmlHandler
-	closer closeHandler
-}
-
-func NewRespHandler() *RespHandler {
-	return &RespHandler{
-		parser: htmlHandler{
-			ch: make(chan *Doc),
-		},
+func newRespHandler(opt *Option) *respHandler {
+	return &respHandler{
+		Out:    make(chan *Doc, opt.RespHandler.OutQueueLen),
+		option: opt,
 	}
 }
 
-func (h *RespHandler) Handle(in <-chan *Response, handlers ...rHandler) {
-	for resp := range in {
-		go func(r *Response) {
-			h.parser.Handle(r)
-			for _, handler := range handlers {
-				handler.Handle(r)
-			}
-			h.closer.Handle(r)
-		}(resp)
-	}
+func (h *respHandler) Start(handlers ...RHandler) {
+	go func() {
+		for resp := range h.In {
+			go func(r *Response) {
+				if match := CT_HTML.match(resp.ContentType); !match {
+					return
+				}
+				h.Out <- newDoc(resp)
+				for _, handler := range handlers {
+					handler.Handle(r)
+				}
+				resp.closeBody()
+			}(resp)
+		}
+		close(h.Out)
+	}()
 }

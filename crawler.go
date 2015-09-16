@@ -7,16 +7,15 @@ import (
 )
 
 type Crawler struct {
-	ctrl    Controller
-	option  *Option
-	queue   *urlHeap
-	handler *RespHandler
-	pool    *Pool
-	sites   map[string]*Site
-}
-
-type Option struct {
-	PoolSize int
+	ctrl        Controller
+	option      *Option
+	queue       *urlHeap
+	pool        *Pool
+	handler     *respHandler
+	filter      *filter
+	constructor *requestConstructor
+	parser      *linkParser
+	sites       map[string]*Site
 }
 
 type Ctrl struct{}
@@ -25,24 +24,25 @@ func (c Ctrl) HandleResponse(resp *Response) { log.Println(resp.Locations) }
 func (c Ctrl) Score(u *url.URL) float64      { return 0.5 }
 
 var (
-	DefaultOption = &Option{
-		PoolSize: 32,
-	}
 	DefaultController = &Ctrl{}
 )
 
-func NewCrawler(ctrl Controller, option *Option) *Crawler {
+func NewCrawler(ctrl Controller, opt *Option) *Crawler {
 	if ctrl == nil {
 		ctrl = DefaultController
 	}
-	if option == nil {
-		option = DefaultOption
+	if opt == nil {
+		opt = DefaultOption
 	}
 	return &Crawler{
-		queue:   newURLQueue(),
-		handler: NewRespHandler(),
-		pool:    NewPool(option.PoolSize),
-		sites:   make(map[string]*Site),
+		option:      opt,
+		queue:       newURLQueue(),
+		handler:     newRespHandler(opt),
+		pool:        newPool(opt),
+		filter:      newFilter(opt),
+		constructor: newRequestConstructor(opt),
+		parser:      newLinkParser(opt),
+		sites:       make(map[string]*Site),
 	}
 }
 
@@ -76,26 +76,33 @@ func (c *Crawler) Begin(seeds ...string) error {
 }
 
 func (c *Crawler) Crawl() {
-	c.pool.Work()
-	log.Println("here 1")
-	urlChan := make(chan *URL, 64)
+	c.pool.Serve()
+	ch := make(chan *URL, c.option.PriorityQueueBufLen)
 	go func() {
 		for {
-			urlChan <- c.queue.Pop()
+			ch <- c.queue.Pop()
 		}
 	}()
-	log.Println("here 2")
-	go c.handler.Handle(c.pool.DoRequest(NewRequest(urlChan)))
+
+	c.constructor.In = ch
+	c.constructor.Start()
+
+	c.pool.In = c.constructor.Out
+	c.pool.Start()
+
+	c.handler.In = c.pool.Out
+	c.handler.Start()
+
+	c.parser.In = c.handler.Out
+	c.parser.Start()
+
 	go func() {
-		ch := ParseLink(c.handler.parser.ch)
-		for doc := range ch {
+		for doc := range c.parser.Out {
 			for _, u := range doc.SubURLs {
-				log.Println(u)
 				uu := new(URL)
 				uu.Loc = u
 				c.queue.Push(uu)
 			}
 		}
 	}()
-	log.Println("here 3")
 }

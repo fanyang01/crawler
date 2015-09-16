@@ -11,18 +11,30 @@ var (
 	LinkBufSize = 64
 )
 
-func ParseLink(in <-chan *Doc) <-chan *Doc {
-	out := make(chan *Doc, LinkBufSize)
+type linkParser struct {
+	In     chan *Doc
+	Out    chan *Doc
+	option *Option
+}
+
+func newLinkParser(opt *Option) *linkParser {
+	return &linkParser{
+		Out:    make(chan *Doc, opt.LinkParser.OutQueueLen),
+		option: opt,
+	}
+}
+
+func (lp *linkParser) Start() {
 	go func() {
-		for doc := range in {
+		for doc := range lp.In {
 			// TODO: naive implemention, may result in too many goroutines
 			go func(doc *Doc) {
 				extractLink(doc)
-				out <- doc
+				lp.Out <- doc
 			}(doc)
 		}
+		close(lp.Out)
 	}()
-	return out
 }
 
 func extractLink(doc *Doc) {

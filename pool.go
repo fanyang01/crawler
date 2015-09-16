@@ -1,16 +1,39 @@
 package crawler
 
-import "log"
+import (
+	"log"
+	"net/http"
+)
 
 var (
 	RespBufSize = 64
 )
 
-func NewPool(size int) (pool *Pool) {
+type Pool struct {
+	size    int
+	workers []Worker
+	free    chan *Worker
+	client  *http.Client
+	option  *Option
+	In      chan *Request
+	Out     chan *Response
+}
+
+type Worker struct {
+	req  chan *Request
+	resp chan *Response
+	err  chan error
+	pool *Pool
+}
+
+func newPool(opt *Option) (pool *Pool) {
+	size := opt.Pool.Size
 	pool = &Pool{
 		size:    size,
 		workers: make([]Worker, size),
 		free:    make(chan *Worker, size),
+		option:  opt,
+		Out:     make(chan *Response, opt.Pool.OutQueueLen),
 	}
 	for i := 0; i < size; i++ {
 		pool.workers[i] = Worker{
@@ -23,14 +46,14 @@ func NewPool(size int) (pool *Pool) {
 	return
 }
 
-func (pool *Pool) Work() {
+func (pool *Pool) Serve() {
 	for i := 0; i < pool.size; i++ {
-		go pool.workers[i].work()
+		go pool.workers[i].serve()
 		pool.free <- &pool.workers[i]
 	}
 }
 
-func (w *Worker) work() {
+func (w *Worker) serve() {
 	for req := range w.req {
 		resp, err := w.fetch(req)
 		if err != nil {
@@ -48,16 +71,16 @@ func (pool *Pool) Destroy() {
 	}
 }
 
-func (pool *Pool) Acquire() *Worker {
+func (pool *Pool) acquire() *Worker {
 	return <-pool.free
 }
 
-func (w *Worker) Release() {
+func (w *Worker) release() {
 	w.pool.free <- w
 }
 
 // client
-func (w *Worker) Do(req *Request) (resp *Response, err error) {
+func (w *Worker) do(req *Request) (resp *Response, err error) {
 	w.req <- req
 	select {
 	case resp = <-w.resp:
@@ -66,23 +89,20 @@ func (w *Worker) Do(req *Request) (resp *Response, err error) {
 	return
 }
 
-func (pool *Pool) DoRequest(req <-chan *Request) <-chan *Response {
-	ch := make(chan *Response, RespBufSize)
-	go pool.doRequest(req, ch)
-	return ch
-}
-
-func (pool *Pool) doRequest(reqChan <-chan *Request, respChan chan<- *Response) {
-	for req := range reqChan {
-		go func(req *Request) {
-			worker := pool.Acquire()
-			defer worker.Release()
-			resp, err := worker.Do(req)
-			if err != nil {
-				log.Printf("do request: %v\n", err)
-				return
-			}
-			respChan <- resp
-		}(req)
-	}
+func (pool *Pool) Start() {
+	go func() {
+		for req := range pool.In {
+			go func(req *Request) {
+				worker := pool.acquire()
+				defer worker.release()
+				resp, err := worker.do(req)
+				if err != nil {
+					log.Printf("do request: %v\n", err)
+					return
+				}
+				pool.Out <- resp
+			}(req)
+		}
+		close(pool.Out)
+	}()
 }

@@ -17,12 +17,9 @@ import (
 )
 
 var (
-	DefaultClient                = http.DefaultClient
-	EnableUnkownLength           = true
-	MaxHTMLLength          int64 = 1 << 20
-	ErrTooManyEncodings          = errors.New("read response: too many encodings")
-	ErrContentTooLong            = errors.New("read response: content length too long")
-	ErrUnkownContentLength       = errors.New("read response: unkown content length")
+	ErrTooManyEncodings    = errors.New("read response: too many encodings")
+	ErrContentTooLong      = errors.New("read response: content length too long")
+	ErrUnkownContentLength = errors.New("read response: unkown content length")
 )
 
 func (w *Worker) fetch(r *Request) (resp *Response, err error) {
@@ -47,6 +44,8 @@ func (w *Worker) fetch(r *Request) (resp *Response, err error) {
 		return
 	}
 
+	log.Printf("[%s] %s %s\n", resp.Status, r.method, r.url)
+
 	// Only status code 2xx is ok
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		err = errors.New(resp.Status)
@@ -55,7 +54,9 @@ func (w *Worker) fetch(r *Request) (resp *Response, err error) {
 	resp.parseHeader()
 	// Only prefetch html content
 	if CT_HTML.match(resp.ContentType) {
-		if err = resp.ReadBody(MaxHTMLLength); err != nil {
+		if err = resp.ReadBody(
+			w.pool.option.MaxHTMLLen,
+			w.pool.option.EnableUnkownLen); err != nil {
 			return
 		}
 	}
@@ -118,7 +119,7 @@ func (resp *Response) parseHeader() {
 	return
 }
 
-func (resp *Response) ReadBody(maxLen int64) error {
+func (resp *Response) ReadBody(maxLen int64, enableUnkownLen bool) error {
 	if resp.closed {
 		return nil
 	}
@@ -126,7 +127,7 @@ func (resp *Response) ReadBody(maxLen int64) error {
 	if resp.ContentLength > maxLen {
 		return ErrContentTooLong
 	}
-	if resp.ContentLength < 0 && !EnableUnkownLength {
+	if resp.ContentLength < 0 && !enableUnkownLen {
 		return ErrUnkownContentLength
 	}
 

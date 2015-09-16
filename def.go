@@ -16,13 +16,6 @@ type Doc struct {
 	Expires     time.Time
 }
 
-type Request struct {
-	method, url string
-	body        []byte
-	client      *http.Client
-	config      func(*http.Request)
-}
-
 type Response struct {
 	*http.Response
 	closed          bool     // body closed?
@@ -36,18 +29,4 @@ type Response struct {
 	Cacheable       bool
 	Age             time.Duration
 	MaxAge          time.Duration
-}
-
-type Pool struct {
-	size    int
-	workers []Worker
-	free    chan *Worker
-	client  *http.Client
-}
-
-type Worker struct {
-	req  chan *Request
-	resp chan *Response
-	err  chan error
-	pool *Pool
 }

@@ -1,41 +1,39 @@
 package crawler
 
-import "net/url"
-
 var (
 	UrlBufSize = 64
 )
 
+type filter struct {
+	In     chan *URL
+	Out    chan *URL
+	option *Option
+}
+
 type URLFilter interface {
-	Filter(*url.URL) bool
+	Filter(*URL) bool
 }
 
-func FilterURL(in <-chan *url.URL, filter URLFilter) <-chan *url.URL {
-	out := make(chan *url.URL, UrlBufSize)
-	go func() {
-		for u := range in {
-			if ok := filter.Filter(u); ok {
-				out <- u
-			}
-		}
-		close(out)
-	}()
-	return out
-}
-
-func newRequest(u *url.URL) *Request {
-	return &Request{
-		method: "GET",
-		url:    u.String(),
+func newFilter(opt *Option) *filter {
+	return &filter{
+		Out:    make(chan *URL, opt.URLFilter.OutQueueLen),
+		option: opt,
 	}
 }
 
-func NewRequest(in <-chan *URL) <-chan *Request {
-	out := make(chan *Request, UrlBufSize)
+func (ft *filter) Start(filters ...URLFilter) {
 	go func() {
-		for u := range in {
-			out <- newRequest(u.Loc)
+		for u := range ft.In {
+			var ok = true
+			for _, filter := range filters {
+				if ok = filter.Filter(u); !ok {
+					break
+				}
+			}
+			if ok {
+				ft.Out <- u
+			}
 		}
+		close(ft.Out)
 	}()
-	return out
 }
