@@ -10,6 +10,7 @@ type WorkerOption struct {
 }
 
 var DefaultOption = &Option{
+	RobotoAgent:         "I'm a Roboto",
 	PriorityQueueBufLen: 2,
 	Fetcher: WorkerOption{
 		NumOfWorkers: 64,
@@ -34,6 +35,7 @@ var DefaultOption = &Option{
 }
 
 type Option struct {
+	RobotoAgent         string
 	EnableUnkownLen     bool
 	MaxHTMLLen          int64
 	PriorityQueueBufLen int

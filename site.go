@@ -20,12 +20,16 @@ type URL struct {
 		Count int
 		Time  time.Time
 	}
+	Enqueue struct {
+		Count int
+		Time  time.Time
+	}
 }
 
 type URLMap struct {
 	// NOTE: this mutex protects the map, NOT values stored in it.
 	sync.RWMutex
-	m map[string]*URL // using URI as key
+	m map[string]URL // using URI as key
 }
 
 type Site struct {
@@ -53,13 +57,19 @@ func NewSiteFromURL(u *url.URL) (*Site, error) {
 		Scheme: u.Scheme,
 		Host:   u.Host,
 	}
-	return &Site{
+	site := &Site{
 		Root:    uu.String(),
 		RootURL: uu,
 		URLs: URLMap{
-			m: make(map[string]*URL),
+			m: make(map[string]URL),
 		},
-	}, nil
+	}
+	// TODO
+	if err := site.FetchRobots(); err != nil {
+		return nil, err
+	}
+	site.FetchSitemap()
+	return site, nil
 }
 
 func NewSite(root string) (*Site, error) {
@@ -73,13 +83,15 @@ func NewSite(root string) (*Site, error) {
 func (m *URLMap) Add(u *URL) {
 	uri := u.Loc.RequestURI()
 	m.Lock()
-	m.m[uri] = u
+	m.m[uri] = *u
 	m.Unlock()
 }
 
 func (m *URLMap) Get(URI string) (u *URL, ok bool) {
 	m.RLock()
-	u, ok = m.m[URI]
+	var uu URL
+	uu, ok = m.m[URI]
+	u = &uu
 	m.RUnlock()
 	return
 }

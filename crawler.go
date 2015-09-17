@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/url"
+	"time"
 )
 
 type Crawler struct {
@@ -45,14 +46,6 @@ func NewCrawler(ctrl Controller, opt *Option) *Crawler {
 	}
 }
 
-func siteRoot(u *url.URL) string {
-	uu := url.URL{
-		Scheme: u.Scheme,
-		Host:   u.Host,
-	}
-	return uu.String()
-}
-
 func (c *Crawler) Begin(seeds ...string) error {
 	if len(seeds) == 0 {
 		return errors.New("crawler: no seed provided")
@@ -65,10 +58,12 @@ func (c *Crawler) Begin(seeds ...string) error {
 		uu := new(URL)
 		uu.Loc = u
 		uu.Priority = 1.0
+		c.queue.Push(uu)
+		uu.Enqueue.Count++
+		uu.Enqueue.Time = time.Now()
 		if err := c.filter.sites.addURLs(uu); err != nil {
 			return err
 		}
-		c.queue.Push(uu)
 	}
 	return nil
 }
