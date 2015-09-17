@@ -1,14 +1,11 @@
 package crawler
 
-import "net/url"
-
 type Controller interface {
-	// Score gives a score between 0 and 1.0 for a URL:
-	// <= 0 means this URL will not be enqueue,
-	// >= 1 will be treat as 1.0.
-	// A URL with score (0, 1.0] will be enqueued. Higher score means higher
-	// priority in queue.
-	Score(u *url.URL) float64
+	// Score gives a score between 0 and 1024 for a URL:
+	// <= 0 means this URL will not be enqueued,
+	// >= 1024 will be treat as 1024
+	// A URL with score (0, 1024] will be enqueued. Higher score means higher priority in queue.
+	Score(u *URL) int64
 	// HandleResponse handles a response. The body of the response may be prefetched.
 	HandleResponse(*Response)
 	// Log(...interface{})

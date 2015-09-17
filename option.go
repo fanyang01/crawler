@@ -10,7 +10,7 @@ type WorkerOption struct {
 }
 
 var DefaultOption = &Option{
-	PriorityQueueBufLen: 64,
+	PriorityQueueBufLen: 2,
 	Fetcher: WorkerOption{
 		NumOfWorkers: 64,
 		OutQueueLen:  64,

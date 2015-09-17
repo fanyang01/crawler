@@ -5,10 +5,6 @@ import (
 	"sync"
 )
 
-var (
-	UrlBufSize = 64
-)
-
 type filter struct {
 	In     chan *Doc
 	Out    chan *URL
@@ -21,8 +17,8 @@ type sites struct {
 	sync.RWMutex
 }
 
-type URLFilter interface {
-	Filter(*URL) bool
+type Scorer interface {
+	Score(*URL) int64
 }
 
 func newFilter(opt *Option) *filter {
@@ -34,7 +30,7 @@ func newFilter(opt *Option) *filter {
 	return ft
 }
 
-func (ft *filter) Start(filters ...URLFilter) {
+func (ft *filter) Start(scorer Scorer) {
 	go func() {
 		for doc := range ft.In {
 			for _, u := range doc.SubURLs {
@@ -44,16 +40,27 @@ func (ft *filter) Start(filters ...URLFilter) {
 					uu.Loc = u
 				}
 
-				var accept = true
-				for _, filter := range filters {
-					if accept = filter.Filter(uu); !accept {
-						break
-					}
+				uu.Score = scorer.Score(uu)
+				if uu.Score <= 0 {
+					uu.Score = 0
+					continue
 				}
-				if accept {
-					ft.Out <- uu
+				if uu.Score >= 1024 {
+					uu.Score = 1024
 				}
+				uu.Priority = float64(uu.Score) / float64(1024)
+
+				ft.sites.addURLs(uu)
+				ft.Out <- uu
 			}
+			uu, ok := ft.sites.getURL(doc.Loc)
+			if !ok {
+				uu = new(URL)
+				uu.Loc = doc.Loc
+			}
+			uu.Visited.Count++
+			uu.Visited.Time = doc.Time
+			ft.sites.addURLs(uu)
 		}
 		close(ft.Out)
 	}()

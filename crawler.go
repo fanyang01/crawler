@@ -20,7 +20,7 @@ type Crawler struct {
 type Ctrl struct{}
 
 func (c Ctrl) HandleResponse(resp *Response) { log.Println(resp.Locations) }
-func (c Ctrl) Score(u *url.URL) float64      { return 0.5 }
+func (c Ctrl) Score(u *URL) int64            { return 512 }
 
 var (
 	DefaultController = &Ctrl{}
@@ -34,6 +34,7 @@ func NewCrawler(ctrl Controller, opt *Option) *Crawler {
 		opt = DefaultOption
 	}
 	return &Crawler{
+		ctrl:        ctrl,
 		option:      opt,
 		queue:       newURLQueue(),
 		handler:     newRespHandler(opt),
@@ -63,6 +64,7 @@ func (c *Crawler) Begin(seeds ...string) error {
 		}
 		uu := new(URL)
 		uu.Loc = u
+		uu.Priority = 1.0
 		if err := c.filter.sites.addURLs(uu); err != nil {
 			return err
 		}
@@ -92,7 +94,7 @@ func (c *Crawler) Crawl() {
 	c.parser.Start()
 
 	c.filter.In = c.parser.Out
-	c.filter.Start()
+	c.filter.Start(c.ctrl)
 
 	go func() {
 		for u := range c.filter.Out {

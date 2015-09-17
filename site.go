@@ -15,6 +15,7 @@ import (
 
 type URL struct {
 	sitemap.URL
+	Score   int64
 	Visited struct {
 		Count int
 		Time  time.Time
