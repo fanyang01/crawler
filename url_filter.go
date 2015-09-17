@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"log"
 	"net/url"
 	"sync"
 	"time"
@@ -43,12 +44,11 @@ func (ft *filter) Start(scorer Scorer) {
 			}
 			uu.Visited.Count++
 			uu.Visited.Time = doc.Time
-			ft.sites.addURLs(uu)
+			if err := ft.sites.addURLs(uu); err != nil {
+				log.Println(err)
+			}
 
 			for _, u := range doc.SubURLs {
-				if !ft.testRobot(u) {
-					continue
-				}
 				uu, ok := ft.sites.getURL(u)
 				if !ok {
 					uu = new(URL)
@@ -58,17 +58,26 @@ func (ft *filter) Start(scorer Scorer) {
 				uu.Score = scorer.Score(uu)
 				if uu.Score <= 0 {
 					uu.Score = 0
-					continue
 				}
 				if uu.Score >= 1024 {
 					uu.Score = 1024
 				}
 				uu.Priority = float64(uu.Score) / float64(1024)
 
+				if uu.Score == 0 {
+					continue
+				}
+				if !ft.testRobot(uu.Loc) {
+					log.Println("Robot DENY:", uu.Loc)
+					continue
+				}
+
 				ft.Out <- uu
 				uu.Enqueue.Count++
 				uu.Enqueue.Time = time.Now()
-				ft.sites.addURLs(uu)
+				if err := ft.sites.addURLs(uu); err != nil {
+					log.Println(err)
+				}
 			}
 		}
 		close(ft.Out)
