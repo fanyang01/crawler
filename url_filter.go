@@ -8,136 +8,97 @@ import (
 )
 
 type filter struct {
-	In     chan *Doc
-	Out    chan *URL
-	option *Option
-	sites  sites
-}
-
-type sites struct {
-	m map[string]*Site
-	sync.RWMutex
+	In        chan *Doc
+	Out       chan *URL
+	option    *Option
+	poolMutex sync.Mutex
+	pool      *pool
+	workers   chan struct{}
+	scorer    Scorer
+	crawler   *Crawler
 }
 
 type Scorer interface {
 	Score(*URL) int64
 }
 
-func newFilter(opt *Option) *filter {
+func newFilter(cw *Crawler, opt *Option) *filter {
 	ft := &filter{
-		Out:    make(chan *URL, opt.URLFilter.OutQueueLen),
-		option: opt,
+		Out:     make(chan *URL, opt.URLFilter.OutQueueLen),
+		option:  opt,
+		pool:    newPool(),
+		crawler: cw,
 	}
-	ft.sites.m = make(map[string]*Site)
 	return ft
 }
 
+func (ft *filter) visit(doc *Doc) {
+	ft.poolMutex.Lock()
+	uu, ok := ft.pool.Get(doc.Loc)
+	if !ok {
+		// Redirect!!!
+		uu = newURL(doc.Loc)
+	}
+	uu.Visited.Count++
+	uu.Visited.Time = doc.Time
+	ft.pool.Add(uu)
+	ft.poolMutex.Unlock()
+}
+
+func (ft *filter) handleSubURL(u *url.URL) {
+	ft.poolMutex.Lock()
+	defer ft.poolMutex.Unlock()
+
+	uu, ok := ft.pool.Get(*u)
+	if !ok {
+		uu = newURL(*u)
+	}
+
+	uu.Score = ft.scorer.Score(uu)
+	if uu.Score <= 0 {
+		uu.Score = 0
+	}
+	if uu.Score >= 1024 {
+		uu.Score = 1024
+	}
+
+	if uu.Score == 0 {
+		return
+	}
+	if err := ft.crawler.addSite(u); err != nil {
+		log.Println(err)
+		return
+	}
+	if accept := ft.crawler.testRobot(u); !accept {
+		return
+	}
+
+	uu.Priority = float64(uu.Score) / float64(1024)
+
+	ft.Out <- uu
+	uu.Enqueue.Count++
+	uu.Enqueue.Time = time.Now()
+	ft.pool.Add(uu)
+}
+
 func (ft *filter) Start(scorer Scorer) {
+	ft.scorer = scorer
+	ft.workers = make(chan struct{}, ft.option.URLFilter.NumOfWorkers)
+	for i := 0; i < ft.option.URLFilter.NumOfWorkers; i++ {
+		ft.workers <- struct{}{}
+	}
 	go func() {
 		for doc := range ft.In {
-			uu, ok := ft.sites.getURL(doc.Loc)
-			if !ok {
-				// Redirect!!!
-				// log.Println("shouldn't get here")
-				uu = new(URL)
-				uu.Loc = removeFragment(doc.Loc)
-			}
-			uu.Visited.Count++
-			uu.Visited.Time = doc.Time
-			if err := ft.sites.addURLs(uu); err != nil {
-				log.Println(err)
-			}
+			<-ft.workers
+			go func() {
+				ft.visit(doc)
 
-			for _, u := range doc.SubURLs {
-				uu, ok := ft.sites.getURL(u)
-				if !ok {
-					uu = new(URL)
-					uu.Loc = removeFragment(u)
+				for _, u := range doc.SubURLs {
+					ft.handleSubURL(u)
 				}
-
-				uu.Score = scorer.Score(uu)
-				if uu.Score <= 0 {
-					uu.Score = 0
-				}
-				if uu.Score >= 1024 {
-					uu.Score = 1024
-				}
-				uu.Priority = float64(uu.Score) / float64(1024)
-
-				if uu.Score == 0 {
-					continue
-				}
-				if !ft.testRobot(uu.Loc) {
-					log.Println("Robot DENY:", uu.Loc)
-					continue
-				}
-
-				ft.Out <- uu
-				uu.Enqueue.Count++
-				uu.Enqueue.Time = time.Now()
-				if err := ft.sites.addURLs(uu); err != nil {
-					log.Println(err)
-				}
-			}
+				ft.workers <- struct{}{}
+			}()
 		}
 		close(ft.Out)
 	}()
-}
-
-func (st sites) addURLs(uu ...*URL) error {
-	st.Lock()
-	defer st.Unlock()
-	for _, u := range uu {
-		root := siteRoot(u.Loc)
-		site, ok := st.m[root]
-		if ok {
-			site.URLs.Add(u)
-			continue
-		}
-
-		if site, err := NewSiteFromURL(u.Loc); err != nil {
-			return err
-		} else {
-			site.URLs.Add(u)
-			st.m[site.Root] = site
-		}
-	}
-	return nil
-}
-
-func (st sites) getURL(u *url.URL) (uu *URL, ok bool) {
-	root := siteRoot(u)
-	st.RLock()
-	defer st.RUnlock()
-	site, ok := st.m[root]
-	if !ok {
-		return
-	}
-	uu, ok = site.URLs.Get(u.RequestURI())
-	return
-}
-
-func siteRoot(u *url.URL) string {
-	uu := url.URL{
-		Scheme: u.Scheme,
-		Host:   u.Host,
-	}
-	return uu.String()
-}
-
-func (ft *filter) testRobot(u *url.URL) bool {
-	root := siteRoot(u)
-	ft.sites.RLock()
-	defer ft.sites.RUnlock()
-	site, ok := ft.sites.m[root]
-	if !ok {
-		return false
-	}
-	return site.Robot.TestAgent(u.Path, ft.option.RobotoAgent)
-}
-
-func removeFragment(u *url.URL) *url.URL {
-	uu := *u
-	u.Fragment = ""
-	return &uu
 }

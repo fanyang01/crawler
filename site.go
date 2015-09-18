@@ -7,24 +7,10 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
-	"time"
 
 	"github.com/fanyang01/crawler/sitemap"
 	robot "github.com/temoto/robotstxt-go"
 )
-
-type URL struct {
-	sitemap.URL
-	Score   int64
-	Visited struct {
-		Count int
-		Time  time.Time
-	}
-	Enqueue struct {
-		Count int
-		Time  time.Time
-	}
-}
 
 type URLMap struct {
 	// NOTE: this mutex protects the map, NOT values stored in it.
@@ -38,7 +24,6 @@ type Site struct {
 	Root    string // http://example.com:8080, for robots.txt
 	RootURL *url.URL
 	Map     sitemap.Sitemap
-	URLs    URLMap
 }
 
 var (
@@ -60,15 +45,7 @@ func NewSiteFromURL(u *url.URL) (*Site, error) {
 	site := &Site{
 		Root:    uu.String(),
 		RootURL: uu,
-		URLs: URLMap{
-			m: make(map[string]URL),
-		},
 	}
-	// TODO
-	if err := site.FetchRobots(); err != nil {
-		return nil, err
-	}
-	site.FetchSitemap()
 	return site, nil
 }
 
@@ -78,22 +55,6 @@ func NewSite(root string) (*Site, error) {
 		return nil, err
 	}
 	return NewSiteFromURL(u)
-}
-
-func (m *URLMap) Add(u *URL) {
-	uri := u.Loc.RequestURI()
-	m.Lock()
-	m.m[uri] = *u
-	m.Unlock()
-}
-
-func (m *URLMap) Get(URI string) (u *URL, ok bool) {
-	m.RLock()
-	var uu URL
-	uu, ok = m.m[URI]
-	u = &uu
-	m.RUnlock()
-	return
 }
 
 func (site *Site) FetchRobots() error {

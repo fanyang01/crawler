@@ -7,6 +7,6 @@ type Controller interface {
 	// A URL with score (0, 1024] will be enqueued. Higher score means higher priority in queue.
 	Score(u *URL) int64
 	// HandleResponse handles a response. The body of the response may be prefetched.
-	HandleResponse(*Response)
+	Handle(*Response, *Doc)
 	// Log(...interface{})
 }

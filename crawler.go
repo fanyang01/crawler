@@ -4,23 +4,35 @@ import (
 	"errors"
 	"log"
 	"net/url"
+	"sync"
 	"time"
 )
+
+type sites struct {
+	m map[string]*Site
+	sync.RWMutex
+}
+
+func newSites() sites {
+	return sites{
+		m: make(map[string]*Site),
+	}
+}
 
 type Crawler struct {
 	ctrl        Controller
 	option      *Option
 	queue       *urlHeap
 	fetcher     *fetcher
-	handler     *respHandler
 	filter      *filter
 	constructor *requestConstructor
 	parser      *linkParser
+	sites       sites
 }
 
 type Ctrl struct{}
 
-func (c Ctrl) HandleResponse(resp *Response) { log.Println(resp.Locations) }
+func (c Ctrl) Handle(resp *Response, _ *Doc) { log.Println(resp.Locations) }
 func (c Ctrl) Score(u *URL) int64            { return 512 }
 
 var (
@@ -34,16 +46,17 @@ func NewCrawler(ctrl Controller, opt *Option) *Crawler {
 	if opt == nil {
 		opt = DefaultOption
 	}
-	return &Crawler{
+	cw := &Crawler{
 		ctrl:        ctrl,
 		option:      opt,
 		queue:       newURLQueue(),
-		handler:     newRespHandler(opt),
 		fetcher:     newFetcher(opt),
-		filter:      newFilter(opt),
 		constructor: newRequestConstructor(opt),
 		parser:      newLinkParser(opt),
+		sites:       newSites(),
 	}
+	cw.filter = newFilter(cw, opt)
+	return cw
 }
 
 func (c *Crawler) Begin(seeds ...string) error {
@@ -55,15 +68,19 @@ func (c *Crawler) Begin(seeds ...string) error {
 		if err != nil {
 			return err
 		}
-		uu := new(URL)
-		uu.Loc = u
+		if err := c.addSite(u); err != nil {
+			log.Println(err)
+			continue
+		}
+		if !c.testRobot(u) {
+			continue
+		}
+		uu := newURL(*u)
 		uu.Priority = 1.0
 		c.queue.Push(uu)
 		uu.Enqueue.Count++
 		uu.Enqueue.Time = time.Now()
-		if err := c.filter.sites.addURLs(uu); err != nil {
-			return err
-		}
+		c.filter.pool.Add(uu)
 	}
 	return nil
 }
@@ -82,11 +99,8 @@ func (c *Crawler) Crawl() {
 	c.fetcher.In = c.constructor.Out
 	c.fetcher.Start()
 
-	c.handler.In = c.fetcher.Out
-	c.handler.Start()
-
-	c.parser.In = c.handler.Out
-	c.parser.Start()
+	c.parser.In = c.fetcher.Out
+	c.parser.Start(c.ctrl)
 
 	c.filter.In = c.parser.Out
 	c.filter.Start(c.ctrl)
@@ -96,4 +110,43 @@ func (c *Crawler) Crawl() {
 			c.queue.Push(u)
 		}
 	}()
+}
+
+func siteRoot(u *url.URL) string {
+	uu := url.URL{
+		Scheme: u.Scheme,
+		Host:   u.Host,
+	}
+	return uu.String()
+}
+
+func (cw *Crawler) addSite(u *url.URL) error {
+	root := siteRoot(u)
+	cw.sites.Lock()
+	defer cw.sites.Unlock()
+	site, ok := cw.sites.m[root]
+	if ok {
+		return nil
+	}
+	var err error
+	site, err = NewSite(root)
+	if err != nil {
+		return err
+	}
+	if err := site.FetchRobots(); err != nil {
+		return err
+	}
+	site.FetchSitemap()
+	cw.sites.m[root] = site
+	return nil
+}
+
+func (cw *Crawler) testRobot(u *url.URL) bool {
+	cw.sites.RLock()
+	defer cw.sites.RUnlock()
+	site, ok := cw.sites.m[siteRoot(u)]
+	if !ok {
+		return false
+	}
+	return site.Robot.TestAgent(u.Path, cw.option.RobotoAgent)
 }

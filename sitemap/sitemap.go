@@ -78,9 +78,11 @@ func (u *URL) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	if err = d.DecodeElement(&tmp, &start); err != nil {
 		return err
 	}
-	if u.Loc, err = url.Parse(tmp.Loc); err != nil {
+	var p *url.URL
+	if p, err = url.Parse(tmp.Loc); err != nil {
 		return err
 	}
+	u.Loc = *p
 	u.LastModified = tmp.LastModified.Time
 	u.ChangeFreq = tmp.ChangeFreq.Duration
 	u.Priority = tmp.Priority
@@ -88,7 +90,7 @@ func (u *URL) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 }
 
 type URL struct {
-	Loc          *url.URL
+	Loc          url.URL
 	Priority     float64
 	ChangeFreq   time.Duration
 	LastModified time.Time

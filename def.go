@@ -6,16 +6,6 @@ import (
 	"time"
 )
 
-type Doc struct {
-	URL
-	SecondURL   *url.URL
-	SubURLs     []*url.URL
-	Content     []byte
-	ContentType string
-	Time        time.Time
-	Expires     time.Time
-}
-
 type Response struct {
 	*http.Response
 	closed          bool     // body closed?

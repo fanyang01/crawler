@@ -24,10 +24,11 @@ var DefaultOption = &Option{
 	},
 	RespHandler: WorkerOption{
 		OutQueueLen:  64,
-		NumOfWorkers: 8,
+		NumOfWorkers: 4,
 	},
 	URLFilter: WorkerOption{
-		OutQueueLen: 64,
+		NumOfWorkers: 16,
+		OutQueueLen:  64,
 	},
 	RequestConstructor: WorkerOption{
 		OutQueueLen: 64,
