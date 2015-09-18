@@ -22,7 +22,7 @@ func newSites() sites {
 type Crawler struct {
 	ctrl        Controller
 	option      *Option
-	queue       *urlHeap
+	queue       *pqueue
 	fetcher     *fetcher
 	filter      *filter
 	constructor *requestConstructor
@@ -49,7 +49,7 @@ func NewCrawler(ctrl Controller, opt *Option) *Crawler {
 	cw := &Crawler{
 		ctrl:        ctrl,
 		option:      opt,
-		queue:       newURLQueue(),
+		queue:       newPQueue(),
 		fetcher:     newFetcher(opt),
 		constructor: newRequestConstructor(opt),
 		parser:      newLinkParser(opt),

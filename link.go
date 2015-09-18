@@ -59,9 +59,11 @@ func (lp *linkParser) Start(handler RHandler) {
 				handler.Handle(r, doc)
 				r.closeBody()
 				// Fetch all unprocessed message
-				for _ = range doc.TreeReady {
+				for ok := true; ok; {
+					_, ok = <-doc.TreeReady
 				}
-				for _ = range doc.SubURLsReady {
+				for ok := true; ok; {
+					_, ok = <-doc.SubURLsReady
 				}
 				lp.Out <- doc
 			}(resp)
