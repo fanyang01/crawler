@@ -3,19 +3,16 @@ package crawler
 import (
 	"log"
 	"net/url"
-	"sync"
 	"time"
 )
 
 type filter struct {
-	In        chan *Doc
-	Out       chan *URL
-	option    *Option
-	poolMutex sync.Mutex
-	pool      *pool
-	workers   chan struct{}
-	scorer    Scorer
-	crawler   *Crawler
+	In      chan *Doc
+	Out     chan *URL
+	option  *Option
+	workers chan struct{}
+	scorer  Scorer
+	crawler *Crawler
 }
 
 type Scorer interface {
@@ -26,32 +23,35 @@ func newFilter(cw *Crawler, opt *Option) *filter {
 	ft := &filter{
 		Out:     make(chan *URL, opt.URLFilter.OutQueueLen),
 		option:  opt,
-		pool:    newPool(),
 		crawler: cw,
 	}
 	return ft
 }
 
 func (ft *filter) visit(doc *Doc) {
-	ft.poolMutex.Lock()
-	uu, ok := ft.pool.Get(doc.Loc)
+	ft.crawler.pool.Lock()
+	uu, ok := ft.crawler.pool.Get(doc.Loc)
 	if !ok {
 		// Redirect!!!
 		uu = newURL(doc.Loc)
 	}
+	uu.processing = false
 	uu.Visited.Count++
 	uu.Visited.Time = doc.Time
-	ft.pool.Add(uu)
-	ft.poolMutex.Unlock()
+	ft.crawler.pool.Add(uu)
+	ft.crawler.pool.Unlock()
 }
 
 func (ft *filter) handleSubURL(u *url.URL) {
-	ft.poolMutex.Lock()
-	defer ft.poolMutex.Unlock()
+	ft.crawler.pool.Lock()
+	defer ft.crawler.pool.Unlock()
 
-	uu, ok := ft.pool.Get(*u)
+	uu, ok := ft.crawler.pool.Get(*u)
 	if !ok {
 		uu = newURL(*u)
+	}
+	if uu.processing {
+		return
 	}
 
 	uu.Score, uu.nextTime = ft.scorer.Score(uu)
@@ -60,6 +60,10 @@ func (ft *filter) handleSubURL(u *url.URL) {
 	}
 	if uu.Score >= 1024 {
 		uu.Score = 1024
+	}
+	minTime := uu.Visited.Time.Add(ft.option.MinDelay)
+	if uu.Visited.Count > 0 && uu.nextTime.Before(minTime) {
+		uu.nextTime = minTime
 	}
 
 	if uu.Score == 0 {
@@ -74,11 +78,9 @@ func (ft *filter) handleSubURL(u *url.URL) {
 	}
 
 	uu.Priority = float64(uu.Score) / float64(1024)
-
+	uu.processing = true
+	ft.crawler.pool.Add(uu)
 	ft.Out <- uu
-	uu.Enqueue.Count++
-	uu.Enqueue.Time = time.Now()
-	ft.pool.Add(uu)
 }
 
 func (ft *filter) Start(scorer Scorer) {
@@ -90,14 +92,14 @@ func (ft *filter) Start(scorer Scorer) {
 	go func() {
 		for doc := range ft.In {
 			<-ft.workers
-			go func() {
-				ft.visit(doc)
+			go func(d *Doc) {
+				ft.visit(d)
 
-				for _, u := range doc.SubURLs {
+				for _, u := range d.SubURLs {
 					ft.handleSubURL(u)
 				}
 				ft.workers <- struct{}{}
-			}()
+			}(doc)
 		}
 		close(ft.Out)
 	}()

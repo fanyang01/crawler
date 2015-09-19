@@ -1,6 +1,9 @@
 package crawler
 
-import "net/http"
+import (
+	"net/http"
+	"time"
+)
 
 var DefaultClient = http.DefaultClient
 
@@ -10,6 +13,7 @@ type WorkerOption struct {
 }
 
 var DefaultOption = &Option{
+	MinDelay:            10 * time.Second,
 	RobotoAgent:         "I'm a Roboto",
 	PriorityQueueBufLen: 2,
 	Fetcher: WorkerOption{
@@ -36,6 +40,7 @@ var DefaultOption = &Option{
 }
 
 type Option struct {
+	MinDelay            time.Duration
 	RobotoAgent         string
 	EnableUnkownLen     bool
 	MaxHTMLLen          int64

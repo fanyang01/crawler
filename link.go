@@ -71,7 +71,7 @@ func (lp *linkParser) Start(handler RHandler) {
 				defer func() { lp.workers <- struct{}{} }()
 				var doc *Doc
 				if match := CT_HTML.match(r.ContentType); match {
-					doc = newDoc(resp)
+					doc = newDoc(r)
 					go extractLink(doc)
 				}
 				// User-provided handler
@@ -87,7 +87,6 @@ func (lp *linkParser) Start(handler RHandler) {
 					}
 					lp.Out <- doc
 				}
-				lp.workers <- struct{}{}
 			}(resp)
 		}
 		close(lp.Out)

@@ -67,10 +67,15 @@ func (q *urlQueue) Pop() (u *URL) {
 	return i.(*URL)
 }
 
-func (q *urlQueue) IsEmpty() bool {
-	q.RLock()
-	defer q.RUnlock()
-	return q.heap.IsEmpty()
+func (tq *tqueue) IsAvailable() bool {
+	tq.RLock()
+	defer tq.RUnlock()
+	if v, ok := tq.heap.Top(); ok {
+		if !v.(*URL).nextTime.After(time.Now()) {
+			return true
+		}
+	}
+	return false
 }
 
 func (tq *tqueue) Pop() (*URL, bool) {
@@ -88,7 +93,6 @@ func (tq *tqueue) Pop() (*URL, bool) {
 
 func (tq *tqueue) MultiPop() (s []*URL, any bool) {
 	tq.Lock()
-	defer tq.Unlock()
 	for {
 		if v, ok := tq.heap.Top(); ok {
 			if !v.(*URL).nextTime.After(time.Now()) {
@@ -101,5 +105,6 @@ func (tq *tqueue) MultiPop() (s []*URL, any bool) {
 		}
 		break
 	}
+	tq.Unlock()
 	return
 }

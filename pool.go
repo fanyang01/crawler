@@ -20,11 +20,8 @@ type URL struct {
 		Count int
 		Time  time.Time
 	}
-	Enqueue struct {
-		Count int
-		Time  time.Time
-	}
-	nextTime time.Time
+	processing bool
+	nextTime   time.Time
 }
 
 func (u *URL) clone() *URL {
@@ -45,18 +42,15 @@ func newPool() *pool {
 	}
 }
 
+// client needs to acquire lock to perform Add and Get operation.
 func (p *pool) Add(u *URL) {
 	uu := u.clone()
 	uu.Loc.Fragment = ""
-	p.Lock()
 	p.m[uu.Loc.String()] = uu
-	p.Unlock()
 }
 
 func (p *pool) Get(u url.URL) (*URL, bool) {
 	u.Fragment = ""
-	p.RLock()
-	defer p.RUnlock()
 	uu, ok := p.m[u.String()]
 	if ok {
 		uu = uu.clone()

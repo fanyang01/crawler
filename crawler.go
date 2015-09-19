@@ -22,6 +22,7 @@ func newSites() sites {
 type Crawler struct {
 	ctrl        Controller
 	option      *Option
+	pool        *pool
 	pQueue      *pqueue
 	tQueue      *tqueue
 	fetcher     *fetcher
@@ -50,6 +51,7 @@ func NewCrawler(ctrl Controller, opt *Option) *Crawler {
 	cw := &Crawler{
 		ctrl:        ctrl,
 		option:      opt,
+		pool:        newPool(),
 		pQueue:      newPQueue(),
 		tQueue:      newTQueue(),
 		fetcher:     newFetcher(opt),
@@ -79,10 +81,11 @@ func (c *Crawler) Begin(seeds ...string) error {
 		}
 		uu := newURL(*u)
 		uu.Priority = 1.0
+		uu.processing = true
+		c.pool.Lock()
+		c.pool.Add(uu)
+		c.pool.Unlock()
 		c.pQueue.Push(uu)
-		uu.Enqueue.Count++
-		uu.Enqueue.Time = time.Now()
-		c.filter.pool.Add(uu)
 	}
 	return nil
 }
@@ -110,7 +113,7 @@ func (c *Crawler) Crawl() {
 	go func() {
 		duration := time.Second
 		for {
-			if c.tQueue.IsEmpty() {
+			if !c.tQueue.IsAvailable() {
 				time.Sleep(duration)
 				duration = duration * 2
 				continue
@@ -123,9 +126,10 @@ func (c *Crawler) Crawl() {
 			}
 		}
 	}()
+
 	go func() {
 		for u := range c.filter.Out {
-			if !u.nextTime.After(time.Now()) {
+			if u.nextTime.After(time.Now()) {
 				c.tQueue.Push(u)
 			} else {
 				c.pQueue.Push(u)

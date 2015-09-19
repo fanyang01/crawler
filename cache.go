@@ -35,11 +35,17 @@ func (cp *cachePool) Get(URL string) (resp *Response, ok bool) {
 	if err != nil {
 		return
 	}
-	cp.RLock()
-	defer cp.RUnlock()
+	cp.Lock()
+	defer cp.Unlock()
 	resp, ok = cp.m[u.String()]
-	if !ok || resp.Expires.Before(time.Now()) {
+	if !ok {
+		return
+	}
+	if resp.Expires.Before(time.Now()) {
+		delete(cp.m, u.String())
 		return nil, false
 	}
+	// NOTE: it's IMPORTANT to update response's time
+	resp.Date = time.Now()
 	return
 }
