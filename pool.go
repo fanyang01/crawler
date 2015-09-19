@@ -24,7 +24,7 @@ type URL struct {
 		Count int
 		Time  time.Time
 	}
-	Future time.Time
+	nextTime time.Time
 }
 
 func (u *URL) clone() *URL {

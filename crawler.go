@@ -22,7 +22,8 @@ func newSites() sites {
 type Crawler struct {
 	ctrl        Controller
 	option      *Option
-	queue       *pqueue
+	pQueue      *pqueue
+	tQueue      *tqueue
 	fetcher     *fetcher
 	filter      *filter
 	constructor *requestConstructor
@@ -32,8 +33,8 @@ type Crawler struct {
 
 type Ctrl struct{}
 
-func (c Ctrl) Handle(resp *Response, _ *Doc) { log.Println(resp.Locations) }
-func (c Ctrl) Score(u *URL) int64            { return 512 }
+func (c Ctrl) Handle(resp *Response, _ *Doc)            { log.Println(resp.Locations) }
+func (c Ctrl) Score(u *URL) (score int64, at time.Time) { return 512, time.Now().Add(time.Second) }
 
 var (
 	DefaultController = &Ctrl{}
@@ -49,7 +50,8 @@ func NewCrawler(ctrl Controller, opt *Option) *Crawler {
 	cw := &Crawler{
 		ctrl:        ctrl,
 		option:      opt,
-		queue:       newPQueue(),
+		pQueue:      newPQueue(),
+		tQueue:      newTQueue(),
 		fetcher:     newFetcher(opt),
 		constructor: newRequestConstructor(opt),
 		parser:      newLinkParser(opt),
@@ -77,7 +79,7 @@ func (c *Crawler) Begin(seeds ...string) error {
 		}
 		uu := newURL(*u)
 		uu.Priority = 1.0
-		c.queue.Push(uu)
+		c.pQueue.Push(uu)
 		uu.Enqueue.Count++
 		uu.Enqueue.Time = time.Now()
 		c.filter.pool.Add(uu)
@@ -89,7 +91,7 @@ func (c *Crawler) Crawl() {
 	ch := make(chan *URL, c.option.PriorityQueueBufLen)
 	go func() {
 		for {
-			ch <- c.queue.Pop()
+			ch <- c.pQueue.Pop()
 		}
 	}()
 
@@ -106,8 +108,28 @@ func (c *Crawler) Crawl() {
 	c.filter.Start(c.ctrl)
 
 	go func() {
+		duration := time.Second
+		for {
+			if c.tQueue.IsEmpty() {
+				time.Sleep(duration)
+				duration = duration * 2
+				continue
+			}
+			if urls, ok := c.tQueue.MultiPop(); ok {
+				for _, u := range urls {
+					c.pQueue.Push(u)
+				}
+				duration = time.Second
+			}
+		}
+	}()
+	go func() {
 		for u := range c.filter.Out {
-			c.queue.Push(u)
+			if !u.nextTime.After(time.Now()) {
+				c.tQueue.Push(u)
+			} else {
+				c.pQueue.Push(u)
+			}
 		}
 	}()
 }

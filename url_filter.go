@@ -19,7 +19,7 @@ type filter struct {
 }
 
 type Scorer interface {
-	Score(*URL) int64
+	Score(*URL) (score int64, at time.Time)
 }
 
 func newFilter(cw *Crawler, opt *Option) *filter {
@@ -54,7 +54,7 @@ func (ft *filter) handleSubURL(u *url.URL) {
 		uu = newURL(*u)
 	}
 
-	uu.Score = ft.scorer.Score(uu)
+	uu.Score, uu.nextTime = ft.scorer.Score(uu)
 	if uu.Score <= 0 {
 		uu.Score = 0
 	}

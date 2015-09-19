@@ -16,7 +16,7 @@ func lessPriority(x, y interface{}) bool {
 
 func lessTime(x, y interface{}) bool {
 	a, b := x.(*URL), y.(*URL)
-	return a.Future.After(b.Future)
+	return a.nextTime.After(b.nextTime)
 }
 
 type urlQueue struct {
@@ -67,11 +67,17 @@ func (q *urlQueue) Pop() (u *URL) {
 	return i.(*URL)
 }
 
+func (q *urlQueue) IsEmpty() bool {
+	q.RLock()
+	defer q.RUnlock()
+	return q.heap.IsEmpty()
+}
+
 func (tq *tqueue) Pop() (*URL, bool) {
 	tq.Lock()
 	defer tq.Unlock()
 	if v, ok := tq.heap.Top(); ok {
-		if !v.(*URL).Future.After(time.Now()) {
+		if !v.(*URL).nextTime.After(time.Now()) {
 			if v, ok := tq.heap.Pop(); ok {
 				return v.(*URL), true
 			}
@@ -85,7 +91,7 @@ func (tq *tqueue) MultiPop() (s []*URL, any bool) {
 	defer tq.Unlock()
 	for {
 		if v, ok := tq.heap.Top(); ok {
-			if !v.(*URL).Future.After(time.Now()) {
+			if !v.(*URL).nextTime.After(time.Now()) {
 				if v, ok := tq.heap.Pop(); ok {
 					s = append(s, v.(*URL))
 					any = true

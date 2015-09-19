@@ -22,6 +22,25 @@ type Doc struct {
 	Expires      time.Time
 }
 
+func newDoc(resp *Response) *Doc {
+	doc := &Doc{
+		SecondURL:    resp.ContentLocation,
+		Content:      resp.Content,
+		ContentType:  resp.ContentType,
+		Time:         resp.Date,
+		Expires:      resp.Expires,
+		TreeReady:    make(chan struct{}, 1),
+		SubURLsReady: make(chan struct{}, 1),
+	}
+	doc.Loc = *resp.Locations
+	doc.LastModified = resp.LastModified
+	// HTTP prefer max-age than expires
+	if resp.Cacheable && resp.MaxAge != 0 {
+		doc.Expires = doc.Time.Add(resp.MaxAge)
+	}
+	return doc
+}
+
 type linkParser struct {
 	In      chan *Response
 	Out     chan *Doc
@@ -58,37 +77,21 @@ func (lp *linkParser) Start(handler RHandler) {
 				// User-provided handler
 				handler.Handle(r, doc)
 				r.closeBody()
-				// Fetch all unprocessed message
-				for ok := true; ok; {
-					_, ok = <-doc.TreeReady
+				if doc != nil {
+					// Fetch all unprocessed message
+					for ok := true; ok; {
+						_, ok = <-doc.TreeReady
+					}
+					for ok := true; ok; {
+						_, ok = <-doc.SubURLsReady
+					}
+					lp.Out <- doc
 				}
-				for ok := true; ok; {
-					_, ok = <-doc.SubURLsReady
-				}
-				lp.Out <- doc
+				lp.workers <- struct{}{}
 			}(resp)
 		}
 		close(lp.Out)
 	}()
-}
-
-func newDoc(resp *Response) *Doc {
-	doc := &Doc{
-		SecondURL:    resp.ContentLocation,
-		Content:      resp.Content,
-		ContentType:  resp.ContentType,
-		Time:         resp.Date,
-		Expires:      resp.Expires,
-		TreeReady:    make(chan struct{}, 1),
-		SubURLsReady: make(chan struct{}, 1),
-	}
-	doc.Loc = *resp.Locations
-	doc.LastModified = resp.LastModified
-	// HTTP prefer max-age than expires
-	if resp.Cacheable && resp.MaxAge != 0 {
-		doc.Expires = doc.Time.Add(resp.MaxAge)
-	}
-	return doc
 }
 
 func extractLink(doc *Doc) {
