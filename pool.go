@@ -20,6 +20,7 @@ type URL struct {
 		Count int
 		Time  time.Time
 	}
+	Depth      int
 	processing bool
 	nextTime   time.Time
 }

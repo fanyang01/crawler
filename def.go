@@ -8,7 +8,8 @@ import (
 
 type Response struct {
 	*http.Response
-	closed          bool     // body closed?
+	requestURL      *url.URL
+	Ready           bool     // body closed?
 	Locations       *url.URL // distinguish with method Location
 	ContentLocation *url.URL
 	ContentType     string

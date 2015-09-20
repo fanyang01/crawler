@@ -25,8 +25,13 @@ func (cp *cachePool) Add(resp *Response) {
 	if resp.Expires.Before(time.Now()) {
 		return
 	}
+	u0 := resp.Locations.String()
+	u1 := resp.requestURL.String()
 	cp.Lock()
-	cp.m[resp.Locations.String()] = resp
+	cp.m[u0] = resp
+	if u1 != u0 {
+		cp.m[u1] = resp
+	}
 	cp.Unlock()
 }
 

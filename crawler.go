@@ -163,6 +163,20 @@ func (cw *Crawler) addSite(u *url.URL) error {
 		return err
 	}
 	site.FetchSitemap()
+	cw.pool.Lock()
+	for _, u := range site.Map.URLSet {
+		uu, ok := cw.pool.Get(u.Loc)
+		if !ok {
+			uu = newURL(u.Loc)
+		}
+		if uu.processing {
+			continue
+		}
+		uu.processing = true
+		cw.pool.Add(uu)
+		cw.pQueue.Push(uu)
+	}
+	cw.pool.Unlock()
 	cw.sites.m[root] = site
 	return nil
 }

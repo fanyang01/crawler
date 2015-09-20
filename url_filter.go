@@ -30,15 +30,23 @@ func newFilter(cw *Crawler, opt *Option) *filter {
 
 func (ft *filter) visit(doc *Doc) {
 	ft.crawler.pool.Lock()
-	uu, ok := ft.crawler.pool.Get(doc.Loc)
-	if !ok {
-		// Redirect!!!
-		uu = newURL(doc.Loc)
+	f := func(u url.URL, depth int) {
+		uu, ok := ft.crawler.pool.Get(u)
+		if !ok {
+			// Redirect!!!
+			uu = newURL(u)
+		}
+		uu.processing = false
+		uu.Visited.Count++
+		uu.Visited.Time = doc.Time
+		uu.Depth = depth + 1
+		ft.crawler.pool.Add(uu)
 	}
-	uu.processing = false
-	uu.Visited.Count++
-	uu.Visited.Time = doc.Time
-	ft.crawler.pool.Add(uu)
+
+	f(doc.Loc, doc.Depth)
+	if doc.Loc.String() != doc.requestURL.String() {
+		f(*doc.requestURL, doc.Depth)
+	}
 	ft.crawler.pool.Unlock()
 }
 

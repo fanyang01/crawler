@@ -11,6 +11,7 @@ import (
 
 type Doc struct {
 	URL
+	requestURL   *url.URL
 	SecondURL    *url.URL
 	SubURLs      []*url.URL
 	SubURLsReady chan struct{}
@@ -24,6 +25,7 @@ type Doc struct {
 
 func newDoc(resp *Response) *Doc {
 	doc := &Doc{
+		requestURL:   resp.requestURL,
 		SecondURL:    resp.ContentLocation,
 		Content:      resp.Content,
 		ContentType:  resp.ContentType,
@@ -76,7 +78,7 @@ func (lp *linkParser) Start(handler RHandler) {
 				}
 				// User-provided handler
 				handler.Handle(r, doc)
-				r.closeBody()
+				r.CloseBody()
 				if doc != nil {
 					// Fetch all unprocessed message
 					for ok := true; ok; {

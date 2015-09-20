@@ -10,14 +10,11 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
 	"time"
-)
-
-var (
-	RespBufSize = 64
 )
 
 type fetcher struct {
@@ -85,16 +82,22 @@ func (fc *fetcher) fetch(r *Request) (resp *Response, err error) {
 		r.client = DefaultClient
 	}
 
+	resp = new(Response)
+	resp.requestURL, err = url.Parse(r.url)
+	if err != nil {
+		return
+	}
+
 	var req *http.Request
 	req, err = http.NewRequest(r.method, r.url, bytes.NewReader(r.body))
 	if err != nil {
 		return
 	}
-
+	req.Header.Set("User-Agent", fc.option.RobotoAgent)
 	if r.config != nil {
 		r.config(req)
 	}
-	resp = new(Response)
+
 	resp.Response, err = r.client.Do(req)
 	if err != nil {
 		return
@@ -115,6 +118,7 @@ func (fc *fetcher) fetch(r *Request) (resp *Response, err error) {
 			fc.option.EnableUnkownLen); err != nil {
 			return
 		}
+		resp.CloseBody()
 	}
 	return
 }
@@ -180,10 +184,10 @@ func (resp *Response) parseHeader() {
 }
 
 func (resp *Response) ReadBody(maxLen int64, enableUnkownLen bool) error {
-	if resp.closed {
+	if resp.Ready {
 		return nil
 	}
-	defer resp.closeBody()
+	defer resp.CloseBody()
 	if resp.ContentLength > maxLen {
 		return ErrContentTooLong
 	}
@@ -225,15 +229,16 @@ func (resp *Response) ReadBody(maxLen int64, enableUnkownLen bool) error {
 	if needclose {
 		rc.Close()
 	}
+	resp.Ready = true
 	return err
 }
 
-func (resp *Response) closeBody() {
-	if resp.closed {
+func (resp *Response) CloseBody() {
+	if resp.Ready {
 		return
 	}
 	resp.Body.Close()
-	resp.closed = true
+	resp.Ready = true
 }
 
 // When nessary, detectMIME will prefetch 512 bytes from body
