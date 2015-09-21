@@ -52,8 +52,8 @@ func NewCrawler(ctrl Controller, opt *Option) *Crawler {
 		ctrl:        ctrl,
 		option:      opt,
 		pool:        newPool(),
-		pQueue:      newPQueue(),
-		tQueue:      newTQueue(),
+		pQueue:      newPQueue(opt.PriorityQueue.MaxLen),
+		tQueue:      newTQueue(opt.TimeQueue.MaxLen),
 		fetcher:     newFetcher(opt),
 		constructor: newRequestConstructor(opt),
 		parser:      newLinkParser(opt),
@@ -91,7 +91,7 @@ func (c *Crawler) Begin(seeds ...string) error {
 }
 
 func (c *Crawler) Crawl() {
-	ch := make(chan *URL, c.option.PriorityQueueBufLen)
+	ch := make(chan *URL, c.option.PriorityQueue.BufLen)
 	go func() {
 		for {
 			ch <- c.pQueue.Pop()

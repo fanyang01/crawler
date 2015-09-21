@@ -20,9 +20,11 @@ func lessTime(x, y interface{}) bool {
 }
 
 type urlQueue struct {
-	heap *bheap.Heap
+	maxLen int
+	heap   *bheap.Heap
+	pop    *sync.Cond
+	push   *sync.Cond
 	*sync.RWMutex
-	*sync.Cond
 }
 
 type tqueue struct {
@@ -33,25 +35,30 @@ type pqueue struct {
 	urlQueue
 }
 
-func newPQueue() *pqueue {
-	return &pqueue{newURLQueue(lessPriority)}
+func newPQueue(maxLen int) *pqueue {
+	return &pqueue{newURLQueue(lessPriority, maxLen)}
 }
-func newTQueue() *tqueue {
-	return &tqueue{newURLQueue(lessTime)}
+func newTQueue(maxLen int) *tqueue {
+	return &tqueue{newURLQueue(lessTime, maxLen)}
 }
 
-func newURLQueue(f bheap.LessFunc) urlQueue {
+func newURLQueue(f bheap.LessFunc, maxLen int) urlQueue {
 	var q urlQueue
+	q.maxLen = maxLen
 	q.RWMutex = new(sync.RWMutex)
 	q.heap = bheap.New(f)
-	q.Cond = sync.NewCond(q.RWMutex)
+	q.pop = sync.NewCond(q.RWMutex)
+	q.push = sync.NewCond(q.RWMutex)
 	return q
 }
 
 func (q *urlQueue) Push(u *URL) {
 	q.Lock()
+	if q.heap.Len() >= q.maxLen {
+		q.push.Wait()
+	}
 	q.heap.Push(u)
-	q.Signal()
+	q.pop.Signal()
 	q.Unlock()
 }
 
@@ -59,11 +66,12 @@ func (q *urlQueue) Push(u *URL) {
 func (q *urlQueue) Pop() (u *URL) {
 	q.Lock()
 	for q.heap.IsEmpty() {
-		q.Wait()
+		q.pop.Wait()
 	}
 	defer q.Unlock()
 	// In this usage, it's impossible for Pop to return nil and false
 	i, _ := q.heap.Pop()
+	q.push.Signal()
 	return i.(*URL)
 }
 

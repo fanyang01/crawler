@@ -12,10 +12,21 @@ type WorkerOption struct {
 	OutQueueLen  int
 }
 
+type QueueOption struct {
+	BufLen, MaxLen int
+}
+
 var DefaultOption = &Option{
-	MinDelay:            10 * time.Second,
-	RobotoAgent:         "I'm a Roboto",
-	PriorityQueueBufLen: 2,
+	MinDelay:    10 * time.Second,
+	RobotoAgent: "I'm a Roboto",
+	PriorityQueue: QueueOption{
+		BufLen: 16,
+		MaxLen: 2048,
+	},
+	TimeQueue: QueueOption{
+		BufLen: 16,
+		MaxLen: 2048,
+	},
 	Fetcher: WorkerOption{
 		NumOfWorkers: 64,
 		OutQueueLen:  64,
@@ -25,10 +36,6 @@ var DefaultOption = &Option{
 	LinkParser: WorkerOption{
 		OutQueueLen:  64,
 		NumOfWorkers: 64,
-	},
-	RespHandler: WorkerOption{
-		OutQueueLen:  64,
-		NumOfWorkers: 4,
 	},
 	URLFilter: WorkerOption{
 		NumOfWorkers: 16,
@@ -40,14 +47,14 @@ var DefaultOption = &Option{
 }
 
 type Option struct {
-	MinDelay            time.Duration
-	RobotoAgent         string
-	EnableUnkownLen     bool
-	MaxHTMLLen          int64
-	PriorityQueueBufLen int
-	Fetcher             WorkerOption
-	LinkParser          WorkerOption
-	RespHandler         WorkerOption
-	URLFilter           WorkerOption
-	RequestConstructor  WorkerOption
+	MinDelay           time.Duration
+	RobotoAgent        string
+	EnableUnkownLen    bool
+	MaxHTMLLen         int64
+	PriorityQueue      QueueOption
+	TimeQueue          QueueOption
+	Fetcher            WorkerOption
+	LinkParser         WorkerOption
+	URLFilter          WorkerOption
+	RequestConstructor WorkerOption
 }
