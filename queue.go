@@ -75,6 +75,13 @@ func (q *urlQueue) Pop() (u *URL) {
 	return i.(*URL)
 }
 
+func (q *urlQueue) Len() int {
+	q.RLock()
+	length := q.heap.Len()
+	q.RUnlock()
+	return length
+}
+
 func (tq *tqueue) IsAvailable() bool {
 	tq.RLock()
 	defer tq.RUnlock()

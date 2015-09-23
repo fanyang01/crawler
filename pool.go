@@ -8,11 +8,6 @@ import (
 	"github.com/fanyang01/crawler/sitemap"
 )
 
-type pool struct {
-	sync.RWMutex
-	m map[string]*URL
-}
-
 type URL struct {
 	sitemap.URL
 	Score   int64
@@ -25,9 +20,14 @@ type URL struct {
 	nextTime   time.Time
 }
 
-func (u *URL) clone() *URL {
-	uu := *u
-	return &uu
+type poolEntry struct {
+	url URL
+	sync.Mutex
+}
+
+type pool struct {
+	sync.RWMutex
+	m map[url.URL]*poolEntry
 }
 
 func newURL(u url.URL) *URL {
@@ -39,22 +39,26 @@ func newURL(u url.URL) *URL {
 
 func newPool() *pool {
 	return &pool{
-		m: make(map[string]*URL),
+		m: make(map[url.URL]*poolEntry),
 	}
 }
 
-// client needs to acquire lock to perform Add and Get operation.
-func (p *pool) Add(u *URL) {
-	uu := u.clone()
-	uu.Loc.Fragment = ""
-	p.m[uu.Loc.String()] = uu
-}
-
-func (p *pool) Get(u url.URL) (*URL, bool) {
-	u.Fragment = ""
-	uu, ok := p.m[u.String()]
+// Get returns a  a locked entry.
+// If key u.Loc is not present in map, it will create a new entry.
+func (p *pool) Get(u URL) *poolEntry {
+	p.Lock()
+	defer p.Unlock()
+	u.Loc.Fragment = ""
+	entry, ok := p.m[u.Loc]
 	if ok {
-		uu = uu.clone()
+		entry.Lock()
+		return entry
 	}
-	return uu, ok
+
+	entry = &poolEntry{
+		url: u,
+	}
+	entry.Lock()
+	p.m[u.Loc] = entry
+	return entry
 }

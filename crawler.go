@@ -20,6 +20,7 @@ func newSites() sites {
 }
 
 type Crawler struct {
+	seeds       []*url.URL
 	ctrl        Controller
 	option      *Option
 	pool        *pool
@@ -30,6 +31,7 @@ type Crawler struct {
 	constructor *requestConstructor
 	parser      *linkParser
 	sites       sites
+	processing  int
 }
 
 type Ctrl struct{}
@@ -72,30 +74,37 @@ func (c *Crawler) Begin(seeds ...string) error {
 		if err != nil {
 			return err
 		}
-		if err := c.addSite(u); err != nil {
-			log.Println(err)
-			continue
-		}
-		if !c.testRobot(u) {
-			continue
-		}
-		uu := newURL(*u)
-		uu.Priority = 1.0
-		uu.processing = true
-		c.pool.Lock()
-		c.pool.Add(uu)
-		c.pool.Unlock()
-		c.pQueue.Push(uu)
+		c.seeds = append(c.seeds, u)
 	}
 	return nil
 }
 
 func (c *Crawler) Crawl() {
+	go func() {
+		duration := 100 * time.Millisecond
+		for {
+			if !c.tQueue.IsAvailable() {
+				time.Sleep(duration)
+				duration = duration * 2
+				continue
+			}
+			if urls, ok := c.tQueue.MultiPop(); ok {
+				for _, u := range urls {
+					c.pQueue.Push(u)
+				}
+				duration = 100 * time.Millisecond
+			}
+		}
+	}()
+
 	ch := make(chan *URL, c.option.PriorityQueue.BufLen)
+	exit := make(chan struct{})
 	go func() {
 		for {
 			ch <- c.pQueue.Pop()
 		}
+		close(ch)
+		exit <- struct{}{}
 	}()
 
 	c.constructor.In = ch
@@ -111,82 +120,21 @@ func (c *Crawler) Crawl() {
 	c.filter.Start(c.ctrl)
 
 	go func() {
-		duration := time.Second
-		for {
-			if !c.tQueue.IsAvailable() {
-				time.Sleep(duration)
-				duration = duration * 2
-				continue
-			}
-			if urls, ok := c.tQueue.MultiPop(); ok {
-				for _, u := range urls {
-					c.pQueue.Push(u)
-				}
-				duration = time.Second
-			}
-		}
-	}()
-
-	go func() {
 		for u := range c.filter.Out {
+			// WARNING: don't use address of u, for u is reused.
+			uu := u
 			if u.nextTime.After(time.Now()) {
-				c.tQueue.Push(u)
+				c.tQueue.Push(&uu)
 			} else {
-				c.pQueue.Push(u)
+				c.pQueue.Push(&uu)
 			}
 		}
 	}()
-}
 
-func siteRoot(u *url.URL) string {
-	uu := url.URL{
-		Scheme: u.Scheme,
-		Host:   u.Host,
+	for _, u := range c.seeds {
+		uu := newURL(*u)
+		c.pQueue.Push(uu)
 	}
-	return uu.String()
-}
 
-func (cw *Crawler) addSite(u *url.URL) error {
-	root := siteRoot(u)
-	cw.sites.Lock()
-	defer cw.sites.Unlock()
-	site, ok := cw.sites.m[root]
-	if ok {
-		return nil
-	}
-	var err error
-	site, err = NewSite(root)
-	if err != nil {
-		return err
-	}
-	if err := site.FetchRobots(); err != nil {
-		return err
-	}
-	site.FetchSitemap()
-	cw.pool.Lock()
-	for _, u := range site.Map.URLSet {
-		uu, ok := cw.pool.Get(u.Loc)
-		if !ok {
-			uu = newURL(u.Loc)
-		}
-		if uu.processing {
-			continue
-		}
-		uu.processing = true
-		cw.pool.Add(uu)
-		cw.pQueue.Push(uu)
-	}
-	cw.pool.Unlock()
-	cw.sites.m[root] = site
-	return nil
-}
-
-func (cw *Crawler) testRobot(u *url.URL) bool {
-	cw.sites.RLock()
-	defer cw.sites.RUnlock()
-	site, ok := cw.sites.m[siteRoot(u)]
-	if !ok {
-		return false
-	}
-	return site.Robot.TestAgent(u.Path, cw.option.RobotoAgent)
+	// <-exit
 }

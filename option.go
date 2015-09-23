@@ -38,10 +38,13 @@ var DefaultOption = &Option{
 		NumOfWorkers: 64,
 	},
 	URLFilter: WorkerOption{
-		NumOfWorkers: 16,
+		NumOfWorkers: 32,
 		OutQueueLen:  64,
 	},
 	RequestConstructor: WorkerOption{
+		OutQueueLen: 64,
+	},
+	SiteExplorer: WorkerOption{
 		OutQueueLen: 64,
 	},
 }
@@ -57,4 +60,5 @@ type Option struct {
 	LinkParser         WorkerOption
 	URLFilter          WorkerOption
 	RequestConstructor WorkerOption
+	SiteExplorer       WorkerOption
 }

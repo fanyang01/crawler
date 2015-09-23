@@ -3,6 +3,7 @@ package crawler
 import (
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -31,7 +32,7 @@ var (
 	ErrNoHost              = errors.New("site: host can't be empty")
 )
 
-func NewSiteFromURL(u *url.URL) (*Site, error) {
+func newSiteFromURL(u *url.URL) (*Site, error) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, ErrUnsupportedProtocol
 	}
@@ -49,15 +50,15 @@ func NewSiteFromURL(u *url.URL) (*Site, error) {
 	return site, nil
 }
 
-func NewSite(root string) (*Site, error) {
+func newSite(root string) (*Site, error) {
 	u, err := url.Parse(root)
 	if err != nil {
 		return nil, err
 	}
-	return NewSiteFromURL(u)
+	return newSiteFromURL(u)
 }
 
-func (site *Site) FetchRobots() error {
+func (site *Site) fetchRobots() error {
 	client := site.Client
 	if client == nil {
 		client = http.DefaultClient
@@ -76,7 +77,7 @@ func (site *Site) FetchRobots() error {
 }
 
 // Do http GET request and read response body. Only status code 2xx is ok.
-func GetBody(client *http.Client, url string) (body []byte, err error) {
+func getBody(client *http.Client, url string) (body []byte, err error) {
 	var resp *http.Response
 	if client == nil {
 		client = http.DefaultClient
@@ -96,10 +97,10 @@ func GetBody(client *http.Client, url string) (body []byte, err error) {
 
 // All errors are ignored.
 // TODO: log error as warning
-func (site *Site) FetchSitemap() {
+func (site *Site) fetchSitemap() {
 	f := func(absURL string) {
 		// Although absURL may point to another site, we use settings of this site to get it
-		body, err := GetBody(site.Client, absURL)
+		body, err := getBody(site.Client, absURL)
 		if err != nil {
 			return
 		}
@@ -120,4 +121,45 @@ func (site *Site) FetchSitemap() {
 		}
 		f(absURL)
 	}
+}
+
+func siteRoot(u url.URL) string {
+	uu := url.URL{
+		Scheme: u.Scheme,
+		Host:   u.Host,
+	}
+	return uu.String()
+}
+
+func (cw *Crawler) addSite(u url.URL) error {
+	root := siteRoot(u)
+	cw.sites.Lock()
+	defer cw.sites.Unlock()
+	site, ok := cw.sites.m[root]
+	if ok {
+		return nil
+	}
+
+	var err error
+	site, err = newSite(root)
+	if err != nil {
+		return err
+	}
+	if err := site.fetchRobots(); err != nil {
+		return fmt.Errorf("fetch robots.txt: %v", err)
+	}
+	site.fetchSitemap()
+
+	cw.sites.m[root] = site
+	return nil
+}
+
+func (cw *Crawler) testRobot(u url.URL) bool {
+	cw.sites.RLock()
+	defer cw.sites.RUnlock()
+	site, ok := cw.sites.m[siteRoot(u)]
+	if !ok || site.Robot == nil {
+		return false
+	}
+	return site.Robot.TestAgent(u.Path, cw.option.RobotoAgent)
 }
