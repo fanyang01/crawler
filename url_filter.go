@@ -16,7 +16,8 @@ type filter struct {
 }
 
 type Scorer interface {
-	Score(*URL) (score int64, at time.Time)
+	Score(URL) (score int64, at time.Time)
+	Accept(url.URL) bool
 }
 
 func newFilter(cw *Crawler, opt *Option) *filter {
@@ -70,6 +71,9 @@ func (ft *filter) handleDocURL(doc *Doc) {
 }
 
 func (ft *filter) handleSubURL(u url.URL) {
+	if !ft.scorer.Accept(u) {
+		return
+	}
 	entry := ft.cw.pool.Get(*newURL(u))
 	if !entry.url.processing {
 		ft.do(&entry.url)
@@ -98,7 +102,7 @@ func (ft *filter) do(uu *URL) {
 }
 
 func (ft *filter) score(uu *URL) (keep bool) {
-	uu.Score, uu.nextTime = ft.scorer.Score(uu)
+	uu.Score, uu.nextTime = ft.scorer.Score(*uu)
 	if uu.Score <= 0 {
 		uu.Score = 0
 	}

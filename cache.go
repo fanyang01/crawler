@@ -8,17 +8,30 @@ import (
 
 // TODO: control the cache pool size
 type cachePool struct {
+	size int
 	sync.RWMutex
-	m map[string]*Response
+	m   map[string]*Response
+	opt *Option
 }
 
-func newCachePool() *cachePool {
+func newCachePool(opt *Option) *cachePool {
 	return &cachePool{
-		m: make(map[string]*Response),
+		m:   make(map[string]*Response),
+		opt: opt,
 	}
 }
 
-func (cp *cachePool) Add(resp *Response) {
+func (cp *cachePool) Add(r *Response) {
+	cp.Lock()
+	defer cp.Unlock()
+	for key := range cp.m {
+		if cp.size+len(r.Content) <= cp.opt.MaxCacheSize {
+			break
+		}
+		cp.m[key] = nil
+		delete(cp.m, key)
+	}
+	resp := *r
 	if !resp.Cacheable {
 		return
 	}
@@ -27,12 +40,11 @@ func (cp *cachePool) Add(resp *Response) {
 	}
 	u0 := resp.Locations.String()
 	u1 := resp.requestURL.String()
-	cp.Lock()
-	cp.m[u0] = resp
+	cp.m[u0] = &resp
 	if u1 != u0 {
-		cp.m[u1] = resp
+		cp.m[u1] = &resp
 	}
-	cp.Unlock()
+	cp.size += len(r.Content)
 }
 
 func (cp *cachePool) Get(URL string) (resp *Response, ok bool) {
@@ -42,15 +54,16 @@ func (cp *cachePool) Get(URL string) (resp *Response, ok bool) {
 	}
 	cp.Lock()
 	defer cp.Unlock()
-	resp, ok = cp.m[u.String()]
-	if !ok {
+	var r *Response
+	if r, ok = cp.m[u.String()]; !ok {
 		return
 	}
-	if resp.Expires.Before(time.Now()) {
+	if r.Expires.Before(time.Now()) {
 		delete(cp.m, u.String())
 		return nil, false
 	}
+	rr := *r
 	// NOTE: it's IMPORTANT to update response's time
-	resp.Date = time.Now()
-	return
+	rr.Date = time.Now()
+	return &rr, true
 }

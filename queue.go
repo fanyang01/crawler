@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"net/url"
 	"sync"
 	"time"
 
@@ -81,6 +82,8 @@ func (q *urlQueue) Len() int {
 	q.RUnlock()
 	return length
 }
+
+func (pq *pqueue) Pop() (u url.URL) { return pq.urlQueue.Pop().Loc }
 
 func (tq *tqueue) IsAvailable() bool {
 	tq.RLock()

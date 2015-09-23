@@ -149,7 +149,9 @@ func (cw *Crawler) addSite(u url.URL) error {
 		return fmt.Errorf("fetch robots.txt: %v", err)
 	}
 	site.fetchSitemap()
-
+	for _, u := range site.Map.URLSet {
+		cw.pQueue.Push(&URL{URL: u})
+	}
 	cw.sites.m[root] = site
 	return nil
 }

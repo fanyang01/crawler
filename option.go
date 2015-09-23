@@ -17,14 +17,18 @@ type QueueOption struct {
 }
 
 var DefaultOption = &Option{
-	MinDelay:    10 * time.Second,
-	RobotoAgent: "I'm a Roboto",
+	MaxCacheSize:  1 << 25, // 32MB
+	DefaultClient: http.DefaultClient,
+	ErrorQueueLen: 128,
+	MinDelay:      10 * time.Second,
+	RetryDelay:    10 * time.Second,
+	RobotoAgent:   "I'm a Roboto",
 	PriorityQueue: QueueOption{
-		BufLen: 16,
+		BufLen: 32,
 		MaxLen: 2048,
 	},
 	TimeQueue: QueueOption{
-		BufLen: 16,
+		BufLen: 32,
 		MaxLen: 2048,
 	},
 	Fetcher: WorkerOption{
@@ -41,7 +45,7 @@ var DefaultOption = &Option{
 		NumOfWorkers: 32,
 		OutQueueLen:  64,
 	},
-	RequestConstructor: WorkerOption{
+	RequestMaker: WorkerOption{
 		OutQueueLen: 64,
 	},
 	SiteExplorer: WorkerOption{
@@ -50,15 +54,19 @@ var DefaultOption = &Option{
 }
 
 type Option struct {
-	MinDelay           time.Duration
-	RobotoAgent        string
-	EnableUnkownLen    bool
-	MaxHTMLLen         int64
-	PriorityQueue      QueueOption
-	TimeQueue          QueueOption
-	Fetcher            WorkerOption
-	LinkParser         WorkerOption
-	URLFilter          WorkerOption
-	RequestConstructor WorkerOption
-	SiteExplorer       WorkerOption
+	MaxCacheSize    int
+	DefaultClient   *http.Client
+	ErrorQueueLen   int
+	MinDelay        time.Duration
+	RetryDelay      time.Duration
+	RobotoAgent     string
+	EnableUnkownLen bool
+	MaxHTMLLen      int64
+	PriorityQueue   QueueOption
+	TimeQueue       QueueOption
+	Fetcher         WorkerOption
+	LinkParser      WorkerOption
+	URLFilter       WorkerOption
+	RequestMaker    WorkerOption
+	SiteExplorer    WorkerOption
 }

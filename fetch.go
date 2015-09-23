@@ -1,7 +1,6 @@
 package crawler
 
 import (
-	"bytes"
 	"compress/flate"
 	"compress/gzip"
 	"errors"
@@ -10,7 +9,6 @@ import (
 	"log"
 	"mime"
 	"net/http"
-	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -19,19 +17,20 @@ import (
 
 type fetcher struct {
 	cache   *cachePool
-	client  *http.Client
 	option  *Option
+	cw      *Crawler
 	workers chan struct{}
 	In      chan *Request
 	Out     chan *Response
 }
 
-func newFetcher(opt *Option) (fc *fetcher) {
+func newFetcher(cw *Crawler, opt *Option) (fc *fetcher) {
 	fc = &fetcher{
 		option:  opt,
 		Out:     make(chan *Response, opt.Fetcher.OutQueueLen),
-		cache:   newCachePool(),
+		cache:   newCachePool(opt),
 		workers: make(chan struct{}, opt.Fetcher.NumOfWorkers),
+		cw:      cw,
 	}
 	return
 }
@@ -54,13 +53,14 @@ func (fc *fetcher) Start() {
 
 func (fc *fetcher) do(req *Request) {
 	// First check cache
-	if resp, ok := fc.cache.Get(req.url); ok {
+	if resp, ok := fc.cache.Get(req.URL.String()); ok {
 		fc.Out <- resp
 		return
 	}
 	resp, err := fc.fetch(req)
 	if err != nil {
 		log.Printf("fetcher: %v\n", err)
+		fc.cw.eQueue <- *req.URL
 		return
 	}
 	// Add to cache
@@ -74,36 +74,17 @@ var (
 	ErrUnkownContentLength = errors.New("read response: unkown content length")
 )
 
-func (fc *fetcher) fetch(r *Request) (resp *Response, err error) {
-	if r.method == "" {
-		r.method = "GET"
-	}
-	if r.client == nil {
-		r.client = DefaultClient
-	}
+func (fc *fetcher) fetch(req *Request) (resp *Response, err error) {
 
 	resp = new(Response)
-	resp.requestURL, err = url.Parse(r.url)
+	resp.requestURL = req.URL
+
+	resp.Response, err = req.Client.Do(req.Request)
 	if err != nil {
 		return
 	}
 
-	var req *http.Request
-	req, err = http.NewRequest(r.method, r.url, bytes.NewReader(r.body))
-	if err != nil {
-		return
-	}
-	req.Header.Set("User-Agent", fc.option.RobotoAgent)
-	if r.config != nil {
-		r.config(req)
-	}
-
-	resp.Response, err = r.client.Do(req)
-	if err != nil {
-		return
-	}
-
-	log.Printf("[%s] %s %s\n", resp.Status, r.method, r.url)
+	log.Printf("[%s] %s %s\n", resp.Status, req.Method, req.URL.String())
 
 	// Only status code 2xx is ok
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -229,7 +210,6 @@ func (resp *Response) ReadBody(maxLen int64, enableUnkownLen bool) error {
 	if needclose {
 		rc.Close()
 	}
-	resp.Ready = true
 	return err
 }
 
@@ -241,7 +221,6 @@ func (resp *Response) CloseBody() {
 	resp.Ready = true
 }
 
-// When nessary, detectMIME will prefetch 512 bytes from body
 func (resp *Response) detectMIME() {
 	if t := resp.Header.Get("Content-Type"); t != "" {
 		resp.ContentType = t

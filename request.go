@@ -1,39 +1,60 @@
 package crawler
 
-import "net/http"
+import (
+	"log"
+	"net/http"
+	"net/url"
+)
 
 type Request struct {
-	method, url string
-	body        []byte
-	client      *http.Client
-	config      func(*http.Request)
+	Client *http.Client
+	*http.Request
 }
 
-type requestConstructor struct {
-	In     chan *URL
+type requestMaker struct {
+	cw     *Crawler
+	In     chan url.URL
 	Out    chan *Request
-	option *Option
+	opt    *Option
+	setter requestSetter
 }
 
-func newRequestConstructor(opt *Option) *requestConstructor {
-	return &requestConstructor{
-		Out:    make(chan *Request, opt.RequestConstructor.OutQueueLen),
-		option: opt,
+type requestSetter interface {
+	SetRequest(*Request)
+}
+
+func newRequestMaker(cw *Crawler, opt *Option) *requestMaker {
+	return &requestMaker{
+		cw:  cw,
+		Out: make(chan *Request, opt.RequestMaker.OutQueueLen),
+		opt: opt,
 	}
 }
 
-func newRequest(u *URL) *Request {
-	return &Request{
-		method: "GET",
-		url:    u.Loc.String(),
+func (rm *requestMaker) newRequest(u url.URL) (req *Request, err error) {
+	u.Fragment = ""
+	req = &Request{
+		Client: rm.opt.DefaultClient,
 	}
+	if req.Request, err = http.NewRequest("GET", u.String(), nil); err != nil {
+		return
+	}
+
+	req.Header.Set("User-Agent", rm.opt.RobotoAgent)
+	rm.setter.SetRequest(req)
+	return
 }
 
-func (rc *requestConstructor) Start() {
+func (rm *requestMaker) Start(setter requestSetter) {
+	rm.setter = setter
 	go func() {
-		for u := range rc.In {
-			rc.Out <- newRequest(u)
+		for u := range rm.In {
+			if req, err := rm.newRequest(u); err == nil {
+				rm.Out <- req
+			} else {
+				log.Println(err)
+			}
 		}
-		close(rc.Out)
+		close(rm.Out)
 	}()
 }
