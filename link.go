@@ -80,6 +80,7 @@ func (lp *linkParser) Start(handler RHandler) {
 				handler.Handle(r, doc)
 				r.CloseBody()
 				if doc != nil {
+					doc.Tree = nil
 					// Fetch all unprocessed message
 					for ok := true; ok; {
 						_, ok = <-doc.TreeReady

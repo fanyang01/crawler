@@ -28,6 +28,7 @@ func (cp *cachePool) Add(r *Response) {
 		if cp.size+len(r.Content) <= cp.opt.MaxCacheSize {
 			break
 		}
+		cp.size -= len(cp.m[key].Content)
 		cp.m[key] = nil
 		delete(cp.m, key)
 	}
