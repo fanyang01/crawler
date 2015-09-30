@@ -9,11 +9,44 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
 	"time"
 )
+
+type Response struct {
+	*http.Response
+	requestURL      *url.URL
+	Ready           bool     // body closed?
+	Locations       *url.URL // distinguish with method Location
+	ContentLocation *url.URL
+	ContentType     string
+	Content         []byte
+	Date            time.Time
+	LastModified    time.Time
+	Expires         time.Time
+	Cacheable       bool
+	Age             time.Duration
+	MaxAge          time.Duration
+}
+
+func (cw *Crawler) newResp() *Response {
+	return cw.respPool.Get().(*Response)
+}
+
+func (cw *Crawler) freeResp(r *Response) {
+	// enable GC
+	r.Response = nil
+	r.requestURL = nil
+	r.Locations = nil
+	r.ContentLocation = nil
+	r.Content = nil
+	r.Ready = false
+	r.Cacheable = false
+	cw.respPool.Put(r)
+}
 
 type fetcher struct {
 	cache   *cachePool
@@ -63,7 +96,7 @@ func (fc *fetcher) do(req *Request) {
 		fc.cw.eQueue <- *req.URL
 		return
 	}
-	// Add to cache
+	// Add to cache(NOTE: cache should use value rather than pointer)
 	fc.cache.Add(resp)
 	fc.Out <- resp
 }
@@ -76,7 +109,7 @@ var (
 
 func (fc *fetcher) fetch(req *Request) (resp *Response, err error) {
 
-	resp = new(Response)
+	resp = fc.cw.newResp()
 	resp.requestURL = req.URL
 
 	resp.Response, err = req.Client.Do(req.Request)

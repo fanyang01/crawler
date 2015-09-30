@@ -33,6 +33,9 @@ type Crawler struct {
 	parser      *linkParser
 	sites       sites
 	processing  int
+	respPool    sync.Pool
+	docPool     sync.Pool
+	urlPool     sync.Pool
 }
 
 type Ctrl struct{}
@@ -60,12 +63,27 @@ func NewCrawler(ctrl Controller, opt *Option) *Crawler {
 		pQueue: newPQueue(opt.PriorityQueue.MaxLen),
 		tQueue: newTQueue(opt.TimeQueue.MaxLen),
 		eQueue: make(chan url.URL, opt.ErrorQueueLen),
-		parser: newLinkParser(opt),
 		sites:  newSites(),
+		docPool: sync.Pool{
+			New: func() interface{} {
+				return &Doc{}
+			},
+		},
+		respPool: sync.Pool{
+			New: func() interface{} {
+				return &Response{}
+			},
+		},
+		urlPool: sync.Pool{
+			New: func() interface{} {
+				return &url.URL{}
+			},
+		},
 	}
 	cw.constructor = newRequestMaker(cw, opt)
 	cw.fetcher = newFetcher(cw, opt)
 	cw.filter = newFilter(cw, opt)
+	cw.parser = newLinkParser(cw, opt)
 	return cw
 }
 

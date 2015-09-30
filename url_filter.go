@@ -42,7 +42,9 @@ func (ft *filter) Start(scorer Scorer) {
 				ft.handleDocURL(d)
 				for _, u := range d.SubURLs {
 					ft.handleSubURL(*u)
+					ft.cw.freeurl(u)
 				}
+				ft.cw.freeDoc(d)
 				ft.workers <- struct{}{}
 			}(doc)
 		}

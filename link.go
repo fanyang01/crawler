@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"bytes"
+	"io"
 	"log"
 	"net/url"
 	"time"
@@ -23,18 +24,16 @@ type Doc struct {
 	Expires      time.Time
 }
 
-func newDoc(resp *Response) *Doc {
-	doc := &Doc{
-		requestURL:   resp.requestURL,
-		SecondURL:    resp.ContentLocation,
-		Content:      resp.Content,
-		ContentType:  resp.ContentType,
-		Time:         resp.Date,
-		Expires:      resp.Expires,
-		TreeReady:    make(chan struct{}, 1),
-		SubURLsReady: make(chan struct{}, 1),
-	}
+func (cw *Crawler) newDoc(resp *Response) *Doc {
+	doc := cw.docPool.Get().(*Doc)
 	doc.Loc = *resp.Locations
+	doc.requestURL = resp.requestURL
+	doc.SecondURL = resp.ContentLocation
+	doc.Content = resp.Content
+	doc.ContentType = resp.ContentType
+	doc.Time = resp.Date
+	doc.Expires = resp.Expires
+	doc.SubURLsReady = make(chan struct{}, 1)
 	doc.LastModified = resp.LastModified
 	// HTTP prefer max-age than expires
 	if resp.Cacheable && resp.MaxAge != 0 {
@@ -43,22 +42,43 @@ func newDoc(resp *Response) *Doc {
 	return doc
 }
 
+func (cw *Crawler) freeDoc(doc *Doc) {
+	// enable GC
+	doc.requestURL = nil
+	doc.SecondURL = nil
+	doc.SubURLs = nil
+	doc.Tree = nil
+	doc.Content = nil
+	doc.SubURLsReady = nil
+	cw.docPool.Put(doc)
+}
+
+func (cw *Crawler) newurl() *url.URL {
+	return cw.urlPool.Get().(*url.URL)
+}
+
+func (cw *Crawler) freeurl(url *url.URL) {
+	cw.urlPool.Put(url)
+}
+
 type linkParser struct {
 	In      chan *Response
 	Out     chan *Doc
 	option  *Option
 	workers chan struct{}
+	cw      *Crawler
 }
 
 type RHandler interface {
 	Handle(*Response, *Doc)
 }
 
-func newLinkParser(opt *Option) *linkParser {
+func newLinkParser(cw *Crawler, opt *Option) *linkParser {
 	return &linkParser{
 		Out:     make(chan *Doc, opt.LinkParser.OutQueueLen),
 		option:  opt,
 		workers: make(chan struct{}, opt.LinkParser.NumOfWorkers),
+		cw:      cw,
 	}
 }
 
@@ -73,8 +93,8 @@ func (lp *linkParser) Start(handler RHandler) {
 				defer func() { lp.workers <- struct{}{} }()
 				var doc *Doc
 				if match := CT_HTML.match(r.ContentType); match {
-					doc = newDoc(r)
-					go extractLink(doc)
+					doc = lp.cw.newDoc(r)
+					go lp.findLink(doc)
 				}
 				// User-provided handler
 				handler.Handle(r, doc)
@@ -83,48 +103,54 @@ func (lp *linkParser) Start(handler RHandler) {
 					doc.Tree = nil
 					// Fetch all unprocessed message
 					for ok := true; ok; {
-						_, ok = <-doc.TreeReady
-					}
-					for ok := true; ok; {
 						_, ok = <-doc.SubURLsReady
 					}
 					lp.Out <- doc
 				}
+				lp.cw.freeResp(r)
 			}(resp)
 		}
 		close(lp.Out)
 	}()
 }
 
-func extractLink(doc *Doc) {
-	tree, err := html.Parse(bytes.NewReader(doc.Content))
-	if err != nil {
-		log.Printf("extractLink: %v\n", err)
-		return
-	}
+// ParseHTML parses the content into a HTML tree. It may result in many allocations.
+func (doc *Doc) ParseHTML() (tree *html.Node, err error) {
+	tree, err = html.Parse(bytes.NewReader(doc.Content))
 	doc.Tree = tree
-	doc.TreeReady <- struct{}{}
-	close(doc.TreeReady)
+	return
+}
 
-	var f func(*html.Node)
-	f = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "a" {
-			for _, a := range n.Attr {
-				if a.Key == "href" {
-					if url, err := doc.Loc.Parse(a.Val); err == nil {
-						doc.SubURLs = append(doc.SubURLs, url)
-					} else {
-						log.Printf("extractLink: %v\n", err)
+func (lp *linkParser) findLink(doc *Doc) {
+	z := html.NewTokenizer(bytes.NewReader(doc.Content))
+LOOP:
+	for {
+		tt := z.Next()
+		switch tt {
+		case html.ErrorToken:
+			if z.Err() != io.EOF {
+				log.Printf("find link: %v\n", z.Err())
+			}
+			break LOOP
+		case html.StartTagToken:
+			tn, hasAttr := z.TagName()
+			if hasAttr && len(tn) == 1 && tn[0] == 'a' {
+				for {
+					key, val, more := z.TagAttr()
+					if string(key) == "href" {
+						u := lp.cw.newurl()
+						if err := ParseURL(&doc.Loc, string(val), u); err == nil {
+							doc.SubURLs = append(doc.SubURLs, u)
+						}
+						break
 					}
-					break
+					if !more {
+						break
+					}
 				}
 			}
 		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			f(c)
-		}
 	}
-	f(tree)
 	doc.SubURLsReady <- struct{}{}
 	close(doc.SubURLsReady)
 }

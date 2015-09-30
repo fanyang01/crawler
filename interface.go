@@ -8,7 +8,8 @@ import (
 type Controller interface {
 	// Accept determines whether a URL should be processed. It acts as a
 	// blacklist that preventing some unneccesary URLs to be processed,
-	// so to save resources(CPU, memory, ...).
+	// so to save resources(CPU, memory, ...). It's recommended to use the
+	// fields of url.URL rather than url.URL.String().
 	Accept(u url.URL) bool
 
 	// Score gives a score between 0 and 1024 for a URL:
@@ -17,12 +18,16 @@ type Controller interface {
 	// A URL with score (0, 1024] will be enqueued. Higher score means higher
 	// priority in queue.  Score also specifies the next time that this URL
 	// should be crawled at.
+	// It's recommended to use the fields of u.Loc rather than u.Loc.String()
+	// to avoid extra space allocation.
 	Score(u URL) (score int64, at time.Time)
 
 	// Handle handles a response or a HTML document. If the content type of
 	// response is text/html, the body of the response is prefetched and doc
-	// will be non-nil. But before using doc.Tree or doc.SubURLs, a semaphore
-	// from doc.TreeReady or doc.SubURLsReady should be recieved.
+	// will be non-nil. But before using doc.SubURLs, a semaphore from
+	// doc.SubURLsReady should be recieved. If the HTML tree of doc is needed,
+	// doc.ParseHTML() should be called explicitly because it may result in
+	// many allocations.
 	Handle(resp *Response, doc *Doc)
 
 	// SetRequest sets options(client, headers, ...) for a http request
