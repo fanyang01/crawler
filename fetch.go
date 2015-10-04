@@ -13,7 +13,14 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+)
+
+var (
+	ErrTooManyEncodings    = errors.New("read response: too many encodings")
+	ErrContentTooLong      = errors.New("read response: content length too long")
+	ErrUnkownContentLength = errors.New("read response: unkown content length")
 )
 
 type Response struct {
@@ -32,87 +39,34 @@ type Response struct {
 	MaxAge          time.Duration
 }
 
-func (cw *Crawler) newResp() *Response {
-	return cw.respPool.Get().(*Response)
+type StdClient struct {
+	client          *http.Client
+	cache           *cachePool
+	MaxHTMLLen      int64
+	EnableUnkownLen bool
+	pool            sync.Pool
 }
 
-func (cw *Crawler) freeResp(r *Response) {
-	// enable GC
-	r.Response = nil
-	r.requestURL = nil
-	r.Locations = nil
-	r.ContentLocation = nil
-	r.Content = nil
-	r.Ready = false
-	r.Cacheable = false
-	cw.respPool.Put(r)
-}
-
-type fetcher struct {
-	cache   *cachePool
-	option  *Option
-	cw      *Crawler
-	workers chan struct{}
-	In      chan *Request
-	Out     chan *Response
-}
-
-func newFetcher(cw *Crawler, opt *Option) (fc *fetcher) {
-	fc = &fetcher{
-		option:  opt,
-		Out:     make(chan *Response, opt.Fetcher.OutQueueLen),
-		cache:   newCachePool(opt),
-		workers: make(chan struct{}, opt.Fetcher.NumOfWorkers),
-		cw:      cw,
+func NewStdClient(opt *Option) *StdClient {
+	client := &StdClient{
+		client:          DefaultClient,
+		MaxHTMLLen:      opt.MaxHTMLLen,
+		EnableUnkownLen: opt.EnableUnkownLen,
+		cache:           newCachePool(opt),
 	}
-	return
+	return client
 }
 
-func (fc *fetcher) Start() {
-	for i := 0; i < fc.option.Fetcher.NumOfWorkers; i++ {
-		fc.workers <- struct{}{}
-	}
-	go func() {
-		for req := range fc.In {
-			<-fc.workers
-			go func(r *Request) {
-				fc.do(r)
-				fc.workers <- struct{}{}
-			}(req)
-		}
-		close(fc.Out)
-	}()
-}
-
-func (fc *fetcher) do(req *Request) {
+func (ct *StdClient) Do(req *Request) (resp *Response, err error) {
 	// First check cache
-	if resp, ok := fc.cache.Get(req.URL.String()); ok {
-		fc.Out <- resp
+	var ok bool
+	if resp, ok = ct.cache.Get(req.URL.String()); ok {
 		return
 	}
-	resp, err := fc.fetch(req)
-	if err != nil {
-		log.Printf("fetcher: %v\n", err)
-		fc.cw.eQueue <- *req.URL
-		return
-	}
-	// Add to cache(NOTE: cache should use value rather than pointer)
-	fc.cache.Add(resp)
-	fc.Out <- resp
-}
 
-var (
-	ErrTooManyEncodings    = errors.New("read response: too many encodings")
-	ErrContentTooLong      = errors.New("read response: content length too long")
-	ErrUnkownContentLength = errors.New("read response: unkown content length")
-)
-
-func (fc *fetcher) fetch(req *Request) (resp *Response, err error) {
-
-	resp = fc.cw.newResp()
+	resp = &Response{}
 	resp.requestURL = req.URL
-
-	resp.Response, err = req.Client.Do(req.Request)
+	resp.Response, err = ct.client.Do(req.Request)
 	if err != nil {
 		return
 	}
@@ -128,13 +82,69 @@ func (fc *fetcher) fetch(req *Request) (resp *Response, err error) {
 	// Only prefetch html content
 	if CT_HTML.match(resp.ContentType) {
 		if err = resp.ReadBody(
-			fc.option.MaxHTMLLen,
-			fc.option.EnableUnkownLen); err != nil {
+			ct.MaxHTMLLen,
+			ct.EnableUnkownLen); err != nil {
 			return
 		}
 		resp.CloseBody()
 	}
+
+	// Add to cache(NOTE: cache should use value rather than pointer)
+	ct.cache.Add(resp)
 	return
+}
+
+type fetcher struct {
+	option *Option
+	eQ     chan<- url.URL
+	In     chan *Request
+	Out    chan *Response
+	Done   chan struct{}
+}
+
+func newFetcher(opt *Option, eQ chan<- url.URL) (fc *fetcher) {
+	fc = &fetcher{
+		option: opt,
+		Out:    make(chan *Response, opt.Fetcher.QLen),
+		eQ:     eQ,
+	}
+	return
+}
+
+func (fc *fetcher) Start() {
+	n := fc.option.Fetcher.NWorker
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			fc.work()
+			wg.Done()
+		}()
+	}
+	go func() {
+		wg.Wait()
+		close(fc.Out)
+	}()
+}
+
+func (fc *fetcher) work() {
+	for req := range fc.In {
+		resp, err := req.Client.Do(req)
+		if err != nil {
+			log.Printf("fetcher: %v\n", err)
+			select {
+			case fc.eQ <- *req.URL:
+			case <-fc.Done:
+				return
+			}
+			continue
+		}
+		select {
+		case fc.Out <- resp:
+		case <-fc.Done:
+			return
+		}
+	}
 }
 
 func (resp *Response) parseHeader() {
@@ -183,6 +193,9 @@ func (resp *Response) parseHeader() {
 		}
 	}
 	baseurl := resp.Request.URL
+	if baseurl == nil {
+		baseurl = resp.requestURL
+	}
 	if l, err := resp.Location(); err == nil {
 		baseurl, resp.Locations = l, l
 	} else {

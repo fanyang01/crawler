@@ -3,12 +3,14 @@ package crawler
 import (
 	"log"
 	"net/url"
+	"sync"
 	"time"
 )
 
 type filter struct {
 	In      chan *Doc
 	Out     chan URL
+	Done    chan struct{}
 	option  *Option
 	workers chan struct{}
 	scorer  Scorer
@@ -20,36 +22,44 @@ type Scorer interface {
 	Accept(url.URL) bool
 }
 
-func newFilter(cw *Crawler, opt *Option) *filter {
+func newFilter(opt *Option, cw *Crawler, scorer Scorer) *filter {
 	ft := &filter{
-		Out:    make(chan URL, opt.URLFilter.OutQueueLen),
+		Out:    make(chan URL, opt.URLFilter.QLen),
 		option: opt,
 		cw:     cw,
+		scorer: scorer,
 	}
 	return ft
 }
 
-func (ft *filter) Start(scorer Scorer) {
-	ft.scorer = scorer
-	ft.workers = make(chan struct{}, ft.option.URLFilter.NumOfWorkers)
-	for i := 0; i < ft.option.URLFilter.NumOfWorkers; i++ {
-		ft.workers <- struct{}{}
+func (ft *filter) Start() {
+	n := ft.option.URLFilter.NWorker
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			ft.work()
+			wg.Done()
+		}()
 	}
 	go func() {
-		for doc := range ft.In {
-			<-ft.workers
-			go func(d *Doc) {
-				ft.handleDocURL(d)
-				for _, u := range d.SubURLs {
-					ft.handleSubURL(*u)
-					ft.cw.freeurl(u)
-				}
-				ft.cw.freeDoc(d)
-				ft.workers <- struct{}{}
-			}(doc)
-		}
+		wg.Wait()
 		close(ft.Out)
 	}()
+}
+
+func (ft *filter) work() {
+	for d := range ft.In {
+		ft.handleDocURL(d)
+		for _, u := range d.SubURLs {
+			ft.handleSubURL(*u)
+		}
+		select {
+		case <-ft.Done:
+			return
+		default:
+		}
+	}
 }
 
 func (ft *filter) handleDocURL(doc *Doc) {
@@ -100,7 +110,11 @@ func (ft *filter) do(uu *URL) {
 	}
 
 	uu.processing = true
-	ft.Out <- *uu
+	select {
+	case ft.Out <- *uu:
+	case <-ft.Done:
+		return
+	}
 }
 
 func (ft *filter) score(uu *URL) (keep bool) {

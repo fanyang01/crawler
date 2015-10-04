@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// TODO: control the cache pool size
 type cachePool struct {
 	size int
 	sync.RWMutex

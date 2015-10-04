@@ -8,8 +8,8 @@ import (
 var DefaultClient = http.DefaultClient
 
 type WorkerOption struct {
-	NumOfWorkers int
-	OutQueueLen  int
+	NWorker int
+	QLen    int
 }
 
 type QueueOption struct {
@@ -32,24 +32,22 @@ var DefaultOption = &Option{
 		MaxLen: 2048,
 	},
 	Fetcher: WorkerOption{
-		NumOfWorkers: 64,
-		OutQueueLen:  64,
+		NWorker: 32,
+		QLen:    64,
 	},
 	EnableUnkownLen: true,
 	MaxHTMLLen:      1 << 20,
 	LinkParser: WorkerOption{
-		OutQueueLen:  64,
-		NumOfWorkers: 64,
+		QLen:    32,
+		NWorker: 64,
 	},
 	URLFilter: WorkerOption{
-		NumOfWorkers: 32,
-		OutQueueLen:  64,
+		NWorker: 16,
+		QLen:    64,
 	},
 	RequestMaker: WorkerOption{
-		OutQueueLen: 64,
-	},
-	SiteExplorer: WorkerOption{
-		OutQueueLen: 64,
+		NWorker: 1,
+		QLen:    64,
 	},
 }
 
@@ -68,5 +66,4 @@ type Option struct {
 	LinkParser      WorkerOption
 	URLFilter       WorkerOption
 	RequestMaker    WorkerOption
-	SiteExplorer    WorkerOption
 }

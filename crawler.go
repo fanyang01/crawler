@@ -32,10 +32,8 @@ type Crawler struct {
 	constructor *requestMaker
 	parser      *linkParser
 	sites       sites
-	processing  int
-	respPool    sync.Pool
-	docPool     sync.Pool
-	urlPool     sync.Pool
+	stdClient   *StdClient
+	done        chan struct{}
 }
 
 type Ctrl struct{}
@@ -64,26 +62,16 @@ func NewCrawler(ctrl Controller, opt *Option) *Crawler {
 		tQueue: newTQueue(opt.TimeQueue.MaxLen),
 		eQueue: make(chan url.URL, opt.ErrorQueueLen),
 		sites:  newSites(),
-		docPool: sync.Pool{
-			New: func() interface{} {
-				return &Doc{}
-			},
-		},
-		respPool: sync.Pool{
-			New: func() interface{} {
-				return &Response{}
-			},
-		},
-		urlPool: sync.Pool{
-			New: func() interface{} {
-				return &url.URL{}
-			},
-		},
+		done:   make(chan struct{}),
 	}
-	cw.constructor = newRequestMaker(cw, opt)
-	cw.fetcher = newFetcher(cw, opt)
-	cw.filter = newFilter(cw, opt)
-	cw.parser = newLinkParser(cw, opt)
+	cw.constructor = newRequestMaker(opt, ctrl)
+	cw.fetcher = newFetcher(opt, cw.eQueue)
+	cw.parser = newLinkParser(opt, ctrl)
+	cw.filter = newFilter(opt, cw, ctrl)
+	cw.constructor.Done = cw.done
+	cw.fetcher.Done = cw.done
+	cw.parser.Done = cw.done
+	cw.filter.Done = cw.done
 	return cw
 }
 
@@ -123,47 +111,62 @@ func (c *Crawler) Crawl() {
 
 	// Pop URL from priority queue
 	ch := make(chan url.URL, c.option.PriorityQueue.BufLen)
-	exit := make(chan struct{})
 	go func() {
 		for {
-			ch <- c.pQueue.Pop()
+			select {
+			case ch <- c.pQueue.Pop():
+			case <-c.done:
+				close(ch)
+				return
+			}
 		}
-		close(ch)
-		exit <- struct{}{}
 	}()
 
 	c.constructor.In = ch
-	c.constructor.Start(c.ctrl)
+	c.constructor.Start()
 
 	c.fetcher.In = c.constructor.Out
 	c.fetcher.Start()
 
 	c.parser.In = c.fetcher.Out
-	c.parser.Start(c.ctrl)
+	c.parser.Start()
 
 	c.filter.In = c.parser.Out
-	c.filter.Start(c.ctrl)
+	c.filter.Start()
 
 	// Push output of filter into queue
 	go func() {
-		for u := range c.filter.Out {
-			// WARNING: don't use address of u, for u is reused.
-			uu := u
-			if u.nextTime.After(time.Now()) {
-				c.tQueue.Push(&uu)
-			} else {
-				c.pQueue.Push(&uu)
+		for {
+			select {
+			case u := <-c.filter.Out:
+				// WARNING: don't use address of u, for u is reused.
+				uu := u
+				if u.nextTime.After(time.Now()) {
+					c.tQueue.Push(&uu)
+				} else {
+					c.pQueue.Push(&uu)
+				}
+			case <-c.done:
+				return
 			}
 		}
 	}()
 
 	// Periodically retry urls in error queue
 	go func() {
-		for u := range c.eQueue {
-			uu := newURL(u)
-			uu.nextTime = time.Now().Add(c.option.RetryDelay)
-			c.tQueue.Push(uu)
+		for {
+			select {
+			case u := <-c.eQueue:
+				uu := newURL(u)
+				uu.nextTime = time.Now().Add(c.option.RetryDelay)
+				c.tQueue.Push(uu)
+			case <-c.done:
+				return
+			}
 		}
 	}()
-	// <-exit
+}
+
+func (cw *Crawler) Stop() {
+	close(cw.done)
 }

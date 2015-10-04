@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/url"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
@@ -24,8 +25,8 @@ type Doc struct {
 	Expires      time.Time
 }
 
-func (cw *Crawler) newDoc(resp *Response) *Doc {
-	doc := cw.docPool.Get().(*Doc)
+func (lp *linkParser) newDoc(resp *Response) *Doc {
+	doc := &Doc{}
 	doc.Loc = *resp.Locations
 	doc.requestURL = resp.requestURL
 	doc.SecondURL = resp.ContentLocation
@@ -42,76 +43,72 @@ func (cw *Crawler) newDoc(resp *Response) *Doc {
 	return doc
 }
 
-func (cw *Crawler) freeDoc(doc *Doc) {
-	// enable GC
-	doc.requestURL = nil
-	doc.SecondURL = nil
-	doc.SubURLs = nil
-	doc.Tree = nil
-	doc.Content = nil
-	doc.SubURLsReady = nil
-	cw.docPool.Put(doc)
-}
-
-func (cw *Crawler) newurl() *url.URL {
-	return cw.urlPool.Get().(*url.URL)
-}
-
-func (cw *Crawler) freeurl(url *url.URL) {
-	cw.urlPool.Put(url)
-}
-
 type linkParser struct {
+	option  *Option
+	handler RHandler
 	In      chan *Response
 	Out     chan *Doc
-	option  *Option
-	workers chan struct{}
-	cw      *Crawler
+	Done    chan struct{}
 }
 
 type RHandler interface {
 	Handle(*Response, *Doc)
 }
 
-func newLinkParser(cw *Crawler, opt *Option) *linkParser {
-	return &linkParser{
-		Out:     make(chan *Doc, opt.LinkParser.OutQueueLen),
+func newLinkParser(opt *Option, handler RHandler) *linkParser {
+	lp := &linkParser{
+		Out:     make(chan *Doc, opt.LinkParser.QLen),
 		option:  opt,
-		workers: make(chan struct{}, opt.LinkParser.NumOfWorkers),
-		cw:      cw,
+		handler: handler,
 	}
+	return lp
 }
 
-func (lp *linkParser) Start(handler RHandler) {
-	for i := 0; i < lp.option.LinkParser.NumOfWorkers; i++ {
-		lp.workers <- struct{}{}
+func (lp *linkParser) Start() {
+	n := lp.option.LinkParser.NWorker
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			lp.work()
+			wg.Done()
+		}()
 	}
 	go func() {
-		for resp := range lp.In {
-			<-lp.workers
-			go func(r *Response) {
-				defer func() { lp.workers <- struct{}{} }()
-				var doc *Doc
-				if match := CT_HTML.match(r.ContentType); match {
-					doc = lp.cw.newDoc(r)
-					go lp.findLink(doc)
-				}
-				// User-provided handler
-				handler.Handle(r, doc)
-				r.CloseBody()
-				if doc != nil {
-					doc.Tree = nil
-					// Fetch all unprocessed message
-					for ok := true; ok; {
-						_, ok = <-doc.SubURLsReady
-					}
-					lp.Out <- doc
-				}
-				lp.cw.freeResp(r)
-			}(resp)
-		}
+		wg.Wait()
 		close(lp.Out)
 	}()
+}
+
+func (lp *linkParser) work() {
+	for r := range lp.In {
+		var doc *Doc
+		if match := CT_HTML.match(r.ContentType); match {
+			doc = lp.newDoc(r)
+			go lp.findLink(doc)
+		}
+		// User-provided handler
+		lp.handler.Handle(r, doc)
+		r.CloseBody()
+		if doc != nil {
+			doc.Tree = nil
+			// Fetch all unprocessed message
+			for ok := true; ok; {
+				_, ok = <-doc.SubURLsReady
+			}
+			select {
+			case lp.Out <- doc:
+			case <-lp.Done:
+				return
+			}
+		} else {
+			select {
+			case <-lp.Done:
+				return
+			default:
+			}
+		}
+	}
 }
 
 // ParseHTML parses the content into a HTML tree. It may result in many allocations.
@@ -138,8 +135,7 @@ LOOP:
 				for {
 					key, val, more := z.TagAttr()
 					if string(key) == "href" {
-						u := lp.cw.newurl()
-						if err := ParseURL(&doc.Loc, string(val), u); err == nil {
+						if u, err := doc.Loc.Parse(string(val)); err == nil {
 							doc.SubURLs = append(doc.SubURLs, u)
 						}
 						break
