@@ -39,6 +39,59 @@ type Response struct {
 	MaxAge          time.Duration
 }
 
+type fetcher struct {
+	option *Option
+	eQ     chan<- url.URL
+	In     chan *Request
+	Out    chan *Response
+	Done   chan struct{}
+}
+
+func newFetcher(opt *Option, eQ chan<- url.URL) (fc *fetcher) {
+	fc = &fetcher{
+		option: opt,
+		Out:    make(chan *Response, opt.Fetcher.QLen),
+		eQ:     eQ,
+	}
+	return
+}
+
+func (fc *fetcher) Start() {
+	n := fc.option.Fetcher.NWorker
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			fc.work()
+			wg.Done()
+		}()
+	}
+	go func() {
+		wg.Wait()
+		close(fc.Out)
+	}()
+}
+
+func (fc *fetcher) work() {
+	for req := range fc.In {
+		resp, err := req.Client.Do(req)
+		if err != nil {
+			log.Printf("fetcher: %v\n", err)
+			select {
+			case fc.eQ <- *req.URL:
+			case <-fc.Done:
+				return
+			}
+			continue
+		}
+		select {
+		case fc.Out <- resp:
+		case <-fc.Done:
+			return
+		}
+	}
+}
+
 type StdClient struct {
 	client          *http.Client
 	cache           *cachePool
@@ -92,59 +145,6 @@ func (ct *StdClient) Do(req *Request) (resp *Response, err error) {
 	// Add to cache(NOTE: cache should use value rather than pointer)
 	ct.cache.Add(resp)
 	return
-}
-
-type fetcher struct {
-	option *Option
-	eQ     chan<- url.URL
-	In     chan *Request
-	Out    chan *Response
-	Done   chan struct{}
-}
-
-func newFetcher(opt *Option, eQ chan<- url.URL) (fc *fetcher) {
-	fc = &fetcher{
-		option: opt,
-		Out:    make(chan *Response, opt.Fetcher.QLen),
-		eQ:     eQ,
-	}
-	return
-}
-
-func (fc *fetcher) Start() {
-	n := fc.option.Fetcher.NWorker
-	var wg sync.WaitGroup
-	wg.Add(n)
-	for i := 0; i < n; i++ {
-		go func() {
-			fc.work()
-			wg.Done()
-		}()
-	}
-	go func() {
-		wg.Wait()
-		close(fc.Out)
-	}()
-}
-
-func (fc *fetcher) work() {
-	for req := range fc.In {
-		resp, err := req.Client.Do(req)
-		if err != nil {
-			log.Printf("fetcher: %v\n", err)
-			select {
-			case fc.eQ <- *req.URL:
-			case <-fc.Done:
-				return
-			}
-			continue
-		}
-		select {
-		case fc.Out <- resp:
-		case <-fc.Done:
-			return
-		}
-	}
 }
 
 func (resp *Response) parseHeader() {

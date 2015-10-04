@@ -1,0 +1,17 @@
+[[seed]]
+url = "http://localhost:6060"
+ajax = false
+
+[[target]]
+pattern = "http://localhost:6060/pkg/*" # /regexp/ or glob pattern
+frequence = "20s"
+priority = 1.0
+
+# how to find target
+[[filter]]
+pattern = "http://localhost:6060/pkg*"
+score = 1024
+ajax = false
+
+store = "db"
+frequence = "once"

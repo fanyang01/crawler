@@ -12,10 +12,6 @@ type Request struct {
 	*http.Request
 }
 
-type Client interface {
-	Do(*Request) (*Response, error)
-}
-
 type requestMaker struct {
 	client Client
 	In     chan url.URL
