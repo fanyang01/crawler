@@ -23,7 +23,7 @@ type Crawler struct {
 	seeds       []*url.URL
 	ctrl        Controller
 	option      *Option
-	pool        *pool
+	pool        *store
 	pQueue      *pqueue
 	tQueue      *tqueue
 	eQueue      chan url.URL
@@ -38,10 +38,10 @@ type Crawler struct {
 
 type Ctrl struct{}
 
-func (c Ctrl) Handle(resp *Response, _ *Doc)           { log.Println(resp.Locations) }
-func (c Ctrl) Score(u URL) (score int64, at time.Time) { return 512, time.Now().Add(time.Second) }
-func (c Ctrl) Accept(_ url.URL) bool                   { return true }
-func (c Ctrl) SetRequest(_ *Request)                   {}
+func (c Ctrl) Handle(resp *Response, _ *Doc)              { log.Println(resp.Locations) }
+func (c Ctrl) Schedule(u URL) (score int64, at time.Time) { return 512, time.Now().Add(time.Second) }
+func (c Ctrl) Accept(_ url.URL) bool                      { return true }
+func (c Ctrl) SetRequest(_ *Request)                      {}
 
 var (
 	DefaultController = &Ctrl{}
@@ -85,6 +85,7 @@ func (c *Crawler) AddSeeds(seeds ...string) error {
 			return err
 		}
 		uu := newURL(*u)
+		uu.Score = 1024
 		c.pQueue.Push(uu)
 	}
 	return nil

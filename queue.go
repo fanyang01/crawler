@@ -9,10 +9,10 @@ import (
 )
 
 func lessPriority(x, y interface{}) bool {
-	// a := *(**URL)(bheap.ValuePtr(x))
-	// b := *(**URL)(bheap.ValuePtr(y))
+	// a := (*URL)(bheap.ValuePtr(x))
+	// b := (*URL)(bheap.ValuePtr(y))
 	a, b := x.(*URL), y.(*URL)
-	return a.Priority < b.Priority
+	return a.Score < b.Score
 }
 
 func lessTime(x, y interface{}) bool {

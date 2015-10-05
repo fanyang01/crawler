@@ -12,6 +12,9 @@ priority = 1.0
 pattern = "http://localhost:6060/pkg*"
 score = 1024
 ajax = false
+[[filter]]
+pattern = "*"
+score = 0
 
 store = "db"
 frequence = "once"

@@ -1,4 +1,4 @@
-package config
+package task
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-type Config struct {
+type Task struct {
 	Seed []struct {
 		URL       string
 		AJAX      bool // dynamic page?
@@ -23,14 +23,14 @@ type Config struct {
 	}
 	Filter []struct {
 		Pattern string
-		Score   int // 0 - 1024
+		Score   int64 // 0 - 1024
 		AJAX    bool
 	}
 	Store     string        // [ file | db | none ]
 	Frequence time.Duration // default frequence
 }
 
-func readConfig(fpath string) (*Config, error) {
+func ReadTask(fpath string) (*Task, error) {
 	// For error message
 	type (
 		seed struct {
@@ -49,31 +49,31 @@ func readConfig(fpath string) (*Config, error) {
 			AJAX    bool
 		}
 	)
-	type conf struct {
+	type task struct {
 		Seed      []seed
 		Target    []target
 		Filter    []filter
 		Store     store
 		Frequence duration
 	}
-	var cf conf
-	md, err := toml.DecodeFile(fpath, &cf)
+	var tmp task
+	md, err := toml.DecodeFile(fpath, &tmp)
 	if err != nil {
 		return nil, err
 	}
 	if !md.IsDefined("store") || !md.IsDefined("Store") {
-		cf.Store = store("none")
+		tmp.Store = store("none")
 	}
 	if !md.IsDefined("frequence") || !md.IsDefined("Frequence") {
-		cf.Frequence.Duration = 0
+		tmp.Frequence.Duration = 0
 	}
 
-	var cfg Config
-	for _, seed := range cf.Seed {
-		cfg.Seed = append(cfg.Seed, seed)
+	var t Task
+	for _, seed := range tmp.Seed {
+		t.Seed = append(t.Seed, seed)
 	}
-	for _, target := range cf.Target {
-		cfg.Target = append(cfg.Target, struct {
+	for _, target := range tmp.Target {
+		t.Target = append(t.Target, struct {
 			Pattern   string
 			Frequence time.Duration
 			Priority  float64
@@ -83,24 +83,24 @@ func readConfig(fpath string) (*Config, error) {
 			Priority:  float64(target.Priority),
 		})
 	}
-	for _, ft := range cf.Filter {
-		cfg.Filter = append(cfg.Filter, struct {
+	for _, ft := range tmp.Filter {
+		t.Filter = append(t.Filter, struct {
 			Pattern string
-			Score   int
+			Score   int64
 			AJAX    bool
 		}{
 			Pattern: string(ft.Pattern),
-			Score:   int(ft.Score),
+			Score:   int64(ft.Score),
 			AJAX:    ft.AJAX,
 		})
 	}
-	return &cfg, nil
+	return &t, nil
 }
 
 type pattern string
 type store string
 type duration struct{ time.Duration }
-type score int
+type score int64
 type priority float64
 
 func (p *pattern) UnmarshalText(s []byte) error {

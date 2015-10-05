@@ -150,7 +150,11 @@ func (cw *Crawler) addSite(u url.URL) error {
 	}
 	site.fetchSitemap()
 	for _, u := range site.Map.URLSet {
-		cw.pQueue.Push(&URL{URL: u})
+		cw.pQueue.Push(&URL{
+			URL: u,
+			// map [0.0, 1.0] to [4, 1024]
+			Score: int64(u.Priority*1000.0) + 4,
+		})
 	}
 	cw.sites.m[root] = site
 	return nil

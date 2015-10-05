@@ -8,26 +8,25 @@ import (
 )
 
 type filter struct {
-	In      chan *Doc
-	Out     chan URL
-	Done    chan struct{}
-	option  *Option
-	workers chan struct{}
-	scorer  Scorer
-	cw      *Crawler
+	In        chan *Doc
+	Out       chan URL
+	Done      chan struct{}
+	option    *Option
+	scheduler Scheduler
+	cw        *Crawler
 }
 
-type Scorer interface {
-	Score(URL) (score int64, at time.Time)
+type Scheduler interface {
+	Schedule(URL) (score int64, at time.Time)
 	Accept(url.URL) bool
 }
 
-func newFilter(opt *Option, cw *Crawler, scorer Scorer) *filter {
+func newFilter(opt *Option, cw *Crawler, scheduler Scheduler) *filter {
 	ft := &filter{
-		Out:    make(chan URL, opt.URLFilter.QLen),
-		option: opt,
-		cw:     cw,
-		scorer: scorer,
+		Out:       make(chan URL, opt.URLFilter.QLen),
+		option:    opt,
+		cw:        cw,
+		scheduler: scheduler,
 	}
 	return ft
 }
@@ -63,13 +62,13 @@ func (ft *filter) work() {
 }
 
 func (ft *filter) handleDocURL(doc *Doc) {
-	f := func(entry *poolEntry) {
+	f := func(entry *storeEntry) {
 		uu := &entry.url
 		uu.Visited.Count++
 		uu.Visited.Time = doc.Time
 		uu.LastModified = doc.LastModified
 		uu.Depth = doc.Depth + 1
-		ft.do(uu)
+		ft.enqueue(uu)
 		entry.Unlock()
 	}
 
@@ -83,18 +82,18 @@ func (ft *filter) handleDocURL(doc *Doc) {
 }
 
 func (ft *filter) handleSubURL(u url.URL) {
-	if !ft.scorer.Accept(u) {
+	if !ft.scheduler.Accept(u) {
 		return
 	}
 	entry := ft.cw.pool.Get(*newURL(u))
 	if !entry.url.processing {
-		ft.do(&entry.url)
+		ft.enqueue(&entry.url)
 	}
 	entry.Unlock()
 }
 
-func (ft *filter) do(uu *URL) {
-	if keep := ft.score(uu); !keep {
+func (ft *filter) enqueue(uu *URL) {
+	if keep := ft.schedule(uu); !keep {
 		uu.processing = false
 		return
 	}
@@ -117,15 +116,11 @@ func (ft *filter) do(uu *URL) {
 	}
 }
 
-func (ft *filter) score(uu *URL) (keep bool) {
-	uu.Score, uu.nextTime = ft.scorer.Score(*uu)
+func (ft *filter) schedule(uu *URL) (keep bool) {
+	uu.Score, uu.nextTime = ft.scheduler.Schedule(*uu)
 	if uu.Score <= 0 {
-		uu.Score = 0
-	}
-	if uu.Score == 0 {
 		return
 	}
-
 	if uu.Score >= 1024 {
 		uu.Score = 1024
 	}

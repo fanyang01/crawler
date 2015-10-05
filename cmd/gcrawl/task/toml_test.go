@@ -1,4 +1,4 @@
-package config
+package task
 
 import (
 	"reflect"
@@ -7,11 +7,11 @@ import (
 )
 
 func TestTOML(t *testing.T) {
-	cfg, err := readConfig("test.toml")
+	cfg, err := ReadTask("test.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	exp := &Config{
+	exp := &Task{
 		Seed: []struct {
 			URL       string
 			AJAX      bool

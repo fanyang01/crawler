@@ -124,7 +124,7 @@ func (ct *StdClient) Do(req *Request) (resp *Response, err error) {
 		return
 	}
 
-	log.Printf("[%s] %s %s\n", resp.Status, req.Method, req.URL.String())
+	// log.Printf("[%s] %s %s\n", resp.Status, req.Method, req.URL.String())
 
 	// Only status code 2xx is ok
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

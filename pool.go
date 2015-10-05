@@ -20,14 +20,14 @@ type URL struct {
 	nextTime   time.Time
 }
 
-type poolEntry struct {
+type storeEntry struct {
 	url URL
 	sync.Mutex
 }
 
-type pool struct {
+type store struct {
 	sync.RWMutex
-	m map[url.URL]*poolEntry
+	m map[url.URL]*storeEntry
 }
 
 func newURL(u url.URL) *URL {
@@ -37,15 +37,15 @@ func newURL(u url.URL) *URL {
 	return uu
 }
 
-func newPool() *pool {
-	return &pool{
-		m: make(map[url.URL]*poolEntry),
+func newPool() *store {
+	return &store{
+		m: make(map[url.URL]*storeEntry),
 	}
 }
 
 // Get returns a  a locked entry.
 // If key u.Loc is not present in map, it will create a new entry.
-func (p *pool) Get(u URL) *poolEntry {
+func (p *store) Get(u URL) *storeEntry {
 	p.Lock()
 	defer p.Unlock()
 	u.Loc.Fragment = ""
@@ -55,7 +55,7 @@ func (p *pool) Get(u URL) *poolEntry {
 		return entry
 	}
 
-	entry = &poolEntry{
+	entry = &storeEntry{
 		url: u,
 	}
 	entry.Lock()
