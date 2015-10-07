@@ -3,10 +3,12 @@ package tree
 import (
 	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestSiteTree(t *testing.T) {
-	testIn := []struct {
+func TestTree(t *testing.T) {
+	patterns := []struct {
 		s string
 		i interface{}
 	}{
@@ -16,8 +18,11 @@ func TestSiteTree(t *testing.T) {
 		{"*://example.com/movies", 4},
 		{`http://example.com/\*`, 5},
 		{`http://example.com/*`, 6},
+		{"你好*世界*", 7},
+		{`foo\`, 8},
+		{`b\ar`, 9},
 	}
-	test := []struct {
+	data := []struct {
 		s string
 		v interface{}
 	}{
@@ -29,20 +34,33 @@ func TestSiteTree(t *testing.T) {
 		{"http://example.com/books/", 3},
 		{"http://example.com/", 6},
 		{"http://example.com/*", 5},
+		{"你好世界", 7},
+		{"你你好世界", nil},
+		{"你好世界世界界界", 7},
+		{"你好,世界", 7},
+		{"你好,世界。", 7},
+		{`foo\`, nil},
+		{`foo`, 8},
+		{`b\ar`, nil},
+		{`bar`, 9},
 	}
 
 	tr := &Tree{}
-	for _, s := range testIn {
-		tr.Add(s.s, s.i)
+	for _, p := range patterns {
+		tr.Add(p.s, p.i)
 	}
 
-	for _, data := range test {
-		// fmt.Println("Lookup", data.s)
+	for _, data := range data {
 		v, ok := tr.Lookup(data.s)
-		if !ok && v != data.v {
-			t.Errorf("lookup %q failed: expect %v, got %v", data.s, data.v, v)
+		if data.v == nil {
+			assert.False(t, ok)
+			assert.Nil(t, v)
+		} else {
+			assert.True(t, ok)
+			assert.Equal(t, data.v, v)
 		}
 	}
+
 }
 
 func printSibling(node *Node) {
