@@ -7,52 +7,62 @@ import (
 	"sync"
 )
 
+type makerQuery struct {
+	url   *url.URL
+	reply chan requestSetter
+}
+
 type Request struct {
 	Client Client
 	*http.Request
 }
 
 type requestMaker struct {
-	client Client
-	In     chan url.URL
-	Out    chan *Request
-	Done   chan struct{}
-	opt    *Option
-	setter requestSetter
+	query   chan<- makerQuery
+	In      chan url.URL
+	Out     chan *Request
+	Done    chan struct{}
+	nworker int
 }
 
 type requestSetter interface {
 	SetRequest(*Request)
 }
 
-func newRequestMaker(opt *Option, setter requestSetter) *requestMaker {
+func newRequestMaker(nworker int, in <-chan url.URL, done chan struct{},
+	query chan<- makerQuery) *requestMaker {
 	return &requestMaker{
-		Out:    make(chan *Request, opt.RequestMaker.QLen),
-		client: NewStdClient(opt),
-		opt:    opt,
-		setter: setter,
+		query:   query,
+		Out:     make(chan *Request, nworker),
+		Done:    done,
+		In:      in,
+		nworker: nworker,
 	}
 }
 
 func (rm *requestMaker) newRequest(u url.URL) (req *Request, err error) {
 	u.Fragment = ""
 	req = &Request{
-		Client: rm.client,
+		Client: DefaultClient,
 	}
 	if req.Request, err = http.NewRequest("GET", u.String(), nil); err != nil {
 		return
 	}
-
 	req.Header.Set("User-Agent", rm.opt.RobotoAgent)
-	rm.setter.SetRequest(req)
+	query := makerQuery{
+		reply: make(chan requestSetter),
+		url:   &u,
+	}
+	rm.query <- query
+	S := <-query.reply
+	S.SetRequest(req)
 	return
 }
 
-func (rm *requestMaker) Start() {
-	n := rm.opt.RequestMaker.NWorker
+func (rm *requestMaker) start() {
 	var wg sync.WaitGroup
-	wg.Add(n)
-	for i := 0; i < n; i++ {
+	wg.Add(nworker)
+	for i := 0; i < rm.nworker; i++ {
 		go func() {
 			rm.work()
 			wg.Done()
@@ -69,12 +79,12 @@ func (rm *requestMaker) work() {
 		if req, err := rm.newRequest(u); err != nil {
 			log.Println(err)
 			continue
-		} else {
-			select {
-			case rm.Out <- req:
-			case <-rm.Done:
-				return
-			}
 		}
+		select {
+		case rm.Out <- req:
+		case <-rm.Done:
+			return
+		}
+
 	}
 }

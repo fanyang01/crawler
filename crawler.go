@@ -24,9 +24,6 @@ type Crawler struct {
 	ctrl        Controller
 	option      *Option
 	pool        *store
-	pQueue      *pqueue
-	tQueue      *tqueue
-	eQueue      chan url.URL
 	fetcher     *fetcher
 	filter      *filter
 	constructor *requestMaker
@@ -92,36 +89,6 @@ func (c *Crawler) AddSeeds(seeds ...string) error {
 }
 
 func (c *Crawler) Crawl() {
-	// Move available URL to priority queue from time queue
-	go func() {
-		duration := 100 * time.Millisecond
-		for {
-			if !c.tQueue.IsAvailable() {
-				time.Sleep(duration)
-				duration = duration * 2
-				continue
-			}
-			if urls, ok := c.tQueue.MultiPop(); ok {
-				for _, u := range urls {
-					c.pQueue.Push(u)
-				}
-				duration = 100 * time.Millisecond
-			}
-		}
-	}()
-
-	// Pop URL from priority queue
-	ch := make(chan url.URL, c.option.PriorityQueue.BufLen)
-	go func() {
-		for {
-			select {
-			case ch <- c.pQueue.Pop():
-			case <-c.done:
-				close(ch)
-				return
-			}
-		}
-	}()
 
 	c.constructor.In = ch
 	c.constructor.Start()
@@ -134,24 +101,6 @@ func (c *Crawler) Crawl() {
 
 	c.filter.In = c.parser.Out
 	c.filter.Start()
-
-	// Push output of filter into queue
-	go func() {
-		for {
-			select {
-			case u := <-c.filter.Out:
-				// WARNING: don't use address of u, for u is reused.
-				uu := u
-				if u.nextTime.After(time.Now()) {
-					c.tQueue.Push(&uu)
-				} else {
-					c.pQueue.Push(&uu)
-				}
-			case <-c.done:
-				return
-			}
-		}
-	}()
 
 	// Periodically retry urls in error queue
 	go func() {

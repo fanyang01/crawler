@@ -27,7 +27,7 @@ type Controller interface {
 	// doc.SubURLsReady should be recieved. If the HTML tree of doc is needed,
 	// doc.ParseHTML() should be called explicitly because it may result in
 	// many allocations.
-	Handle(resp *Response, doc *Doc)
+	Handle(resp *Response)
 
 	// SetRequest sets options(client, headers, ...) for a http request
 	SetRequest(*Request)
