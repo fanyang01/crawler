@@ -1,4 +1,4 @@
-package tree
+package crawler
 
 import (
 	"net/url"
@@ -16,13 +16,14 @@ type handlerQuery struct {
 
 type handler struct {
 	In      <-chan *Response
-	Out     chan<- *Response
-	Req     chan<- *handlerQuery
+	Out     chan *Response
+	Req     chan<- *ctrlQuery
 	Done    chan struct{}
 	nworker int
 }
 
-func newHandler(nworker int, in <-chan *Response, ch chan<- *handlerQuery, done chan struct{}) *handler {
+func newHandler(nworker int, in <-chan *Response, done chan struct{},
+	ch chan<- *ctrlQuery) *handler {
 	return &handler{
 		In:   in,
 		Req:  ch,
@@ -33,7 +34,7 @@ func newHandler(nworker int, in <-chan *Response, ch chan<- *handlerQuery, done 
 
 func (h *handler) start() {
 	var wg sync.WaitGroup
-	wg.Add(nworker)
+	wg.Add(h.nworker)
 	for i := 0; i < h.nworker; i++ {
 		go func() {
 			h.work()
@@ -48,9 +49,9 @@ func (h *handler) start() {
 
 func (h *handler) work() {
 	for r := range h.In {
-		q := &handlerQuery{
-			url:  resp.Locations,
-			resp: make(chan Handler),
+		q := &ctrlQuery{
+			url:   r.Locations,
+			reply: make(chan Controller),
 		}
 		h.Req <- q
 		H := <-q.reply

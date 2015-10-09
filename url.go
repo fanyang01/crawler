@@ -48,7 +48,7 @@ func ResolveReference(base, ref, dst *url.URL) {
 	dst.User = ref.User
 	dst.Host = ref.Host
 	dst.Path = ref.Path
-	dst.RawPath = ref.RawPath
+	// dst.RawPath = ref.RawPath
 	dst.RawQuery = ref.RawQuery
 	dst.Fragment = ref.Fragment
 

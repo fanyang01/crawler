@@ -13,7 +13,7 @@ const (
 	U_Waiting         // in waiting queue
 	U_Enqueued        // in main queue
 	U_Sieving         // in filter
-	U_Finished
+	U_Fetched
 	U_Redirected
 	U_Error
 )
@@ -33,7 +33,7 @@ type URLStore interface {
 }
 
 type URL struct {
-	Loc     url.URL
+	Loc     *url.URL
 	Score   int64
 	Freq    time.Duration
 	Visited struct {
@@ -63,8 +63,8 @@ type store struct {
 func newURL(u url.URL) *URL {
 	u.Fragment = ""
 	return &URL{
-		Loc:    u,
-		status: U_Init,
+		Loc:    &u,
+		Status: U_Init,
 	}
 }
 
@@ -90,22 +90,22 @@ func (p *store) WatchP(u URL) storeHandle {
 	p.Lock()
 	defer p.Unlock()
 	u.Loc.Fragment = ""
-	entry, ok := p.m[u.Loc]
+	ent, ok := p.m[*u.Loc]
 	if ok {
-		entry.Lock()
-		return entry
+		ent.Lock()
+		return ent
 	}
 
-	entry = &entry{url: u}
-	entry.Lock()
-	p.m[u.Loc] = entry
-	return entry
+	ent = &entry{url: u}
+	ent.Lock()
+	p.m[*u.Loc] = ent
+	return ent
 }
 
 func (p *store) Put(u URL) {
 	u.Loc.Fragment = ""
 	p.Lock()
-	p.m[u.Loc] = &entry{url: u}
+	p.m[*u.Loc] = &entry{url: u}
 	p.Unlock()
 }
 

@@ -7,9 +7,11 @@ import (
 	"sync"
 )
 
+const (
+	RobotAgent = "I'm a robot"
+)
+
 type makerQuery struct {
-	url   *url.URL
-	reply chan requestSetter
 }
 
 type Request struct {
@@ -18,8 +20,8 @@ type Request struct {
 }
 
 type requestMaker struct {
-	query   chan<- makerQuery
-	In      chan url.URL
+	query   chan<- *ctrlQuery
+	In      <-chan *url.URL
 	Out     chan *Request
 	Done    chan struct{}
 	nworker int
@@ -29,8 +31,8 @@ type requestSetter interface {
 	SetRequest(*Request)
 }
 
-func newRequestMaker(nworker int, in <-chan url.URL, done chan struct{},
-	query chan<- makerQuery) *requestMaker {
+func newRequestMaker(nworker int, in <-chan *url.URL, done chan struct{},
+	query chan<- *ctrlQuery) *requestMaker {
 	return &requestMaker{
 		query:   query,
 		Out:     make(chan *Request, nworker),
@@ -40,18 +42,19 @@ func newRequestMaker(nworker int, in <-chan url.URL, done chan struct{},
 	}
 }
 
-func (rm *requestMaker) newRequest(u url.URL) (req *Request, err error) {
+func (rm *requestMaker) newRequest(url *url.URL) (req *Request, err error) {
+	u := *url
 	u.Fragment = ""
 	req = &Request{
-		Client: DefaultClient,
+		Client: StaticClient,
 	}
 	if req.Request, err = http.NewRequest("GET", u.String(), nil); err != nil {
 		return
 	}
-	req.Header.Set("User-Agent", rm.opt.RobotoAgent)
-	query := makerQuery{
-		reply: make(chan requestSetter),
+	req.Header.Set("User-Agent", RobotAgent)
+	query := &ctrlQuery{
 		url:   &u,
+		reply: make(chan Controller),
 	}
 	rm.query <- query
 	S := <-query.reply
@@ -61,7 +64,7 @@ func (rm *requestMaker) newRequest(u url.URL) (req *Request, err error) {
 
 func (rm *requestMaker) start() {
 	var wg sync.WaitGroup
-	wg.Add(nworker)
+	wg.Add(rm.nworker)
 	for i := 0; i < rm.nworker; i++ {
 		go func() {
 			rm.work()
@@ -79,11 +82,12 @@ func (rm *requestMaker) work() {
 		if req, err := rm.newRequest(u); err != nil {
 			log.Println(err)
 			continue
-		}
-		select {
-		case rm.Out <- req:
-		case <-rm.Done:
-			return
+		} else {
+			select {
+			case rm.Out <- req:
+			case <-rm.Done:
+				return
+			}
 		}
 
 	}

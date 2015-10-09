@@ -1,1 +1,1 @@
-# Crawler [![Build Status](https://drone.io/github.com/fanyang01/crawler/status.png)](https://drone.io/github.com/fanyang01/crawler/latest) ![Build Status](https://circleci.com/gh/fanyang01/crawler.svg?circle-token=21b67cd3e47060c221388a9fbf8bed4d4d03c71c)
+# Crawler [![Build Status](https://drone.io/github.com/fanyang01/crawler/status.png)](https://drone.io/github.com/fanyang01/crawler/latest) [![Circle CI](https://circleci.com/gh/fanyang01/crawler.svg?style=svg)](https://circleci.com/gh/fanyang01/crawler) 

@@ -7,16 +7,16 @@ import (
 )
 
 type cachePool struct {
-	size int
+	size    int64
+	maxSize int64
 	sync.RWMutex
-	m   map[string]*Response
-	opt *Option
+	m map[string]*Response
 }
 
-func newCachePool(opt *Option) *cachePool {
+func newCachePool(maxSize int64) *cachePool {
 	return &cachePool{
-		m:   make(map[string]*Response),
-		opt: opt,
+		m:       make(map[string]*Response),
+		maxSize: maxSize,
 	}
 }
 
@@ -24,10 +24,10 @@ func (cp *cachePool) Add(r *Response) {
 	cp.Lock()
 	defer cp.Unlock()
 	for key := range cp.m {
-		if cp.size+len(r.Content) <= cp.opt.MaxCacheSize {
+		if cp.size+int64(len(r.Content)) <= cp.maxSize {
 			break
 		}
-		cp.size -= len(cp.m[key].Content)
+		cp.size -= int64(len(cp.m[key].Content))
 		cp.m[key] = nil
 		delete(cp.m, key)
 	}
@@ -44,7 +44,7 @@ func (cp *cachePool) Add(r *Response) {
 	if u1 != u0 {
 		cp.m[u1] = &resp
 	}
-	cp.size += len(r.Content)
+	cp.size += int64(len(r.Content))
 }
 
 func (cp *cachePool) Get(URL string) (resp *Response, ok bool) {

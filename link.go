@@ -23,14 +23,14 @@ type Link struct {
 
 type linkParser struct {
 	In      <-chan *Response
-	Out     chan<- *Link
+	Out     chan *Link
 	Done    chan struct{}
 	nworker int
 }
 
 func newLinkParser(nworker int, in <-chan *Response, done chan struct{}) *linkParser {
 	return &linkParser{
-		Out:     make(chan *Doc, nworker),
+		Out:     make(chan *Link, nworker),
 		In:      in,
 		Done:    done,
 		nworker: nworker,
@@ -39,7 +39,7 @@ func newLinkParser(nworker int, in <-chan *Response, done chan struct{}) *linkPa
 
 func (lp *linkParser) start() {
 	var wg sync.WaitGroup
-	wg.Add(nworker)
+	wg.Add(lp.nworker)
 	for i := 0; i < lp.nworker; i++ {
 		go func() {
 			lp.work()
@@ -61,7 +61,7 @@ func (lp *linkParser) work() {
 			continue
 		}
 		select {
-		case lp.Out <- lp.findLink(r):
+		case lp.Out <- findLink(r):
 		case <-lp.Done:
 			return
 		}
@@ -70,10 +70,7 @@ func (lp *linkParser) work() {
 
 func findLink(resp *Response) *Link {
 	link := &Link{
-		Base:         resp.Locations,
-		Second:       resp.ContentLocation,
-		Time:         resp.Date,
-		LastModified: resp.LastModified,
+		Base: resp.Locations,
 	}
 	z := html.NewTokenizer(bytes.NewReader(resp.Content))
 LOOP:
@@ -107,4 +104,5 @@ LOOP:
 			}
 		}
 	}
+	return link
 }

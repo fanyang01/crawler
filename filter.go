@@ -11,11 +11,13 @@ type filterQuery struct {
 }
 
 type filter struct {
-	In    chan *Link
-	Out   chan *url.URL
-	Done  chan struct{}
-	Req   chan filterQuery
-	store URLStore
+	In      chan *Link
+	New     chan *url.URL
+	Fetched chan *url.URL
+	Done    chan struct{}
+	Req     chan *ctrlQuery
+	nworker int
+	store   URLStore
 }
 
 type Sifter interface {
@@ -23,20 +25,23 @@ type Sifter interface {
 }
 
 func newFilter(nworker int, in chan *Link, done chan struct{},
-	req chan schedQuery, store URLStore) *filter {
+	req chan *ctrlQuery, store URLStore) *filter {
+
 	return &filter{
-		Out:   make(chan URL, nworker),
-		Done:  done,
-		In:    in,
-		Req:   req,
-		store: store,
+		New:     make(chan *url.URL, nworker),
+		Fetched: make(chan *url.URL, nworker),
+		Done:    done,
+		In:      in,
+		Req:     req,
+		nworker: nworker,
+		store:   store,
 	}
 }
 
 func (ft *filter) start() {
 	var wg sync.WaitGroup
-	wg.Add(nworker)
-	for i := 0; i < nworker; i++ {
+	wg.Add(ft.nworker)
+	for i := 0; i < ft.nworker; i++ {
 		go func() {
 			ft.work()
 			wg.Done()
@@ -44,30 +49,31 @@ func (ft *filter) start() {
 	}
 	go func() {
 		wg.Wait()
-		close(ft.Out)
+		close(ft.New)
+		close(ft.Fetched)
 	}()
 }
 
 func (ft *filter) work() {
 	for link := range ft.In {
-		query := filterQuery{
+		query := &ctrlQuery{
 			url:   link.Base,
-			reply: make(chan Sifter),
+			reply: make(chan Controller),
 		}
 		ft.Req <- query
 		sifter := <-query.reply
 		for _, anchor := range link.Anchors {
 			if sifter.Accept(anchor) {
 				// only handle new link
-				if _, ok := ft.store.Get(anchor.URL); ok {
+				if _, ok := ft.store.Get(*anchor.URL); ok {
 					continue
 				}
 				ft.store.Put(URL{
-					Loc:    *anchor.URL,
+					Loc:    anchor.URL,
 					Status: U_Init,
 				})
 				select {
-				case ft.Out <- anchor.URL:
+				case ft.New <- anchor.URL:
 				case <-ft.Done:
 					return
 				}

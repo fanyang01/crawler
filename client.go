@@ -23,12 +23,19 @@ type StdClient struct {
 	pool            sync.Pool
 }
 
-func NewStdClient(opt *Option) *StdClient {
+var StaticClient = &StdClient{
+	client:          http.DefaultClient,
+	cache:           newCachePool(1 << 26),
+	MaxHTMLLen:      1 << 19,
+	EnableUnkownLen: true,
+}
+
+func NewStdClient(maxCacheSize, maxHTMLLen int64, enableUnkownLen bool) *StdClient {
 	client := &StdClient{
 		client:          DefaultClient,
-		MaxHTMLLen:      opt.MaxHTMLLen,
-		EnableUnkownLen: opt.EnableUnkownLen,
-		cache:           newCachePool(opt),
+		MaxHTMLLen:      maxHTMLLen,
+		EnableUnkownLen: enableUnkownLen,
+		cache:           newCachePool(maxCacheSize),
 	}
 	return client
 }

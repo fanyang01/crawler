@@ -31,29 +31,29 @@ type Response struct {
 }
 
 type fetcher struct {
-	errQ    chan<- url.URL
+	errQ    chan<- *url.URL
 	store   URLStore
-	In      chan *Request
+	In      <-chan *Request
 	Out     chan *Response
 	Done    chan struct{}
 	nworker int
 }
 
 func newFetcher(nworker int, in <-chan *Request, done chan struct{},
-	errQ chan<- url.URL, store URLStore) *fetcher {
+	errQ chan<- *url.URL, store URLStore) *fetcher {
 	return &fetcher{
 		Out:     make(chan *Response, nworker),
 		In:      in,
 		Done:    done,
 		nworker: nworker,
-		store:   URLStore,
+		store:   store,
 		errQ:    errQ,
 	}
 }
 
 func (fc *fetcher) start() {
 	var wg sync.WaitGroup
-	wg.Add(nworker)
+	wg.Add(fc.nworker)
 	for i := 0; i < fc.nworker; i++ {
 		go func() {
 			fc.work()
@@ -71,18 +71,19 @@ func (fc *fetcher) work() {
 		resp, err := req.Client.Do(req)
 		if err != nil {
 			// log.Printf("fetcher: %v\n", err)
-			h := fc.WatchP(URL{Loc: *req.URL})
+			h := fc.store.WatchP(URL{Loc: req.URL})
 			u := h.V()
 			u.Status = U_Error
 			h.Unlock()
 			select {
-			case fc.errQ <- *req.URL:
+			case fc.errQ <- req.URL:
 			case <-fc.Done:
 				return
 			}
 			continue
 		}
-		h := fc.store.WatchP(URL{Loc: *resp.Locations})
+		h := fc.store.WatchP(URL{Loc: resp.Locations})
+		u := h.V()
 		u.Visited.Count++
 		u.Visited.Time = resp.Date
 		u.LastModified = resp.LastModified
@@ -90,11 +91,11 @@ func (fc *fetcher) work() {
 		h.Unlock()
 		// redirect
 		if resp.Locations.String() != req.URL.String() {
-			if h, ok := ft.store.Watch(*req.URL); ok {
+			if h := fc.store.Watch(*req.URL); h != nil {
 				u := h.V()
 				u.Visited.Count++
-				u.Visited.Time = link.Time
-				u.LastModified = link.LastModified
+				u.Visited.Time = resp.Date
+				u.LastModified = resp.LastModified
 				u.Status = U_Redirected
 				h.Unlock()
 			}
