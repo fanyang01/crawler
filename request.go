@@ -19,7 +19,7 @@ type Request struct {
 	*http.Request
 }
 
-type requestMaker struct {
+type maker struct {
 	query   chan<- *ctrlQuery
 	In      <-chan *url.URL
 	Out     chan *Request
@@ -32,8 +32,8 @@ type requestSetter interface {
 }
 
 func newRequestMaker(nworker int, in <-chan *url.URL, done chan struct{},
-	query chan<- *ctrlQuery) *requestMaker {
-	return &requestMaker{
+	query chan<- *ctrlQuery) *maker {
+	return &maker{
 		query:   query,
 		Out:     make(chan *Request, nworker),
 		Done:    done,
@@ -42,7 +42,7 @@ func newRequestMaker(nworker int, in <-chan *url.URL, done chan struct{},
 	}
 }
 
-func (rm *requestMaker) newRequest(url *url.URL) (req *Request, err error) {
+func (rm *maker) newRequest(url *url.URL) (req *Request, err error) {
 	u := *url
 	u.Fragment = ""
 	req = &Request{
@@ -62,7 +62,7 @@ func (rm *requestMaker) newRequest(url *url.URL) (req *Request, err error) {
 	return
 }
 
-func (rm *requestMaker) start() {
+func (rm *maker) start() {
 	var wg sync.WaitGroup
 	wg.Add(rm.nworker)
 	for i := 0; i < rm.nworker; i++ {
@@ -77,7 +77,7 @@ func (rm *requestMaker) start() {
 	}()
 }
 
-func (rm *requestMaker) work() {
+func (rm *maker) work() {
 	for u := range rm.In {
 		if req, err := rm.newRequest(u); err != nil {
 			log.Println(err)

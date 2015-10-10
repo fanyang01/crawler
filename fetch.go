@@ -71,7 +71,7 @@ func (fc *fetcher) work() {
 		resp, err := req.Client.Do(req)
 		if err != nil {
 			// log.Printf("fetcher: %v\n", err)
-			h := fc.store.WatchP(URL{Loc: req.URL})
+			h := fc.store.WatchP(URL{Loc: *req.URL})
 			u := h.V()
 			u.Status = U_Error
 			h.Unlock()
@@ -82,7 +82,7 @@ func (fc *fetcher) work() {
 			}
 			continue
 		}
-		h := fc.store.WatchP(URL{Loc: resp.Locations})
+		h := fc.store.WatchP(URL{Loc: *resp.Locations})
 		u := h.V()
 		u.Visited.Count++
 		u.Visited.Time = resp.Date

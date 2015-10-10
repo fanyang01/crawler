@@ -19,21 +19,26 @@ const (
 )
 
 type storeHandle interface {
+	// V provides a pointer for modifying internal data.
+	// If data is stored in db rather than memory, this method
+	// must retrieve and store it in memory.
 	V() *URL
+	// Unlock may need to update data associated with the handle
+	// in addition to unlock the handle, for instance, writing it back to db.
 	Unlock()
 }
 
 type URLStore interface {
 	Get(u url.URL) (URL, bool)
 	Put(u URL)
-	// Watch locks the entry located by u and returns a pointer to data.
+	// Watch locks the entry located by u and returns a handle.
 	Watch(u url.URL) storeHandle
 	// WatchP locks the entry(if not exist, create)
 	WatchP(u URL) storeHandle
 }
 
 type URL struct {
-	Loc     *url.URL
+	Loc     url.URL
 	Score   int64
 	Freq    time.Duration
 	Visited struct {
@@ -63,7 +68,7 @@ type store struct {
 func newURL(u url.URL) *URL {
 	u.Fragment = ""
 	return &URL{
-		Loc:    &u,
+		Loc:    u,
 		Status: U_Init,
 	}
 }
@@ -90,7 +95,7 @@ func (p *store) WatchP(u URL) storeHandle {
 	p.Lock()
 	defer p.Unlock()
 	u.Loc.Fragment = ""
-	ent, ok := p.m[*u.Loc]
+	ent, ok := p.m[u.Loc]
 	if ok {
 		ent.Lock()
 		return ent
@@ -98,18 +103,19 @@ func (p *store) WatchP(u URL) storeHandle {
 
 	ent = &entry{url: u}
 	ent.Lock()
-	p.m[*u.Loc] = ent
+	p.m[u.Loc] = ent
 	return ent
 }
 
 func (p *store) Put(u URL) {
 	u.Loc.Fragment = ""
 	p.Lock()
-	p.m[*u.Loc] = &entry{url: u}
+	p.m[u.Loc] = &entry{url: u}
 	p.Unlock()
 }
 
 func (p *store) Get(u url.URL) (uu URL, ok bool) {
+	u.Fragment = ""
 	p.RLock()
 	entry, present := p.m[u]
 	if present {

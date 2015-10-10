@@ -3,7 +3,6 @@ package crawler
 import (
 	"encoding/xml"
 	"errors"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -123,7 +122,7 @@ func (site *Site) fetchSitemap() {
 	}
 }
 
-func siteRoot(u url.URL) string {
+func siteRoot(u *url.URL) string {
 	uu := url.URL{
 		Scheme: u.Scheme,
 		Host:   u.Host,
@@ -131,34 +130,13 @@ func siteRoot(u url.URL) string {
 	return uu.String()
 }
 
-func (cw *Crawler) addSite(u url.URL) error {
-	root := siteRoot(u)
-	cw.sites.Lock()
-	defer cw.sites.Unlock()
-	site, ok := cw.sites.m[root]
-	if ok {
-		return nil
-	}
-
-	var err error
-	site, err = newSite(root)
-	if err != nil {
-		return err
-	}
-	if err := site.fetchRobots(); err != nil {
-		return fmt.Errorf("fetch robots.txt: %v", err)
-	}
-	site.fetchSitemap()
-	cw.sites.m[root] = site
-	return nil
+type sites struct {
+	m map[string]*Site
+	sync.RWMutex
 }
 
-func (cw *Crawler) testRobot(u url.URL) bool {
-	cw.sites.RLock()
-	defer cw.sites.RUnlock()
-	site, ok := cw.sites.m[siteRoot(u)]
-	if !ok || site.Robot == nil {
-		return false
+func newSites() sites {
+	return sites{
+		m: make(map[string]*Site),
 	}
-	return site.Robot.TestAgent(u.Path, cw.option.RobotoAgent)
 }

@@ -29,7 +29,7 @@ func (r router) Lookup(s string) (Controller, bool) {
 	return v.(Controller), true
 }
 
-func (r router) Serve(query <-chan ctrlQuery) {
+func (r router) Serve(query <-chan *ctrlQuery) {
 	for q := range query {
 		ctrl, ok := r.Lookup(q.url.String())
 		if !ok {

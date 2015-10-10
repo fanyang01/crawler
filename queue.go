@@ -7,7 +7,24 @@ import (
 	"github.com/fanyang01/bheap"
 )
 
-func lessPriority(x, y interface{}) bool {
+// Priority queue, using URL.Score as priority
+type PQ interface {
+	Push(*URL)
+	Pop() *URL
+}
+
+// Waiting queue, using URL.nextTime as priority
+type WQ interface {
+	Push(*URL)
+	// Check if any 'nextTime' is before/at now.
+	IsAvailable() bool
+	// Pop a url whose 'nextTime' is before/at now. No blocking.
+	Pop() (*URL, bool)
+	// Pop all urls whose 'nextTime' is before/at now. No blocking.
+	MultiPop() (urls []*URL, any bool)
+}
+
+func lessScore(x, y interface{}) bool {
 	// a := (*URL)(bheap.ValuePtr(x))
 	// b := (*URL)(bheap.ValuePtr(y))
 	a, b := x.(*URL), y.(*URL)
@@ -25,21 +42,6 @@ type urlQueue struct {
 	pop    *sync.Cond
 	push   *sync.Cond
 	*sync.RWMutex
-}
-
-type tqueue struct {
-	urlQueue
-}
-
-type pqueue struct {
-	urlQueue
-}
-
-func newPQueue(maxLen int) *pqueue {
-	return &pqueue{newURLQueue(lessPriority, maxLen)}
-}
-func newTQueue(maxLen int) *tqueue {
-	return &tqueue{newURLQueue(lessTime, maxLen)}
 }
 
 func newURLQueue(f bheap.LessFunc, maxLen int) urlQueue {
@@ -62,7 +64,7 @@ func (q *urlQueue) Push(u *URL) {
 	q.Unlock()
 }
 
-// Pop will block if h is empty
+// Pop will block if heap is empty
 func (q *urlQueue) Pop() (u *URL) {
 	q.Lock()
 	for q.heap.IsEmpty() {
@@ -75,17 +77,24 @@ func (q *urlQueue) Pop() (u *URL) {
 	return i.(*URL)
 }
 
-func (q *urlQueue) Len() int {
-	q.RLock()
-	length := q.heap.Len()
-	q.RUnlock()
-	return length
+type wqueue struct {
+	urlQueue
+}
+type pqueue struct {
+	urlQueue
 }
 
-func (tq *tqueue) IsAvailable() bool {
-	tq.RLock()
-	defer tq.RUnlock()
-	if v, ok := tq.heap.Top(); ok {
+func newPQueue(maxLen int) *pqueue {
+	return &pqueue{newURLQueue(lessScore, maxLen)}
+}
+func newTQueue(maxLen int) *wqueue {
+	return &wqueue{newURLQueue(lessTime, maxLen)}
+}
+
+func (wq *wqueue) IsAvailable() bool {
+	wq.RLock()
+	defer wq.RUnlock()
+	if v, ok := wq.heap.Top(); ok {
 		if !v.(*URL).nextTime.After(time.Now()) {
 			return true
 		}
@@ -93,12 +102,12 @@ func (tq *tqueue) IsAvailable() bool {
 	return false
 }
 
-func (tq *tqueue) Pop() (*URL, bool) {
-	tq.Lock()
-	defer tq.Unlock()
-	if v, ok := tq.heap.Top(); ok {
+func (wq *wqueue) Pop() (*URL, bool) {
+	wq.Lock()
+	defer wq.Unlock()
+	if v, ok := wq.heap.Top(); ok {
 		if !v.(*URL).nextTime.After(time.Now()) {
-			if v, ok := tq.heap.Pop(); ok {
+			if v, ok := wq.heap.Pop(); ok {
 				return v.(*URL), true
 			}
 		}
@@ -106,12 +115,12 @@ func (tq *tqueue) Pop() (*URL, bool) {
 	return nil, false
 }
 
-func (tq *tqueue) MultiPop() (s []*URL, any bool) {
-	tq.Lock()
+func (wq *wqueue) MultiPop() (s []*URL, any bool) {
+	wq.Lock()
 	for {
-		if v, ok := tq.heap.Top(); ok {
+		if v, ok := wq.heap.Top(); ok {
 			if !v.(*URL).nextTime.After(time.Now()) {
-				if v, ok := tq.heap.Pop(); ok {
+				if v, ok := wq.heap.Pop(); ok {
 					s = append(s, v.(*URL))
 					any = true
 					continue
@@ -120,6 +129,6 @@ func (tq *tqueue) MultiPop() (s []*URL, any bool) {
 		}
 		break
 	}
-	tq.Unlock()
+	wq.Unlock()
 	return
 }

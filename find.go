@@ -21,15 +21,15 @@ type Link struct {
 	Anchors []Anchor
 }
 
-type linkParser struct {
+type finder struct {
 	In      <-chan *Response
 	Out     chan *Link
 	Done    chan struct{}
 	nworker int
 }
 
-func newLinkParser(nworker int, in <-chan *Response, done chan struct{}) *linkParser {
-	return &linkParser{
+func newFinder(nworker int, in <-chan *Response, done chan struct{}) *finder {
+	return &finder{
 		Out:     make(chan *Link, nworker),
 		In:      in,
 		Done:    done,
@@ -37,23 +37,23 @@ func newLinkParser(nworker int, in <-chan *Response, done chan struct{}) *linkPa
 	}
 }
 
-func (lp *linkParser) start() {
+func (f *finder) start() {
 	var wg sync.WaitGroup
-	wg.Add(lp.nworker)
-	for i := 0; i < lp.nworker; i++ {
+	wg.Add(f.nworker)
+	for i := 0; i < f.nworker; i++ {
 		go func() {
-			lp.work()
+			f.work()
 			wg.Done()
 		}()
 	}
 	go func() {
 		wg.Wait()
-		close(lp.Out)
+		close(f.Out)
 	}()
 }
 
-func (lp *linkParser) work() {
-	for r := range lp.In {
+func (f *finder) work() {
+	for r := range f.In {
 		if r == nil {
 			continue
 		}
@@ -61,8 +61,8 @@ func (lp *linkParser) work() {
 			continue
 		}
 		select {
-		case lp.Out <- findLink(r):
-		case <-lp.Done:
+		case f.Out <- findLink(r):
+		case <-f.Done:
 			return
 		}
 	}
