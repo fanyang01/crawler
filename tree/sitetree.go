@@ -35,7 +35,7 @@ func (st *SiteTree) Insert(u url.URL) (*SiteNode, bool) {
 		return nil, false
 	}
 
-	pth := path.Clean(u.RawPath) // only for go1.5
+	pth := path.Clean(u.Path) // RawPath only for go1.5
 	// treat "example.com" as "example.com/"
 	if pth == "." {
 		pth = "/"
@@ -82,7 +82,7 @@ func (st *SiteTree) Search(u url.URL) (node *SiteNode) {
 		return
 	}
 
-	pth := path.Clean(u.RawPath) // only for go1.5
+	pth := path.Clean(u.Path) // RawPath only for go1.5
 	if pth == "." {
 		pth = "/"
 	}
