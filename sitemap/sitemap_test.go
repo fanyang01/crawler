@@ -108,10 +108,10 @@ func mustParseTime(layout, v string) time.Time {
 	}
 }
 
-func mustParseURL(u string) *url.URL {
+func mustParseURL(u string) url.URL {
 	if uu, err := url.Parse(u); err != nil {
 		panic(err)
 	} else {
-		return uu
+		return *uu
 	}
 }
