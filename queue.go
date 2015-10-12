@@ -39,13 +39,13 @@ func (q *baseHeap) Pop() interface{} {
 type wHeap struct{ baseHeap }
 
 func (h wHeap) Less(i, j int) bool {
-	return h.baseHeap[i].nextTime.After(h.baseHeap[j].nextTime)
+	return h.baseHeap[i].nextTime.Before(h.baseHeap[j].nextTime)
 }
 
 type pHeap struct{ baseHeap }
 
 func (h pHeap) Less(i, j int) bool {
-	return h.baseHeap[i].Score < h.baseHeap[j].Score
+	return h.baseHeap[i].Score > h.baseHeap[j].Score
 }
 
 type urlQueue struct {
