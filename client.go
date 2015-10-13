@@ -11,45 +11,36 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
+// StdClient is a client for crawling static pages.
 type StdClient struct {
-	client          *http.Client
-	cache           *cachePool
+	Client          *http.Client
 	MaxHTMLLen      int64
 	EnableUnkownLen bool
-	pool            sync.Pool
+	Cache           *CachePool
 }
 
+// StaticClient caches cachalbe content and limits the size of html file.
 var StaticClient = &StdClient{
-	client:          http.DefaultClient,
-	cache:           newCachePool(1 << 26),
+	Client:          http.DefaultClient,
 	MaxHTMLLen:      1 << 19,
 	EnableUnkownLen: true,
+	Cache:           NewCachePool(1 << 26),
 }
 
-func NewStdClient(maxCacheSize, maxHTMLLen int64, enableUnkownLen bool) *StdClient {
-	client := &StdClient{
-		client:          DefaultClient,
-		MaxHTMLLen:      maxHTMLLen,
-		EnableUnkownLen: enableUnkownLen,
-		cache:           newCachePool(maxCacheSize),
-	}
-	return client
-}
-
+// Do implements Client.
 func (ct *StdClient) Do(req *Request) (resp *Response, err error) {
 	// First check cache
 	var ok bool
-	if resp, ok = ct.cache.Get(req.URL.String()); ok {
+	if resp, ok = ct.Cache.Get(req.URL.String()); ok {
 		return
 	}
 
 	resp = &Response{}
 	resp.requestURL = req.URL
-	resp.Response, err = ct.client.Do(req.Request)
+	resp.Response, err = ct.Client.Do(req.Request)
 	if err != nil {
 		return
 	}
@@ -73,7 +64,7 @@ func (ct *StdClient) Do(req *Request) (resp *Response, err error) {
 	}
 
 	// Add to cache(NOTE: cache should use value rather than pointer)
-	ct.cache.Add(resp)
+	ct.Cache.Add(resp)
 	return
 }
 
@@ -140,6 +131,8 @@ func (resp *Response) parseHeader() {
 	return
 }
 
+// ReadBody reads the body of response. It can be called multi-times safely.
+// Response.Body will also be closed.
 func (resp *Response) ReadBody(maxLen int64, enableUnkownLen bool) error {
 	if resp.Ready {
 		return nil
@@ -189,6 +182,7 @@ func (resp *Response) ReadBody(maxLen int64, enableUnkownLen bool) error {
 	return err
 }
 
+// CloseBody closes the body of response. It can be called multi-times safely.
 func (resp *Response) CloseBody() {
 	if resp.Ready {
 		return

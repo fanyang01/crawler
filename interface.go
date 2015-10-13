@@ -2,15 +2,17 @@ package crawler
 
 import "time"
 
-type Controller interface {
+// Handler controls the working process of crawler.
+type Handler interface {
 	// Accept determines whether a URL should be processed. It acts as a
 	// blacklist that preventing some unneccesary URLs to be processed.
 	Accept(anchor Anchor) bool
 
-	// Schedule gives a score between 0 and 1024 for a URL, Higher score means higher
-	// priority in queue.  Schedule also specifies the next time that this URL
-	// should be crawled at.
-	Schedule(u URL) (score int64, at time.Time)
+	// Schedule gives a score between 0 and 1024 for a URL, Higher score means
+	// higher priority in queue.  Schedule also specifies the next time that
+	// this URL should be crawled at. If this URL is expected to be not crawled
+	// any more, return true for done.
+	Schedule(u URL) (score int64, at time.Time, done bool)
 
 	// Handle handles a response. If the content type of
 	// response is text/html, the body of the response is prefetched. If the HTML tree of doc is needed,
@@ -22,6 +24,7 @@ type Controller interface {
 	SetRequest(*Request)
 }
 
+// Client does request.
 type Client interface {
 	Do(*Request) (*Response, error)
 }

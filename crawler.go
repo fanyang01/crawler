@@ -2,40 +2,27 @@ package crawler
 
 import (
 	"errors"
-	"log"
 	"net/url"
 	"time"
 )
 
+// Crawler crawls web pages.
 type Crawler struct {
 	option    *Option
 	urlStore  URLStore
-	router    *router
+	router    *Mux
 	maker     *maker
 	fetcher   *fetcher
-	handler   *handler
+	handler   *respHandler
 	finder    *finder
 	filter    *filter
 	scheduler *scheduler
 	stdClient *StdClient
 	done      chan struct{}
-	query     chan *ctrlQuery
+	query     chan *HandlerQuery
 }
 
-type Ctrl struct{}
-
-func (c Ctrl) Handle(resp *Response) bool {
-	log.Println(resp.Locations)
-	return true
-}
-func (c Ctrl) Schedule(u URL) (score int64, at time.Time) { return 512, time.Now().Add(time.Second) }
-func (c Ctrl) Accept(_ Anchor) bool                       { return true }
-func (c Ctrl) SetRequest(_ *Request)                      {}
-
-var (
-	DefaultController = &Ctrl{}
-)
-
+// NewCrawler creates a new crawler.
 func NewCrawler(store URLStore, opt *Option) *Crawler {
 	if store == nil {
 		store = newMemStore()
@@ -47,9 +34,9 @@ func NewCrawler(store URLStore, opt *Option) *Crawler {
 		option:   opt,
 		urlStore: store,
 		done:     make(chan struct{}),
-		query:    make(chan *ctrlQuery, 128),
+		query:    make(chan *HandlerQuery, 128),
 	}
-	cw.router = newRouter()
+	cw.router = NewMux()
 
 	entry := make(chan *url.URL, opt.NWorker.Scheduler)
 	// connect each part
@@ -63,7 +50,7 @@ func NewCrawler(store URLStore, opt *Option) *Crawler {
 		cw.done,
 		cw.scheduler.eQueue,
 		cw.urlStore)
-	cw.handler = newHandler(opt.NWorker.Handler,
+	cw.handler = newRespHandler(opt.NWorker.Handler,
 		cw.fetcher.Out,
 		cw.done,
 		cw.query)
@@ -85,11 +72,17 @@ func NewCrawler(store URLStore, opt *Option) *Crawler {
 	return cw
 }
 
-func (cw *Crawler) Handle(pattern string, ctrl Controller) {
-	cw.router.Add(pattern, ctrl)
+// Handle is similiar with http.Handle. It registers handler for given pattern.
+func (cw *Crawler) Handle(pattern string, handler Handler) {
+	cw.router.Add(pattern, handler)
 }
 
-func (cw *Crawler) Crawl() {
+// Crawl starts the crawler using several seeds.
+func (cw *Crawler) Crawl(seeds ...string) error {
+	err := cw.addSeeds(seeds...)
+	if err != nil {
+		return err
+	}
 	cw.router.Serve(cw.query)
 	cw.scheduler.start()
 	cw.maker.start()
@@ -97,9 +90,10 @@ func (cw *Crawler) Crawl() {
 	cw.handler.start()
 	cw.finder.start()
 	cw.filter.start()
+	return nil
 }
 
-func (cw *Crawler) AddSeeds(seeds ...string) error {
+func (cw *Crawler) addSeeds(seeds ...string) error {
 	if len(seeds) == 0 {
 		return errors.New("crawler: no seed provided")
 	}
@@ -117,6 +111,7 @@ func (cw *Crawler) AddSeeds(seeds ...string) error {
 	return nil
 }
 
+// Stop stops the crawler.
 func (cw *Crawler) Stop() {
 	close(cw.done)
 	time.Sleep(1E9)

@@ -1,30 +1,18 @@
 package crawler
 
-import (
-	"net/url"
-	"sync"
-)
+import "sync"
 
-type Handler interface {
-	Handle(resp *Response) (follow bool)
-}
-
-type handlerQuery struct {
-	url   *url.URL
-	reply chan Handler
-}
-
-type handler struct {
+type respHandler struct {
 	In      <-chan *Response
 	Out     chan *Response
-	Req     chan<- *ctrlQuery
+	Req     chan<- *HandlerQuery
 	Done    chan struct{}
 	nworker int
 }
 
-func newHandler(nworker int, in <-chan *Response, done chan struct{},
-	ch chan<- *ctrlQuery) *handler {
-	return &handler{
+func newRespHandler(nworker int, in <-chan *Response, done chan struct{},
+	ch chan<- *HandlerQuery) *respHandler {
+	return &respHandler{
 		In:   in,
 		Req:  ch,
 		Out:  make(chan *Response, nworker),
@@ -32,7 +20,7 @@ func newHandler(nworker int, in <-chan *Response, done chan struct{},
 	}
 }
 
-func (h *handler) start() {
+func (h *respHandler) start() {
 	var wg sync.WaitGroup
 	wg.Add(h.nworker)
 	for i := 0; i < h.nworker; i++ {
@@ -47,14 +35,14 @@ func (h *handler) start() {
 	}()
 }
 
-func (h *handler) work() {
+func (h *respHandler) work() {
 	for r := range h.In {
-		q := &ctrlQuery{
-			url:   r.Locations,
-			reply: make(chan Controller),
+		q := &HandlerQuery{
+			URL:   r.Locations,
+			Reply: make(chan Handler),
 		}
 		h.Req <- q
-		H := <-q.reply
+		H := <-q.Reply
 		follow := H.Handle(r)
 		r.CloseBody()
 		if !follow {

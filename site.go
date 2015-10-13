@@ -12,12 +12,6 @@ import (
 	robot "github.com/temoto/robotstxt-go"
 )
 
-type URLMap struct {
-	// NOTE: this mutex protects the map, NOT values stored in it.
-	sync.RWMutex
-	m map[string]URL // using URI as key
-}
-
 type Site struct {
 	Robot   *robot.RobotsData
 	Client  *http.Client
@@ -135,8 +129,8 @@ type sites struct {
 	sync.RWMutex
 }
 
-func newSites() sites {
-	return sites{
+func newSites() *sites {
+	return &sites{
 		m: make(map[string]*Site),
 	}
 }

@@ -16,10 +16,10 @@ type filter struct {
 	New     chan *url.URL
 	Fetched chan *url.URL
 	Done    chan struct{}
-	Req     chan *ctrlQuery
+	Req     chan *HandlerQuery
 	nworker int
 	store   URLStore
-	sites   sites
+	sites   *sites
 }
 
 type Sifter interface {
@@ -27,7 +27,7 @@ type Sifter interface {
 }
 
 func newFilter(nworker int, in chan *Link, done chan struct{},
-	req chan *ctrlQuery, store URLStore) *filter {
+	req chan *HandlerQuery, store URLStore) *filter {
 
 	return &filter{
 		New:     make(chan *url.URL, nworker),
@@ -64,12 +64,12 @@ func (ft *filter) work() {
 		case <-ft.Done:
 			return
 		}
-		query := &ctrlQuery{
-			url:   link.Base,
-			reply: make(chan Controller),
+		query := &HandlerQuery{
+			URL:   link.Base,
+			Reply: make(chan Handler),
 		}
 		ft.Req <- query
-		sifter := <-query.reply
+		sifter := <-query.Reply
 		for _, anchor := range link.Anchors {
 			if sifter.Accept(anchor) {
 				// only handle new link

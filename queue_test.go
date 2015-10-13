@@ -49,7 +49,7 @@ func TestPQ(t *testing.T) {
 }
 
 func TestWQ(t *testing.T) {
-	wq := newTQueue(100)
+	wq := newWQueue(100)
 	now := time.Now()
 	wq.Push(&URL{
 		nextTime: now.Add(150 * time.Millisecond),

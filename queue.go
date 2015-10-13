@@ -6,13 +6,13 @@ import (
 	"time"
 )
 
-// Priority queue, using URL.Score as priority
+// PQ is priority queue, using URL.Score as priority.
 type PQ interface {
 	Push(*URL)
 	Pop() *URL
 }
 
-// Waiting queue, using URL.nextTime as priority
+// WQ is waiting queue, using URL.nextTime as priority.
 type WQ interface {
 	Push(*URL)
 	// Check if any 'nextTime' is before/at now.
@@ -104,7 +104,7 @@ type pqueue struct {
 func newPQueue(maxLen int) *pqueue {
 	return &pqueue{newURLQueue(&pHeap{}, maxLen)}
 }
-func newTQueue(maxLen int) *wqueue {
+func newWQueue(maxLen int) *wqueue {
 	return &wqueue{newURLQueue(&wHeap{}, maxLen)}
 }
 

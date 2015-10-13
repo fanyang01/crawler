@@ -19,7 +19,7 @@ type scheduler struct {
 	Fetched   chan *url.URL
 	Out       chan *url.URL
 	Done      chan struct{}
-	query     chan *ctrlQuery
+	query     chan *HandlerQuery
 	nworker   int
 	store     URLStore
 	prioQueue PQ
@@ -30,7 +30,7 @@ type scheduler struct {
 }
 
 func newScheduler(nworker int, newIn chan *url.URL, fetchedIn chan *url.URL,
-	done chan struct{}, query chan *ctrlQuery, store URLStore,
+	done chan struct{}, query chan *HandlerQuery, store URLStore,
 	out chan *url.URL) *scheduler {
 
 	return &scheduler{
@@ -42,7 +42,7 @@ func newScheduler(nworker int, newIn chan *url.URL, fetchedIn chan *url.URL,
 		nworker:   nworker,
 		store:     store,
 		prioQueue: newPQueue(PQueueLen),
-		waitQueue: newTQueue(TQueueLen),
+		waitQueue: newWQueue(TQueueLen),
 		eQueue:    make(chan *url.URL, EQueueLen),
 		pool: sync.Pool{
 			New: func() interface{} {
@@ -92,25 +92,28 @@ func (sched *scheduler) work() {
 		case <-sched.Done:
 			return
 		}
-		query := &ctrlQuery{
-			url:   u,
-			reply: make(chan Controller),
+		query := &HandlerQuery{
+			URL:   u,
+			Reply: make(chan Handler),
 		}
 		sched.query <- query
-		SC := <-query.reply
+		SC := <-query.Reply
 		h := sched.store.Watch(*u)
 		if h == nil {
 			continue
 		}
 		uu := h.V()
 		minTime := uu.Visited.Time.Add(MinDelay)
-		uu.Score, uu.nextTime = SC.Schedule(*uu)
-		if uu.Visited.Count > 0 && uu.nextTime.Before(minTime) {
+		uu.Score, uu.nextTime, uu.Done = SC.Schedule(*uu)
+		if !uu.Done && uu.Visited.Count > 0 && uu.nextTime.Before(minTime) {
 			uu.nextTime = minTime
 		}
 		uuu := sched.pool.Get().(*URL)
 		*uuu = *uu
 		h.Unlock()
+		if uuu.Done {
+			continue
+		}
 		if uuu.nextTime.After(time.Now()) {
 			sched.waitQueue.Push(uuu)
 		} else {

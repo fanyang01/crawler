@@ -20,7 +20,7 @@ type Request struct {
 }
 
 type maker struct {
-	query   chan<- *ctrlQuery
+	query   chan<- *HandlerQuery
 	In      <-chan *url.URL
 	Out     chan *Request
 	Done    chan struct{}
@@ -32,7 +32,7 @@ type requestSetter interface {
 }
 
 func newRequestMaker(nworker int, in <-chan *url.URL, done chan struct{},
-	query chan<- *ctrlQuery) *maker {
+	query chan<- *HandlerQuery) *maker {
 	return &maker{
 		query:   query,
 		Out:     make(chan *Request, nworker),
@@ -52,12 +52,12 @@ func (rm *maker) newRequest(url *url.URL) (req *Request, err error) {
 		return
 	}
 	req.Header.Set("User-Agent", RobotAgent)
-	query := &ctrlQuery{
-		url:   &u,
-		reply: make(chan Controller),
+	query := &HandlerQuery{
+		URL:   &u,
+		Reply: make(chan Handler),
 	}
 	rm.query <- query
-	S := <-query.reply
+	S := <-query.Reply
 	S.SetRequest(req)
 	return
 }

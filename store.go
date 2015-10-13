@@ -6,13 +6,11 @@ import (
 	"time"
 )
 
-type status int
-
 const (
-	U_Init     status = iota
-	U_Waiting         // in waiting queue
-	U_Enqueued        // in main queue
-	U_Sieving         // in filter
+	U_Init     int = iota
+	U_Waiting      // in waiting queue
+	U_Enqueued     // in main queue
+	U_Sieving      // in filter
 	U_Fetched
 	U_Redirected
 	U_Error
@@ -47,7 +45,8 @@ type URL struct {
 	}
 	Depth        int
 	LastModified time.Time
-	Status       status
+	Status       int
+	Done         bool
 	nextTime     time.Time
 }
 
