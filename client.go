@@ -14,6 +14,11 @@ import (
 	"time"
 )
 
+const (
+	// MaxHTMLLen is the max size of a html file, which is 1MB here.
+	MaxHTMLLen = 1 << 20
+)
+
 // StdClient is a client for crawling static pages.
 type StdClient struct {
 	Client          *http.Client
@@ -25,7 +30,7 @@ type StdClient struct {
 // StaticClient caches cachalbe content and limits the size of html file.
 var StaticClient = &StdClient{
 	Client:          http.DefaultClient,
-	MaxHTMLLen:      1 << 19,
+	MaxHTMLLen:      MaxHTMLLen,
 	EnableUnkownLen: true,
 	Cache:           NewCachePool(1 << 26),
 }
@@ -39,7 +44,7 @@ func (ct *StdClient) Do(req *Request) (resp *Response, err error) {
 	}
 
 	resp = &Response{}
-	resp.requestURL = req.URL
+	resp.RequestURL = req.URL
 	resp.Response, err = ct.Client.Do(req.Request)
 	if err != nil {
 		return
@@ -115,7 +120,7 @@ func (resp *Response) parseHeader() {
 	}
 	baseurl := resp.Request.URL
 	if baseurl == nil {
-		baseurl = resp.requestURL
+		baseurl = resp.RequestURL
 	}
 	if l, err := resp.Location(); err == nil {
 		baseurl, resp.Locations = l, l
@@ -134,7 +139,7 @@ func (resp *Response) parseHeader() {
 // ReadBody reads the body of response. It can be called multi-times safely.
 // Response.Body will also be closed.
 func (resp *Response) ReadBody(maxLen int64, enableUnkownLen bool) error {
-	if resp.Ready {
+	if resp.ready {
 		return nil
 	}
 	defer resp.CloseBody()
@@ -184,11 +189,11 @@ func (resp *Response) ReadBody(maxLen int64, enableUnkownLen bool) error {
 
 // CloseBody closes the body of response. It can be called multi-times safely.
 func (resp *Response) CloseBody() {
-	if resp.Ready {
+	if resp.ready {
 		return
 	}
 	resp.Body.Close()
-	resp.Ready = true
+	resp.ready = true
 }
 
 func (resp *Response) detectMIME() {

@@ -54,9 +54,6 @@ func (f *finder) start() {
 
 func (f *finder) work() {
 	for r := range f.In {
-		if r == nil {
-			continue
-		}
 		if match := CT_HTML.match(r.ContentType); !match {
 			continue
 		}

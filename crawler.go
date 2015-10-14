@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+const (
+	DefaultScore int64 = 512
+)
+
 // Crawler crawls web pages.
 type Crawler struct {
 	option    *Option
@@ -109,6 +113,26 @@ func (cw *Crawler) addSeeds(seeds ...string) error {
 		cw.scheduler.New <- u
 	}
 	return nil
+}
+
+// Enqueue adds a url with optional score to queue.
+func (cw *Crawler) Enqueue(u string, score ...int64) {
+	uu, err := url.Parse(u)
+	if err != nil {
+		return
+	}
+	if _, ok := cw.urlStore.Get(*uu); ok {
+		return
+	}
+	sc := DefaultScore
+	if len(score) > 0 {
+		sc = score[0]
+	}
+	cw.urlStore.Put(URL{
+		Loc:   *uu,
+		Score: sc,
+	})
+	cw.scheduler.New <- uu
 }
 
 // Stop stops the crawler.

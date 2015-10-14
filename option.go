@@ -19,8 +19,8 @@ var DefaultOption = &Option{
 		Fetcher:   32,
 		Handler:   16,
 		Parser:    32,
-		Filter:    4,
-		Scheduler: 4,
+		Filter:    2,
+		Scheduler: 2,
 	},
 }
 

@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/PuerkitoBio/goquery"
 )
 
 var (
@@ -14,10 +16,17 @@ var (
 	ErrUnkownContentLength = errors.New("read response: unkown content length")
 )
 
+// Response contains a http response some metadata.
+// Note the body of response may be read or not, depending on
+// the type of content and the size of content. Call ReadBody to
+// safely read and close the body. Optionally, you can access Body
+// directly but do NOT close it.
 type Response struct {
 	*http.Response
-	requestURL      *url.URL
-	Ready           bool     // body closed?
+	// RequestURL is the original url used to do request that finally
+	// produces this response.
+	RequestURL      *url.URL
+	ready           bool     // body read and closed?
 	Locations       *url.URL // distinguish with method Location
 	ContentLocation *url.URL
 	ContentType     string
@@ -28,6 +37,8 @@ type Response struct {
 	Cacheable       bool
 	Age             time.Duration
 	MaxAge          time.Duration
+	// content will be parsed into document only if neccessary.
+	document *goquery.Document
 }
 
 type fetcher struct {

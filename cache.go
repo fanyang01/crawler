@@ -39,7 +39,7 @@ func (cp *CachePool) Add(r *Response) {
 		return
 	}
 	u0 := resp.Locations.String()
-	u1 := resp.requestURL.String()
+	u1 := resp.RequestURL.String()
 	cp.m[u0] = &resp
 	if u1 != u0 {
 		cp.m[u1] = &resp

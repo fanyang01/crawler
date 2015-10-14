@@ -11,9 +11,7 @@ const (
 	RobotAgent = "I'm a robot"
 )
 
-type makerQuery struct {
-}
-
+// Request contains a client for doing this request.
 type Request struct {
 	Client Client
 	*http.Request
