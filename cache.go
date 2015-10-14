@@ -6,28 +6,28 @@ import (
 	"time"
 )
 
-type cachePool struct {
-	size int
+type CachePool struct {
+	size    int64
+	maxSize int64
 	sync.RWMutex
-	m   map[string]*Response
-	opt *Option
+	m map[string]*Response
 }
 
-func newCachePool(opt *Option) *cachePool {
-	return &cachePool{
-		m:   make(map[string]*Response),
-		opt: opt,
+func NewCachePool(maxSize int64) *CachePool {
+	return &CachePool{
+		m:       make(map[string]*Response),
+		maxSize: maxSize,
 	}
 }
 
-func (cp *cachePool) Add(r *Response) {
+func (cp *CachePool) Add(r *Response) {
 	cp.Lock()
 	defer cp.Unlock()
 	for key := range cp.m {
-		if cp.size+len(r.Content) <= cp.opt.MaxCacheSize {
+		if cp.size+int64(len(r.Content)) <= cp.maxSize {
 			break
 		}
-		cp.size -= len(cp.m[key].Content)
+		cp.size -= int64(len(cp.m[key].Content))
 		cp.m[key] = nil
 		delete(cp.m, key)
 	}
@@ -39,15 +39,15 @@ func (cp *cachePool) Add(r *Response) {
 		return
 	}
 	u0 := resp.Locations.String()
-	u1 := resp.requestURL.String()
+	u1 := resp.RequestURL.String()
 	cp.m[u0] = &resp
 	if u1 != u0 {
 		cp.m[u1] = &resp
 	}
-	cp.size += len(r.Content)
+	cp.size += int64(len(r.Content))
 }
 
-func (cp *cachePool) Get(URL string) (resp *Response, ok bool) {
+func (cp *CachePool) Get(URL string) (resp *Response, ok bool) {
 	u, err := url.Parse(URL)
 	if err != nil {
 		return

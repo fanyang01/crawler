@@ -1,53 +1,72 @@
 package crawler
 
 import (
-	"net/url"
+	"container/heap"
 	"sync"
 	"time"
-
-	"github.com/fanyang01/bheap"
 )
 
-func lessPriority(x, y interface{}) bool {
-	// a := (*URL)(bheap.ValuePtr(x))
-	// b := (*URL)(bheap.ValuePtr(y))
-	a, b := x.(*URL), y.(*URL)
-	return a.Score < b.Score
+// PQ is priority queue, using URL.Score as priority.
+type PQ interface {
+	Push(*URL)
+	Pop() *URL
 }
 
-func lessTime(x, y interface{}) bool {
-	a, b := x.(*URL), y.(*URL)
-	return a.nextTime.After(b.nextTime)
+// WQ is waiting queue, using URL.nextTime as priority.
+type WQ interface {
+	Push(*URL)
+	// Check if any 'nextTime' is before/at now.
+	IsAvailable() bool
+	// Pop a url whose 'nextTime' is before/at now. No blocking.
+	Pop() (*URL, bool)
+	// Pop all urls whose 'nextTime' is before/at now. No blocking.
+	MultiPop() (urls []*URL, any bool)
+}
+
+type baseHeap []*URL
+
+func (q baseHeap) Len() int            { return len(q) }
+func (q baseHeap) Swap(i, j int)       { q[i], q[j] = q[j], q[i] }
+func (q baseHeap) Top() interface{}    { return q[0] }
+func (q *baseHeap) Push(x interface{}) { *q = append(*q, x.(*URL)) }
+func (q *baseHeap) Pop() interface{} {
+	n := len(*q)
+	v := (*q)[n-1]
+	*q = (*q)[0 : n-1]
+	return v
+}
+
+type wHeap struct{ baseHeap }
+
+func (h wHeap) Less(i, j int) bool {
+	return h.baseHeap[i].nextTime.Before(h.baseHeap[j].nextTime)
+}
+
+type pHeap struct{ baseHeap }
+
+func (h pHeap) Less(i, j int) bool {
+	return h.baseHeap[i].Score > h.baseHeap[j].Score
 }
 
 type urlQueue struct {
+	heap interface {
+		heap.Interface
+		Top() interface{}
+	}
 	maxLen int
-	heap   *bheap.Heap
 	pop    *sync.Cond
 	push   *sync.Cond
 	*sync.RWMutex
 }
 
-type tqueue struct {
-	urlQueue
-}
-
-type pqueue struct {
-	urlQueue
-}
-
-func newPQueue(maxLen int) *pqueue {
-	return &pqueue{newURLQueue(lessPriority, maxLen)}
-}
-func newTQueue(maxLen int) *tqueue {
-	return &tqueue{newURLQueue(lessTime, maxLen)}
-}
-
-func newURLQueue(f bheap.LessFunc, maxLen int) urlQueue {
+func newURLQueue(h interface {
+	heap.Interface
+	Top() interface{}
+}, maxLen int) urlQueue {
 	var q urlQueue
 	q.maxLen = maxLen
 	q.RWMutex = new(sync.RWMutex)
-	q.heap = bheap.New(f)
+	q.heap = h
 	q.pop = sync.NewCond(q.RWMutex)
 	q.push = sync.NewCond(q.RWMutex)
 	return q
@@ -58,71 +77,79 @@ func (q *urlQueue) Push(u *URL) {
 	if q.heap.Len() >= q.maxLen {
 		q.push.Wait()
 	}
-	q.heap.Push(u)
+	heap.Push(q.heap, u)
 	q.pop.Signal()
 	q.Unlock()
 }
 
-// Pop will block if h is empty
+// Pop will block if heap is empty
 func (q *urlQueue) Pop() (u *URL) {
 	q.Lock()
-	for q.heap.IsEmpty() {
+	for q.heap.Len() == 0 {
 		q.pop.Wait()
 	}
 	defer q.Unlock()
-	// In this usage, it's impossible for Pop to return nil and false
-	i, _ := q.heap.Pop()
+	i := heap.Pop(q.heap)
 	q.push.Signal()
 	return i.(*URL)
 }
 
-func (q *urlQueue) Len() int {
-	q.RLock()
-	length := q.heap.Len()
-	q.RUnlock()
-	return length
+type wqueue struct {
+	urlQueue
+}
+type pqueue struct {
+	urlQueue
 }
 
-func (pq *pqueue) Pop() (u url.URL) { return pq.urlQueue.Pop().Loc }
+func newPQueue(maxLen int) *pqueue {
+	return &pqueue{newURLQueue(&pHeap{}, maxLen)}
+}
+func newWQueue(maxLen int) *wqueue {
+	return &wqueue{newURLQueue(&wHeap{}, maxLen)}
+}
 
-func (tq *tqueue) IsAvailable() bool {
-	tq.RLock()
-	defer tq.RUnlock()
-	if v, ok := tq.heap.Top(); ok {
-		if !v.(*URL).nextTime.After(time.Now()) {
-			return true
-		}
+func (wq *wqueue) IsAvailable() bool {
+	wq.RLock()
+	defer wq.RUnlock()
+	if wq.heap.Len() == 0 {
+		return false
+	}
+	v := wq.heap.Top()
+	if !v.(*URL).nextTime.After(time.Now()) {
+		return true
 	}
 	return false
 }
 
-func (tq *tqueue) Pop() (*URL, bool) {
-	tq.Lock()
-	defer tq.Unlock()
-	if v, ok := tq.heap.Top(); ok {
-		if !v.(*URL).nextTime.After(time.Now()) {
-			if v, ok := tq.heap.Pop(); ok {
-				return v.(*URL), true
-			}
-		}
+func (wq *wqueue) Pop() (*URL, bool) {
+	wq.Lock()
+	defer wq.Unlock()
+	if wq.heap.Len() == 0 {
+		return nil, false
+	}
+	v := wq.heap.Top()
+	if !v.(*URL).nextTime.After(time.Now()) {
+		v := heap.Pop(wq.heap)
+		return v.(*URL), true
 	}
 	return nil, false
 }
 
-func (tq *tqueue) MultiPop() (s []*URL, any bool) {
-	tq.Lock()
+func (wq *wqueue) MultiPop() (s []*URL, any bool) {
+	wq.Lock()
 	for {
-		if v, ok := tq.heap.Top(); ok {
-			if !v.(*URL).nextTime.After(time.Now()) {
-				if v, ok := tq.heap.Pop(); ok {
-					s = append(s, v.(*URL))
-					any = true
-					continue
-				}
-			}
+		if wq.heap.Len() == 0 {
+			break
+		}
+		v := wq.heap.Top()
+		if !v.(*URL).nextTime.After(time.Now()) {
+			v := heap.Pop(wq.heap)
+			s = append(s, v.(*URL))
+			any = true
+			continue
 		}
 		break
 	}
-	tq.Unlock()
+	wq.Unlock()
 	return
 }

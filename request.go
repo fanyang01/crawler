@@ -7,52 +7,63 @@ import (
 	"sync"
 )
 
+const (
+	RobotAgent = "I'm a robot"
+)
+
+// Request contains a client for doing this request.
 type Request struct {
 	Client Client
 	*http.Request
 }
 
-type requestMaker struct {
-	client Client
-	In     chan url.URL
-	Out    chan *Request
-	Done   chan struct{}
-	opt    *Option
-	setter requestSetter
+type maker struct {
+	query   chan<- *HandlerQuery
+	In      <-chan *url.URL
+	Out     chan *Request
+	Done    chan struct{}
+	nworker int
 }
 
 type requestSetter interface {
 	SetRequest(*Request)
 }
 
-func newRequestMaker(opt *Option, setter requestSetter) *requestMaker {
-	return &requestMaker{
-		Out:    make(chan *Request, opt.RequestMaker.QLen),
-		client: NewStdClient(opt),
-		opt:    opt,
-		setter: setter,
+func newRequestMaker(nworker int, in <-chan *url.URL, done chan struct{},
+	query chan<- *HandlerQuery) *maker {
+	return &maker{
+		query:   query,
+		Out:     make(chan *Request, nworker),
+		Done:    done,
+		In:      in,
+		nworker: nworker,
 	}
 }
 
-func (rm *requestMaker) newRequest(u url.URL) (req *Request, err error) {
+func (rm *maker) newRequest(url *url.URL) (req *Request, err error) {
+	u := *url
 	u.Fragment = ""
 	req = &Request{
-		Client: rm.client,
+		Client: StaticClient,
 	}
 	if req.Request, err = http.NewRequest("GET", u.String(), nil); err != nil {
 		return
 	}
-
-	req.Header.Set("User-Agent", rm.opt.RobotoAgent)
-	rm.setter.SetRequest(req)
+	req.Header.Set("User-Agent", RobotAgent)
+	query := &HandlerQuery{
+		URL:   &u,
+		Reply: make(chan Handler),
+	}
+	rm.query <- query
+	S := <-query.Reply
+	S.SetRequest(req)
 	return
 }
 
-func (rm *requestMaker) Start() {
-	n := rm.opt.RequestMaker.NWorker
+func (rm *maker) start() {
 	var wg sync.WaitGroup
-	wg.Add(n)
-	for i := 0; i < n; i++ {
+	wg.Add(rm.nworker)
+	for i := 0; i < rm.nworker; i++ {
 		go func() {
 			rm.work()
 			wg.Done()
@@ -64,7 +75,7 @@ func (rm *requestMaker) Start() {
 	}()
 }
 
-func (rm *requestMaker) work() {
+func (rm *maker) work() {
 	for u := range rm.In {
 		if req, err := rm.newRequest(u); err != nil {
 			log.Println(err)
@@ -76,5 +87,6 @@ func (rm *requestMaker) work() {
 				return
 			}
 		}
+
 	}
 }
