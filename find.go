@@ -10,12 +10,14 @@ import (
 	"golang.org/x/net/html"
 )
 
+// Anchor represents a anchor found by crawler.
 type Anchor struct {
-	URL       *url.URL
-	Hyperlink bool
-	Text      []byte
+	URL       *url.URL // parsed url
+	Hyperlink bool     // is hyperlink?
+	Text      []byte   // anchor text
 }
 
+// Link is a collection of urls on a page.
 type Link struct {
 	Base    *url.URL
 	Anchors []Anchor

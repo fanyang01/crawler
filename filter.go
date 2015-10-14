@@ -6,11 +6,6 @@ import (
 	"sync"
 )
 
-type filterQuery struct {
-	url   *url.URL
-	reply chan Sifter
-}
-
 type filter struct {
 	In      chan *Link
 	New     chan *url.URL
@@ -20,10 +15,6 @@ type filter struct {
 	nworker int
 	store   URLStore
 	sites   *sites
-}
-
-type Sifter interface {
-	Accept(Anchor) bool
 }
 
 func newFilter(nworker int, in chan *Link, done chan struct{},

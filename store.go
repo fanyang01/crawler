@@ -16,7 +16,8 @@ const (
 	U_Error
 )
 
-type storeHandle interface {
+// StoreHandle is a handle for modifying metadata of a url.
+type StoreHandle interface {
 	// V provides a pointer for modifying internal data.
 	// If data is stored in db rather than memory, this method
 	// must retrieve and store it in memory.
@@ -26,15 +27,17 @@ type storeHandle interface {
 	Unlock()
 }
 
+// URLStore stores all URLs.
 type URLStore interface {
 	Get(u url.URL) (URL, bool)
 	Put(u URL)
 	// Watch locks the entry located by u and returns a handle.
-	Watch(u url.URL) storeHandle
+	Watch(u url.URL) StoreHandle
 	// WatchP locks the entry(if not exist, create)
-	WatchP(u URL) storeHandle
+	WatchP(u URL) StoreHandle
 }
 
+// URL contains metadata of a url in crawler.
 type URL struct {
 	Loc     url.URL
 	Score   int64
@@ -78,7 +81,7 @@ func newMemStore() *store {
 	}
 }
 
-func (p *store) Watch(u url.URL) (h storeHandle) {
+func (p *store) Watch(u url.URL) (h StoreHandle) {
 	p.RLock()
 	defer p.RUnlock()
 	entry, ok := p.m[u]
@@ -90,7 +93,7 @@ func (p *store) Watch(u url.URL) (h storeHandle) {
 	return
 }
 
-func (p *store) WatchP(u URL) storeHandle {
+func (p *store) WatchP(u URL) StoreHandle {
 	p.Lock()
 	defer p.Unlock()
 	u.Loc.Fragment = ""
