@@ -5,7 +5,7 @@ import "time"
 // NopHandler is an empty handler - it walks through each seed once and does nothing.
 type NopHandler struct{}
 
-func (c NopHandler) Handle(resp *Response) bool {
+func (c NopHandler) Recieve(resp *Response) bool {
 	return true
 }
 func (c NopHandler) Schedule(u URL) (score int64, at time.Time, done bool) {
@@ -21,7 +21,7 @@ func (h OnceHandler) Schedule(u URL) (score int64, at time.Time, done bool) {
 	if u.Visited.Count > 0 {
 		return 0, time.Time{}, true
 	}
-	return 1024, time.Now(), false
+	return 0, time.Now(), false
 }
 
 var (

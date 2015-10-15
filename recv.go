@@ -10,56 +10,51 @@ import (
 
 var ErrNotHTML = errors.New("content type is not HTML")
 
-type respHandler struct {
+type reciever struct {
 	In      <-chan *Response
 	Out     chan *Response
-	Req     chan<- *HandlerQuery
 	Done    chan struct{}
+	handler Handler
 	nworker int
 }
 
 func newRespHandler(nworker int, in <-chan *Response, done chan struct{},
-	ch chan<- *HandlerQuery) *respHandler {
-	return &respHandler{
-		In:   in,
-		Req:  ch,
-		Out:  make(chan *Response, nworker),
-		Done: done,
+	handler Handler) *reciever {
+	return &reciever{
+		In:      in,
+		Out:     make(chan *Response, nworker),
+		Done:    done,
+		nworker: nworker,
+		handler: handler,
 	}
 }
 
-func (h *respHandler) start() {
+func (rv *reciever) start() {
 	var wg sync.WaitGroup
-	wg.Add(h.nworker)
-	for i := 0; i < h.nworker; i++ {
+	wg.Add(rv.nworker)
+	for i := 0; i < rv.nworker; i++ {
 		go func() {
-			h.work()
+			rv.work()
 			wg.Done()
 		}()
 	}
 	go func() {
 		wg.Wait()
-		close(h.Out)
+		close(rv.Out)
 	}()
 }
 
-func (h *respHandler) work() {
-	for r := range h.In {
-		q := &HandlerQuery{
-			URL:   r.Locations,
-			Reply: make(chan Handler),
-		}
-		h.Req <- q
-		H := <-q.Reply
-		follow := H.Handle(r)
+func (rv *reciever) work() {
+	for r := range rv.In {
+		follow := rv.handler.Recieve(r)
 		r.CloseBody()
 		if !follow {
 			r = nil // downstream should check nil
 			continue
 		}
 		select {
-		case h.Out <- r:
-		case <-h.Done:
+		case rv.Out <- r:
+		case <-rv.Done:
 			return
 		}
 	}

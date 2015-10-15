@@ -1,11 +1,6 @@
 package crawler
 
-import (
-	"net/http"
-	"time"
-)
-
-var DefaultClient = http.DefaultClient
+import "time"
 
 var DefaultOption = &Option{
 	MaxCacheSize: 1 << 25, // 32MB
@@ -25,7 +20,7 @@ var DefaultOption = &Option{
 }
 
 type Option struct {
-	MaxCacheSize    int
+	MaxCacheSize    int64
 	MinDelay        time.Duration
 	RetryDelay      time.Duration
 	RobotoAgent     string

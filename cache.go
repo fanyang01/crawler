@@ -6,21 +6,21 @@ import (
 	"time"
 )
 
-type CachePool struct {
+type cachePool struct {
 	size    int64
 	maxSize int64
 	sync.RWMutex
 	m map[string]*Response
 }
 
-func NewCachePool(maxSize int64) *CachePool {
-	return &CachePool{
+func NewCachePool(maxSize int64) *cachePool {
+	return &cachePool{
 		m:       make(map[string]*Response),
 		maxSize: maxSize,
 	}
 }
 
-func (cp *CachePool) Add(r *Response) {
+func (cp *cachePool) Add(r *Response) {
 	cp.Lock()
 	defer cp.Unlock()
 	for key := range cp.m {
@@ -47,7 +47,7 @@ func (cp *CachePool) Add(r *Response) {
 	cp.size += int64(len(r.Content))
 }
 
-func (cp *CachePool) Get(URL string) (resp *Response, ok bool) {
+func (cp *cachePool) Get(URL string) (resp *Response, ok bool) {
 	u, err := url.Parse(URL)
 	if err != nil {
 		return

@@ -18,10 +18,10 @@ type Request struct {
 }
 
 type maker struct {
-	query   chan<- *HandlerQuery
 	In      <-chan *url.URL
 	Out     chan *Request
 	Done    chan struct{}
+	handler Handler
 	nworker int
 }
 
@@ -30,13 +30,13 @@ type requestSetter interface {
 }
 
 func newRequestMaker(nworker int, in <-chan *url.URL, done chan struct{},
-	query chan<- *HandlerQuery) *maker {
+	handler Handler) *maker {
 	return &maker{
-		query:   query,
 		Out:     make(chan *Request, nworker),
 		Done:    done,
 		In:      in,
 		nworker: nworker,
+		handler: handler,
 	}
 }
 
@@ -44,19 +44,13 @@ func (rm *maker) newRequest(url *url.URL) (req *Request, err error) {
 	u := *url
 	u.Fragment = ""
 	req = &Request{
-		Client: StaticClient,
+		Client: DefaultClient,
 	}
 	if req.Request, err = http.NewRequest("GET", u.String(), nil); err != nil {
 		return
 	}
 	req.Header.Set("User-Agent", RobotAgent)
-	query := &HandlerQuery{
-		URL:   &u,
-		Reply: make(chan Handler),
-	}
-	rm.query <- query
-	S := <-query.Reply
-	S.SetRequest(req)
+	rm.handler.SetRequest(req)
 	return
 }
 

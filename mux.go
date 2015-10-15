@@ -1,53 +1,113 @@
 package crawler
 
 import (
-	"net/url"
+	"time"
 
 	"github.com/fanyang01/glob"
 )
 
-// Muxer serves requests that come from the query channel, replies handler to them.
-type Muxer interface {
-	Serve(<-chan *HandlerQuery)
+const (
+	mux_FILTER = 1 << iota
+	mux_SET
+	mux_RECV
+	mux_SCHED
+)
+
+type (
+	SetterFunc    func(*Request)
+	RecieverFunc  func(*Response) bool
+	SchedulerFunc func(URL) (score int64, at time.Time, done bool)
+)
+
+func (f SetterFunc) SetRequest(req *Request)       { f(req) }
+func (f RecieverFunc) Recieve(resp *Response) bool { return f(resp) }
+func (f SchedulerFunc) Schedule(u URL) (score int64, at time.Time, done bool) {
+	return f(u)
 }
 
 // Mux is a multiplexer that supports wildcard *.
 type Mux struct {
-	trie *glob.Trie
+	tries map[int]*glob.Trie
 }
 
-// HandlerQuery querys handler for specific URL.
-type HandlerQuery struct {
-	URL   *url.URL
-	Reply chan Handler
-}
+// DefaultMux is the default multiplexer.
+var DefaultMux = NewMux()
 
 // NewMux creates a new multiplexer.
-func NewMux() *Mux { return &Mux{trie: glob.NewTrie()} }
-
-// Add adds a pattern and corresponding handler to multiplexer.
-func (mux Mux) Add(pattern string, h Handler) {
-	mux.trie.Add(pattern, h)
+func NewMux() *Mux {
+	return &Mux{
+		tries: map[int]*glob.Trie{
+			mux_FILTER: glob.NewTrie(),
+			mux_SET:    glob.NewTrie(),
+			mux_RECV:   glob.NewTrie(),
+			mux_SCHED:  glob.NewTrie(),
+		},
+	}
 }
 
-// Lookup searchs a pattern that most precisely matches s,
-// and returns the corresponding handler.
-func (mux Mux) Lookup(s string) (Handler, bool) {
-	v, ok := mux.trie.Lookup(s)
-	if !ok {
-		return nil, false
-	}
-	return v.(Handler), true
+// Set registers setter to set requests for urls matching pattern.
+func (mux *Mux) Set(pattern string, setter Setter) {
+	mux.tries[mux_SET].Add(pattern, setter)
 }
 
-// Serve implements Muxer.
-func (mux Mux) Serve(query <-chan *HandlerQuery) {
-	for q := range query {
-		h, ok := mux.Lookup(q.URL.String())
-		if !ok {
-			q.Reply <- DefaultHandler
-			continue
-		}
-		q.Reply <- h
+// SetFunc registers a function to set requests for urls matching pattern.
+func (mux *Mux) SetFunc(pattern string, f func(*Request)) {
+	mux.Set(pattern, SetterFunc(f))
+}
+
+// Recv registers r to recieve and handle responses for urls matching pattern.
+func (mux *Mux) Recv(pattern string, r Reciever) {
+	mux.tries[mux_RECV].Add(pattern, r)
+}
+
+// RecvFunc registers a function to recieve and handle responses for urls matching pattern.
+func (mux *Mux) RecvFunc(pattern string, f func(*Response) bool) {
+	mux.Recv(pattern, RecieverFunc(f))
+}
+
+// Sched registers sched to schedule urls matching pattern.
+func (mux *Mux) Sched(pattern string, sched Scheduler) {
+	mux.tries[mux_SCHED].Add(pattern, sched)
+}
+
+// SchedFunc registers a function to schedule urls matching pattern.
+func (mux *Mux) SchedFunc(pattern string,
+	f func(URL) (score int64, at time.Time, done bool)) {
+	mux.Sched(pattern, SchedulerFunc(f))
+}
+
+// Sieve is a filter to determine whether a url should be processed.
+func (mux *Mux) Sieve(pattern string, accept bool) {
+	mux.tries[mux_FILTER].Add(pattern, accept)
+}
+
+// SetRequest implements Setter.
+func (mux *Mux) SetRequest(req *Request) {
+	if f, ok := mux.tries[mux_RECV].Lookup(req.URL.String()); ok {
+		f.(Setter).SetRequest(req)
 	}
+}
+
+// Recieve implements Reciever.
+func (mux *Mux) Recieve(resp *Response) bool {
+	if f, ok := mux.tries[mux_RECV].Lookup(resp.Locations.String()); ok {
+		return f.(Reciever).Recieve(resp)
+	}
+	return true
+}
+
+// Schedule implements Scheduler.
+func (mux *Mux) Schedule(u URL) (score int64, at time.Time, done bool) {
+	if f, ok := mux.tries[mux_SCHED].Lookup(u.Loc.String()); ok {
+		return f.(Scheduler).Schedule(u)
+	}
+	return 0, time.Time{}, true
+}
+
+// Accept implements Filter.
+func (mux *Mux) Accept(anchor Anchor) bool {
+	if ac, ok := mux.tries[mux_FILTER].Lookup(anchor.URL.String()); ok {
+		return ac.(bool)
+	}
+	return false
 }

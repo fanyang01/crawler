@@ -11,22 +11,22 @@ type filter struct {
 	New     chan *url.URL
 	Fetched chan *url.URL
 	Done    chan struct{}
-	Req     chan *HandlerQuery
 	nworker int
+	handler Handler
 	store   URLStore
 	sites   *sites
 }
 
 func newFilter(nworker int, in chan *Link, done chan struct{},
-	req chan *HandlerQuery, store URLStore) *filter {
+	handler Handler, store URLStore) *filter {
 
 	return &filter{
 		New:     make(chan *url.URL, nworker),
 		Fetched: make(chan *url.URL, nworker),
 		Done:    done,
 		In:      in,
-		Req:     req,
 		nworker: nworker,
+		handler: handler,
 		store:   store,
 		sites:   newSites(),
 	}
@@ -55,14 +55,8 @@ func (ft *filter) work() {
 		case <-ft.Done:
 			return
 		}
-		query := &HandlerQuery{
-			URL:   link.Base,
-			Reply: make(chan Handler),
-		}
-		ft.Req <- query
-		sifter := <-query.Reply
 		for _, anchor := range link.Anchors {
-			if sifter.Accept(anchor) {
+			if ft.handler.Accept(anchor) {
 				// only handle new link
 				if _, ok := ft.store.Get(*anchor.URL); ok {
 					continue

@@ -24,25 +24,17 @@ type StdClient struct {
 	Client          *http.Client
 	MaxHTMLLen      int64
 	EnableUnkownLen bool
-	Cache           *CachePool
 }
 
 // StaticClient caches cachalbe content and limits the size of html file.
-var StaticClient = &StdClient{
+var DefaultClient = &StdClient{
 	Client:          http.DefaultClient,
 	MaxHTMLLen:      MaxHTMLLen,
 	EnableUnkownLen: true,
-	Cache:           NewCachePool(1 << 26),
 }
 
 // Do implements Client.
 func (ct *StdClient) Do(req *Request) (resp *Response, err error) {
-	// First check cache
-	var ok bool
-	if resp, ok = ct.Cache.Get(req.URL.String()); ok {
-		return
-	}
-
 	resp = &Response{}
 	resp.RequestURL = req.URL
 	resp.Response, err = ct.Client.Do(req.Request)
@@ -67,9 +59,6 @@ func (ct *StdClient) Do(req *Request) (resp *Response, err error) {
 		}
 		resp.CloseBody()
 	}
-
-	// Add to cache(NOTE: cache should use value rather than pointer)
-	ct.Cache.Add(resp)
 	return
 }
 

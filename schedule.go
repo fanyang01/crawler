@@ -19,8 +19,8 @@ type scheduler struct {
 	Fetched   chan *url.URL
 	Out       chan *url.URL
 	Done      chan struct{}
-	query     chan *HandlerQuery
 	nworker   int
+	handler   Handler
 	store     URLStore
 	prioQueue PQ
 	waitQueue WQ
@@ -30,7 +30,7 @@ type scheduler struct {
 }
 
 func newScheduler(nworker int, newIn chan *url.URL, fetchedIn chan *url.URL,
-	done chan struct{}, query chan *HandlerQuery, store URLStore,
+	done chan struct{}, handler Handler, store URLStore,
 	out chan *url.URL) *scheduler {
 
 	return &scheduler{
@@ -38,7 +38,6 @@ func newScheduler(nworker int, newIn chan *url.URL, fetchedIn chan *url.URL,
 		Fetched:   fetchedIn,
 		Done:      done,
 		Out:       out,
-		query:     query,
 		nworker:   nworker,
 		store:     store,
 		prioQueue: newPQueue(PQueueLen),
@@ -92,19 +91,13 @@ func (sched *scheduler) work() {
 		case <-sched.Done:
 			return
 		}
-		query := &HandlerQuery{
-			URL:   u,
-			Reply: make(chan Handler),
-		}
-		sched.query <- query
-		SC := <-query.Reply
 		h := sched.store.Watch(*u)
 		if h == nil {
 			continue
 		}
 		uu := h.V()
 		minTime := uu.Visited.Time.Add(MinDelay)
-		uu.Score, uu.nextTime, uu.Done = SC.Schedule(*uu)
+		uu.Score, uu.nextTime, uu.Done = sched.handler.Schedule(*uu)
 		if !uu.Done && uu.Visited.Count > 0 && uu.nextTime.Before(minTime) {
 			uu.nextTime = minTime
 		}

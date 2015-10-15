@@ -47,11 +47,12 @@ type fetcher struct {
 	In      <-chan *Request
 	Out     chan *Response
 	Done    chan struct{}
+	cache   *cachePool
 	nworker int
 }
 
 func newFetcher(nworker int, in <-chan *Request, done chan struct{},
-	errQ chan<- *url.URL, store URLStore) *fetcher {
+	errQ chan<- *url.URL, store URLStore, maxCacheSize int64) *fetcher {
 	return &fetcher{
 		Out:     make(chan *Response, nworker),
 		In:      in,
@@ -59,6 +60,7 @@ func newFetcher(nworker int, in <-chan *Request, done chan struct{},
 		nworker: nworker,
 		store:   store,
 		errQ:    errQ,
+		cache:   NewCachePool(maxCacheSize),
 	}
 }
 
@@ -79,19 +81,27 @@ func (fc *fetcher) start() {
 
 func (fc *fetcher) work() {
 	for req := range fc.In {
-		resp, err := req.Client.Do(req)
-		if err != nil {
-			// log.Printf("fetcher: %v\n", err)
-			h := fc.store.WatchP(URL{Loc: *req.URL})
-			u := h.V()
-			u.Status = U_Error
-			h.Unlock()
-			select {
-			case fc.errQ <- req.URL:
-			case <-fc.Done:
-				return
+		// First check cache
+		var resp *Response
+		var ok bool
+		if resp, ok = fc.cache.Get(req.URL.String()); !ok {
+			var err error
+			resp, err = req.Client.Do(req)
+			if err != nil {
+				// log.Printf("fetcher: %v\n", err)
+				h := fc.store.WatchP(URL{Loc: *req.URL})
+				u := h.V()
+				u.Status = U_Error
+				h.Unlock()
+				select {
+				case fc.errQ <- req.URL:
+				case <-fc.Done:
+					return
+				}
+				continue
 			}
-			continue
+			// Add to cache
+			fc.cache.Add(resp)
 		}
 		h := fc.store.WatchP(URL{Loc: *resp.Locations})
 		u := h.V()
