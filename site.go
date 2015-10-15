@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"sync"
@@ -54,10 +55,12 @@ func newSite(root string) (*Site, error) {
 func (site *Site) fetchRobots() error {
 	client := site.Client
 	if client == nil {
-		client = http.DefaultClient
+		client = DefaultHTTPClient
 	}
 	resp, err := client.Get(site.Root + "/robot.txt")
 	if err != nil {
+		// if there is a network error, disallow all.
+		site.Robot, _ = robot.FromStatusAndBytes(504, nil)
 		return err
 	}
 	defer resp.Body.Close()
@@ -73,7 +76,7 @@ func (site *Site) fetchRobots() error {
 func getBody(client *http.Client, url string) (body []byte, err error) {
 	var resp *http.Response
 	if client == nil {
-		client = http.DefaultClient
+		client = DefaultHTTPClient
 	}
 	resp, err = client.Get(url)
 	if err != nil {
@@ -89,16 +92,17 @@ func getBody(client *http.Client, url string) (body []byte, err error) {
 }
 
 // All errors are ignored.
-// TODO: log error as warning
 func (site *Site) fetchSitemap() {
 	f := func(absURL string) {
 		// Although absURL may point to another site, we use settings of this site to get it
 		body, err := getBody(site.Client, absURL)
 		if err != nil {
+			log.Printf("fetch sitemap: %v", err)
 			return
 		}
 		var smap sitemap.Sitemap
 		if err := xml.Unmarshal(body, &smap); err != nil {
+			log.Printf("fetch sitemap: %v", err)
 			return
 		}
 		site.Map.URLSet = append(site.Map.URLSet, smap.URLSet...)

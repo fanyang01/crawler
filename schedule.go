@@ -15,8 +15,8 @@ const (
 )
 
 type scheduler struct {
-	New       chan *url.URL
-	Fetched   chan *url.URL
+	NewIn     chan *url.URL
+	AgainIn   <-chan *url.URL
 	Out       chan *url.URL
 	Done      chan struct{}
 	nworker   int
@@ -24,25 +24,21 @@ type scheduler struct {
 	store     URLStore
 	prioQueue PQ
 	waitQueue WQ
-	eQueue    chan *url.URL
+	ErrIn     chan *url.URL
 	sites     sites
 	pool      sync.Pool
 }
 
-func newScheduler(nworker int, newIn chan *url.URL, fetchedIn chan *url.URL,
-	done chan struct{}, handler Handler, store URLStore,
-	out chan *url.URL) *scheduler {
+func newScheduler(nworker int, handler Handler, store URLStore) *scheduler {
 
 	return &scheduler{
-		New:       newIn,
-		Fetched:   fetchedIn,
-		Done:      done,
-		Out:       out,
+		Out:       make(chan *url.URL, nworker),
+		ErrIn:     make(chan *url.URL, EQueueLen),
 		nworker:   nworker,
 		store:     store,
 		prioQueue: newPQueue(PQueueLen),
 		waitQueue: newWQueue(TQueueLen),
-		eQueue:    make(chan *url.URL, EQueueLen),
+		handler:   handler,
 		pool: sync.Pool{
 			New: func() interface{} {
 				return &URL{}
@@ -53,7 +49,7 @@ func newScheduler(nworker int, newIn chan *url.URL, fetchedIn chan *url.URL,
 
 func (sched *scheduler) start() {
 	var wg sync.WaitGroup
-	wg.Add(sched.nworker)
+	wg.Add(sched.nworker + 3)
 	for i := 0; i < sched.nworker; i++ {
 		go func() {
 			sched.work()
@@ -61,34 +57,44 @@ func (sched *scheduler) start() {
 		}()
 	}
 	go func() {
-		wg.Wait()
-		close(sched.Out)
+		sched.popTQ()
+		wg.Done()
 	}()
-
-	go sched.popTQ()
-	go sched.retry()
-	// Pop URL from priority queue
-	// TODO: this goroutine may block forever when crawler stops.
 	go func() {
+		sched.retry()
+		wg.Done()
+	}()
+	// Pop URL from priority queue
+	go func() {
+		defer wg.Done()
 		for {
-			u := sched.prioQueue.Pop().Loc // Pop will block when queue is empty
+			u := sched.prioQueue.Pop() // Pop will block when queue is empty
+			loc := u.Loc
 			select {
-			case sched.Out <- &u:
+			case sched.Out <- &loc:
 				sched.pool.Put(u)
 			case <-sched.Done:
 				return
 			}
 		}
 	}()
+
+	go func() {
+		wg.Wait()
+		close(sched.Out)
+	}()
+
 }
 
 func (sched *scheduler) work() {
 	for {
 		var u *url.URL
 		select {
-		case u = <-sched.New:
-		case u = <-sched.Fetched:
+		case u = <-sched.NewIn:
+		case u = <-sched.AgainIn:
 		case <-sched.Done:
+			// force sched.prioQueue.Pop() return, otherwise it may block forever
+			sched.prioQueue.Push(&URL{})
 			return
 		}
 		h := sched.store.Watch(*u)
@@ -144,7 +150,7 @@ func (sched *scheduler) popTQ() {
 func (sched *scheduler) retry() {
 	for {
 		select {
-		case u := <-sched.eQueue:
+		case u := <-sched.ErrIn:
 			uu := newURL(*u)
 			uu.nextTime = time.Now().Add(RetryDelay)
 			sched.waitQueue.Push(uu)

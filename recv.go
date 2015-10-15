@@ -18,12 +18,9 @@ type reciever struct {
 	nworker int
 }
 
-func newRespHandler(nworker int, in <-chan *Response, done chan struct{},
-	handler Handler) *reciever {
+func newRespHandler(nworker int, handler Handler) *reciever {
 	return &reciever{
-		In:      in,
 		Out:     make(chan *Response, nworker),
-		Done:    done,
 		nworker: nworker,
 		handler: handler,
 	}

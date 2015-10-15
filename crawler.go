@@ -22,7 +22,7 @@ type Crawler struct {
 }
 
 // NewCrawler creates a new crawler.
-func NewCrawler(opt *Option, handler Handler, store URLStore) *Crawler {
+func NewCrawler(opt *Option, store URLStore, handler Handler) *Crawler {
 	if opt == nil {
 		opt = DefaultOption
 	}
@@ -30,46 +30,47 @@ func NewCrawler(opt *Option, handler Handler, store URLStore) *Crawler {
 		store = newMemStore()
 	}
 	if handler == nil {
-		handler = DefaultMux
+		handler = DefaultHandler
 	}
 	cw := &Crawler{
 		option:   opt,
 		urlStore: store,
+		handler:  handler,
 		done:     make(chan struct{}),
 	}
 
-	entry := make(chan *url.URL, opt.NWorker.Scheduler)
 	// connect each part
 	cw.maker = newRequestMaker(
 		opt.NWorker.Maker,
-		entry,
-		cw.done,
 		cw.handler)
 	cw.fetcher = newFetcher(opt.NWorker.Fetcher,
-		cw.maker.Out,
-		cw.done,
-		cw.scheduler.eQueue,
 		cw.urlStore,
 		opt.MaxCacheSize)
 	cw.reciever = newRespHandler(opt.NWorker.Handler,
-		cw.fetcher.Out,
-		cw.done,
 		cw.handler)
-	cw.finder = newFinder(opt.NWorker.Parser,
-		cw.reciever.Out,
-		cw.done)
+	cw.finder = newFinder(opt.NWorker.Finder)
 	cw.filter = newFilter(opt.NWorker.Filter,
-		cw.finder.Out,
-		cw.done,
 		cw.handler,
 		cw.urlStore)
 	cw.scheduler = newScheduler(opt.NWorker.Scheduler,
-		cw.filter.New,
-		cw.filter.Fetched,
-		cw.done,
 		cw.handler,
-		cw.urlStore,
-		entry)
+		cw.urlStore)
+
+	cw.maker.In = cw.scheduler.Out
+	cw.fetcher.In = cw.maker.Out
+	cw.fetcher.ErrOut = cw.scheduler.ErrIn
+	cw.reciever.In = cw.fetcher.Out
+	cw.finder.In = cw.reciever.Out
+	cw.filter.In = cw.finder.Out
+	cw.scheduler.NewIn = cw.filter.NewOut
+	cw.scheduler.AgainIn = cw.filter.AgainOut
+
+	cw.maker.Done = cw.done
+	cw.fetcher.Done = cw.done
+	cw.reciever.Done = cw.done
+	cw.finder.Done = cw.done
+	cw.filter.Done = cw.done
+	cw.scheduler.Done = cw.done
 	return cw
 }
 
@@ -101,7 +102,7 @@ func (cw *Crawler) addSeeds(seeds ...string) error {
 			Loc:   *u,
 			Score: 1024, // Give seeds highest priority
 		})
-		cw.scheduler.New <- u
+		cw.scheduler.NewIn <- u
 	}
 	return nil
 }
@@ -119,7 +120,7 @@ func (cw *Crawler) Enqueue(u string, score int64) {
 		Loc:   *uu,
 		Score: score,
 	})
-	cw.scheduler.New <- uu
+	cw.scheduler.NewIn <- uu
 }
 
 // Stop stops the crawler.

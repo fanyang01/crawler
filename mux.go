@@ -83,7 +83,7 @@ func (mux *Mux) Sieve(pattern string, accept bool) {
 
 // SetRequest implements Setter.
 func (mux *Mux) SetRequest(req *Request) {
-	if f, ok := mux.tries[mux_RECV].Lookup(req.URL.String()); ok {
+	if f, ok := mux.tries[mux_SET].Lookup(req.URL.String()); ok {
 		f.(Setter).SetRequest(req)
 	}
 }
@@ -101,7 +101,7 @@ func (mux *Mux) Schedule(u URL) (score int64, at time.Time, done bool) {
 	if f, ok := mux.tries[mux_SCHED].Lookup(u.Loc.String()); ok {
 		return f.(Scheduler).Schedule(u)
 	}
-	return 0, time.Time{}, true
+	return 0, time.Time{}, false
 }
 
 // Accept implements Filter.

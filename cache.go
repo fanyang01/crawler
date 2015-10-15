@@ -13,7 +13,7 @@ type cachePool struct {
 	m map[string]*Response
 }
 
-func NewCachePool(maxSize int64) *cachePool {
+func newCachePool(maxSize int64) *cachePool {
 	return &cachePool{
 		m:       make(map[string]*Response),
 		maxSize: maxSize,

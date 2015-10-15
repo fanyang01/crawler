@@ -121,7 +121,9 @@ func (p *store) Get(u url.URL) (uu URL, ok bool) {
 	p.RLock()
 	entry, present := p.m[u]
 	if present {
+		entry.Lock()
 		uu, ok = entry.url, true
+		entry.Unlock()
 	}
 	p.RUnlock()
 	return

@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"net/url"
 	"sync"
@@ -42,25 +43,21 @@ type Response struct {
 }
 
 type fetcher struct {
-	errQ    chan<- *url.URL
-	store   URLStore
 	In      <-chan *Request
 	Out     chan *Response
+	ErrOut  chan<- *url.URL
 	Done    chan struct{}
 	cache   *cachePool
+	store   URLStore
 	nworker int
 }
 
-func newFetcher(nworker int, in <-chan *Request, done chan struct{},
-	errQ chan<- *url.URL, store URLStore, maxCacheSize int64) *fetcher {
+func newFetcher(nworker int, store URLStore, maxCacheSize int64) *fetcher {
 	return &fetcher{
 		Out:     make(chan *Response, nworker),
-		In:      in,
-		Done:    done,
 		nworker: nworker,
 		store:   store,
-		errQ:    errQ,
-		cache:   NewCachePool(maxCacheSize),
+		cache:   newCachePool(maxCacheSize),
 	}
 }
 
@@ -88,13 +85,13 @@ func (fc *fetcher) work() {
 			var err error
 			resp, err = req.Client.Do(req)
 			if err != nil {
-				// log.Printf("fetcher: %v\n", err)
+				log.Printf("fetcher: %v\n", err)
 				h := fc.store.WatchP(URL{Loc: *req.URL})
 				u := h.V()
 				u.Status = U_Error
 				h.Unlock()
 				select {
-				case fc.errQ <- req.URL:
+				case fc.ErrOut <- req.URL:
 				case <-fc.Done:
 					return
 				}

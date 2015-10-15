@@ -2,33 +2,31 @@ package crawler
 
 import (
 	"fmt"
+	"log"
 	"net/url"
 	"sync"
 )
 
 type filter struct {
-	In      chan *Link
-	New     chan *url.URL
-	Fetched chan *url.URL
-	Done    chan struct{}
-	nworker int
-	handler Handler
-	store   URLStore
-	sites   *sites
+	In       chan *Link
+	NewOut   chan *url.URL
+	AgainOut chan *url.URL
+	Done     chan struct{}
+	nworker  int
+	handler  Handler
+	store    URLStore
+	sites    *sites
 }
 
-func newFilter(nworker int, in chan *Link, done chan struct{},
-	handler Handler, store URLStore) *filter {
+func newFilter(nworker int, handler Handler, store URLStore) *filter {
 
 	return &filter{
-		New:     make(chan *url.URL, nworker),
-		Fetched: make(chan *url.URL, nworker),
-		Done:    done,
-		In:      in,
-		nworker: nworker,
-		handler: handler,
-		store:   store,
-		sites:   newSites(),
+		NewOut:   make(chan *url.URL, nworker),
+		AgainOut: make(chan *url.URL, nworker),
+		nworker:  nworker,
+		handler:  handler,
+		store:    store,
+		sites:    newSites(),
 	}
 }
 
@@ -43,26 +41,31 @@ func (ft *filter) start() {
 	}
 	go func() {
 		wg.Wait()
-		close(ft.New)
-		close(ft.Fetched)
+		close(ft.NewOut)
+		close(ft.AgainOut)
 	}()
 }
 
 func (ft *filter) work() {
 	for link := range ft.In {
 		select {
-		case ft.Fetched <- link.Base:
+		case ft.AgainOut <- link.Base:
 		case <-ft.Done:
 			return
 		}
+		depth := 0
+		if base, ok := ft.store.Get(*link.Base); ok {
+			depth = base.Depth + 1
+		}
 		for _, anchor := range link.Anchors {
+			anchor.Depth = depth
 			if ft.handler.Accept(anchor) {
 				// only handle new link
 				if _, ok := ft.store.Get(*anchor.URL); ok {
 					continue
 				}
 				if err := ft.addSite(anchor.URL); err != nil {
-					// log
+					log.Printf("add site: %v", err)
 					continue
 				}
 				if ok := ft.testRobot(anchor.URL); !ok {
@@ -71,9 +74,10 @@ func (ft *filter) work() {
 				ft.store.Put(URL{
 					Loc:    *anchor.URL,
 					Status: U_Init,
+					Depth:  anchor.Depth,
 				})
 				select {
-				case ft.New <- anchor.URL:
+				case ft.NewOut <- anchor.URL:
 				case <-ft.Done:
 					return
 				}
@@ -112,7 +116,7 @@ func (ft *filter) addSite(u *url.URL) error {
 			Score:        int64(u.Priority * 1024.0),
 			Freq:         u.ChangeFreq,
 		})
-		ft.New <- &uu
+		ft.NewOut <- &uu
 	}
 	ft.sites.m[root] = site
 	return nil

@@ -29,12 +29,9 @@ type requestSetter interface {
 	SetRequest(*Request)
 }
 
-func newRequestMaker(nworker int, in <-chan *url.URL, done chan struct{},
-	handler Handler) *maker {
+func newRequestMaker(nworker int, handler Handler) *maker {
 	return &maker{
 		Out:     make(chan *Request, nworker),
-		Done:    done,
-		In:      in,
 		nworker: nworker,
 		handler: handler,
 	}

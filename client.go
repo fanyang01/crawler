@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"mime"
+	"net"
 	"net/http"
 	"path"
 	"strconv"
@@ -19,18 +21,33 @@ const (
 	MaxHTMLLen = 1 << 20
 )
 
+var (
+	DefaultHTTPTransport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		Dial: (&net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).Dial,
+		TLSHandshakeTimeout: 5 * time.Second,
+	}
+	DefaultHTTPClient = &http.Client{
+		Timeout:   time.Second * 5,
+		Transport: DefaultHTTPTransport,
+	}
+
+	// DefaultClient caches cachalbe content and limits the size of html file.
+	DefaultClient = &StdClient{
+		Client:          DefaultHTTPClient,
+		MaxHTMLLen:      MaxHTMLLen,
+		EnableUnkownLen: true,
+	}
+)
+
 // StdClient is a client for crawling static pages.
 type StdClient struct {
 	Client          *http.Client
 	MaxHTMLLen      int64
 	EnableUnkownLen bool
-}
-
-// StaticClient caches cachalbe content and limits the size of html file.
-var DefaultClient = &StdClient{
-	Client:          http.DefaultClient,
-	MaxHTMLLen:      MaxHTMLLen,
-	EnableUnkownLen: true,
 }
 
 // Do implements Client.
@@ -42,7 +59,7 @@ func (ct *StdClient) Do(req *Request) (resp *Response, err error) {
 		return
 	}
 
-	// log.Printf("[%s] %s %s\n", resp.Status, req.Method, req.URL.String())
+	log.Printf("[%s] %s %s\n", resp.Status, req.Method, req.URL.String())
 
 	// Only status code 2xx is ok
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

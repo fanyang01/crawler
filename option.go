@@ -8,12 +8,12 @@ var DefaultOption = &Option{
 	RetryDelay:   10 * time.Second,
 	RobotoAgent:  "I'm a Roboto",
 	NWorker: struct {
-		Maker, Fetcher, Handler, Parser, Filter, Scheduler int
+		Maker, Fetcher, Handler, Finder, Filter, Scheduler int
 	}{
 		Maker:     1,
-		Fetcher:   32,
-		Handler:   16,
-		Parser:    32,
+		Fetcher:   4,
+		Handler:   2,
+		Finder:    4,
 		Filter:    2,
 		Scheduler: 2,
 	},
@@ -27,6 +27,6 @@ type Option struct {
 	EnableUnkownLen bool
 	MaxHTMLLen      int64
 	NWorker         struct {
-		Maker, Fetcher, Handler, Parser, Filter, Scheduler int
+		Maker, Fetcher, Handler, Finder, Filter, Scheduler int
 	}
 }

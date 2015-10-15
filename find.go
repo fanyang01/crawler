@@ -15,6 +15,7 @@ type Anchor struct {
 	URL       *url.URL // parsed url
 	Hyperlink bool     // is hyperlink?
 	Text      []byte   // anchor text
+	Depth     int      // length of path to find it
 }
 
 // Link is a collection of urls on a page.
@@ -30,11 +31,9 @@ type finder struct {
 	nworker int
 }
 
-func newFinder(nworker int, in <-chan *Response, done chan struct{}) *finder {
+func newFinder(nworker int) *finder {
 	return &finder{
 		Out:     make(chan *Link, nworker),
-		In:      in,
-		Done:    done,
 		nworker: nworker,
 	}
 }
