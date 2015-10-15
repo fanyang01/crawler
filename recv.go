@@ -14,6 +14,7 @@ type reciever struct {
 	In      <-chan *Response
 	Out     chan *Response
 	Done    chan struct{}
+	WG      *sync.WaitGroup
 	handler Handler
 	nworker int
 }
@@ -38,6 +39,7 @@ func (rv *reciever) start() {
 	go func() {
 		wg.Wait()
 		close(rv.Out)
+		rv.WG.Done()
 	}()
 }
 

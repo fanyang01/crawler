@@ -12,6 +12,7 @@ type filter struct {
 	NewOut   chan *url.URL
 	AgainOut chan *url.URL
 	Done     chan struct{}
+	WG       *sync.WaitGroup
 	nworker  int
 	handler  Handler
 	store    URLStore
@@ -43,6 +44,7 @@ func (ft *filter) start() {
 		wg.Wait()
 		close(ft.NewOut)
 		close(ft.AgainOut)
+		ft.WG.Done()
 	}()
 }
 

@@ -3,7 +3,7 @@ package crawler
 import (
 	"errors"
 	"net/url"
-	"time"
+	"sync"
 )
 
 // Crawler crawls web pages.
@@ -19,6 +19,12 @@ type Crawler struct {
 	scheduler *scheduler
 	stdClient *StdClient
 	done      chan struct{}
+	wg        sync.WaitGroup
+}
+
+type quit struct {
+	Done chan struct{}
+	WG   *sync.WaitGroup
 }
 
 // NewCrawler creates a new crawler.
@@ -71,6 +77,14 @@ func NewCrawler(opt *Option, store URLStore, handler Handler) *Crawler {
 	cw.finder.Done = cw.done
 	cw.filter.Done = cw.done
 	cw.scheduler.Done = cw.done
+
+	cw.maker.WG = &cw.wg
+	cw.fetcher.WG = &cw.wg
+	cw.reciever.WG = &cw.wg
+	cw.finder.WG = &cw.wg
+	cw.filter.WG = &cw.wg
+	cw.scheduler.WG = &cw.wg
+
 	return cw
 }
 
@@ -80,6 +94,7 @@ func (cw *Crawler) Crawl(seeds ...string) error {
 	if err != nil {
 		return err
 	}
+	cw.wg.Add(6)
 	cw.scheduler.start()
 	cw.maker.start()
 	cw.fetcher.start()
@@ -126,5 +141,5 @@ func (cw *Crawler) Enqueue(u string, score int64) {
 // Stop stops the crawler.
 func (cw *Crawler) Stop() {
 	close(cw.done)
-	time.Sleep(1E9)
+	cw.wg.Wait()
 }

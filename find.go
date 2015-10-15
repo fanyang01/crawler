@@ -28,6 +28,7 @@ type finder struct {
 	In      <-chan *Response
 	Out     chan *Link
 	Done    chan struct{}
+	WG      *sync.WaitGroup
 	nworker int
 }
 
@@ -50,6 +51,7 @@ func (f *finder) start() {
 	go func() {
 		wg.Wait()
 		close(f.Out)
+		f.WG.Done()
 	}()
 }
 

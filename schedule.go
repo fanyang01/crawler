@@ -19,6 +19,7 @@ type scheduler struct {
 	AgainIn   <-chan *url.URL
 	Out       chan *url.URL
 	Done      chan struct{}
+	WG        *sync.WaitGroup
 	nworker   int
 	handler   Handler
 	store     URLStore
@@ -82,6 +83,7 @@ func (sched *scheduler) start() {
 	go func() {
 		wg.Wait()
 		close(sched.Out)
+		sched.WG.Done()
 	}()
 
 }

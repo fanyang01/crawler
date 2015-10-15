@@ -21,6 +21,7 @@ type maker struct {
 	In      <-chan *url.URL
 	Out     chan *Request
 	Done    chan struct{}
+	WG      *sync.WaitGroup
 	handler Handler
 	nworker int
 }
@@ -63,6 +64,7 @@ func (rm *maker) start() {
 	go func() {
 		wg.Wait()
 		close(rm.Out)
+		rm.WG.Done()
 	}()
 }
 

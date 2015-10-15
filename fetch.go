@@ -47,6 +47,7 @@ type fetcher struct {
 	Out     chan *Response
 	ErrOut  chan<- *url.URL
 	Done    chan struct{}
+	WG      *sync.WaitGroup
 	cache   *cachePool
 	store   URLStore
 	nworker int
@@ -73,6 +74,7 @@ func (fc *fetcher) start() {
 	go func() {
 		wg.Wait()
 		close(fc.Out)
+		fc.WG.Done()
 	}()
 }
 
