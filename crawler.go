@@ -46,21 +46,12 @@ func NewCrawler(opt *Option, store URLStore, handler Handler) *Crawler {
 	}
 
 	// connect each part
-	cw.maker = newRequestMaker(
-		opt.NWorker.Maker,
-		cw.handler)
-	cw.fetcher = newFetcher(opt.NWorker.Fetcher,
-		cw.urlStore,
-		opt.MaxCacheSize)
-	cw.reciever = newRespHandler(opt.NWorker.Handler,
-		cw.handler)
+	cw.maker = newRequestMaker(opt.NWorker.Maker, cw.handler)
+	cw.fetcher = newFetcher(opt.NWorker.Fetcher, cw.urlStore, opt.MaxCacheSize)
+	cw.reciever = newRespHandler(opt.NWorker.Handler, cw.handler)
 	cw.finder = newFinder(opt.NWorker.Finder)
-	cw.filter = newFilter(opt.NWorker.Filter,
-		cw.handler,
-		cw.urlStore)
-	cw.scheduler = newScheduler(opt.NWorker.Scheduler,
-		cw.handler,
-		cw.urlStore)
+	cw.filter = newFilter(opt.NWorker.Filter, cw.handler, cw.urlStore)
+	cw.scheduler = newScheduler(opt.NWorker.Scheduler, cw.handler, cw.urlStore)
 
 	cw.maker.In = cw.scheduler.Out
 	cw.fetcher.In = cw.maker.Out
@@ -85,6 +76,12 @@ func NewCrawler(opt *Option, store URLStore, handler Handler) *Crawler {
 	cw.filter.WG = &cw.wg
 	cw.scheduler.WG = &cw.wg
 
+	cw.maker.nworker = opt.NWorker.Maker
+	cw.fetcher.nworker = opt.NWorker.Fetcher
+	cw.reciever.nworker = opt.NWorker.Handler
+	cw.finder.nworker = opt.NWorker.Finder
+	cw.filter.nworker = opt.NWorker.Filter
+	cw.scheduler.nworker = opt.NWorker.Scheduler
 	return cw
 }
 
@@ -96,11 +93,11 @@ func (cw *Crawler) Crawl(seeds ...string) error {
 	}
 	cw.wg.Add(6)
 	cw.scheduler.start()
-	cw.maker.start()
-	cw.fetcher.start()
-	cw.reciever.start()
-	cw.finder.start()
-	cw.filter.start()
+	start(cw.maker)
+	start(cw.fetcher)
+	start(cw.reciever)
+	start(cw.finder)
+	start(cw.filter)
 	return nil
 }
 

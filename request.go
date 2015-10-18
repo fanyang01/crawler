@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"sync"
 )
 
 const (
@@ -18,12 +17,10 @@ type Request struct {
 }
 
 type maker struct {
+	conn
 	In      <-chan *url.URL
 	Out     chan *Request
-	Done    chan struct{}
-	WG      *sync.WaitGroup
 	handler Handler
-	nworker int
 }
 
 type requestSetter interface {
@@ -33,7 +30,6 @@ type requestSetter interface {
 func newRequestMaker(nworker int, handler Handler) *maker {
 	return &maker{
 		Out:     make(chan *Request, nworker),
-		nworker: nworker,
 		handler: handler,
 	}
 }
@@ -52,21 +48,7 @@ func (rm *maker) newRequest(url *url.URL) (req *Request, err error) {
 	return
 }
 
-func (rm *maker) start() {
-	var wg sync.WaitGroup
-	wg.Add(rm.nworker)
-	for i := 0; i < rm.nworker; i++ {
-		go func() {
-			rm.work()
-			wg.Done()
-		}()
-	}
-	go func() {
-		wg.Wait()
-		close(rm.Out)
-		rm.WG.Done()
-	}()
-}
+func (rm *maker) cleanup() { close(rm.Out) }
 
 func (rm *maker) work() {
 	for u := range rm.In {

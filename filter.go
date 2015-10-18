@@ -4,16 +4,13 @@ import (
 	"fmt"
 	"log"
 	"net/url"
-	"sync"
 )
 
 type filter struct {
+	conn
 	In       chan *Link
 	NewOut   chan *url.URL
 	AgainOut chan *url.URL
-	Done     chan struct{}
-	WG       *sync.WaitGroup
-	nworker  int
 	handler  Handler
 	store    URLStore
 	sites    *sites
@@ -24,28 +21,15 @@ func newFilter(nworker int, handler Handler, store URLStore) *filter {
 	return &filter{
 		NewOut:   make(chan *url.URL, nworker),
 		AgainOut: make(chan *url.URL, nworker),
-		nworker:  nworker,
 		handler:  handler,
 		store:    store,
 		sites:    newSites(),
 	}
 }
 
-func (ft *filter) start() {
-	var wg sync.WaitGroup
-	wg.Add(ft.nworker)
-	for i := 0; i < ft.nworker; i++ {
-		go func() {
-			ft.work()
-			wg.Done()
-		}()
-	}
-	go func() {
-		wg.Wait()
-		close(ft.NewOut)
-		close(ft.AgainOut)
-		ft.WG.Done()
-	}()
+func (ft *filter) cleanup() {
+	close(ft.NewOut)
+	close(ft.AgainOut)
 }
 
 func (ft *filter) work() {

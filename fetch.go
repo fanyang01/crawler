@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -43,40 +42,23 @@ type Response struct {
 }
 
 type fetcher struct {
-	In      <-chan *Request
-	Out     chan *Response
-	ErrOut  chan<- *url.URL
-	Done    chan struct{}
-	WG      *sync.WaitGroup
-	cache   *cachePool
-	store   URLStore
-	nworker int
+	conn
+	In     <-chan *Request
+	Out    chan *Response
+	ErrOut chan<- *url.URL
+	cache  *cachePool
+	store  URLStore
 }
 
 func newFetcher(nworker int, store URLStore, maxCacheSize int64) *fetcher {
 	return &fetcher{
-		Out:     make(chan *Response, nworker),
-		nworker: nworker,
-		store:   store,
-		cache:   newCachePool(maxCacheSize),
+		Out:   make(chan *Response, nworker),
+		store: store,
+		cache: newCachePool(maxCacheSize),
 	}
 }
 
-func (fc *fetcher) start() {
-	var wg sync.WaitGroup
-	wg.Add(fc.nworker)
-	for i := 0; i < fc.nworker; i++ {
-		go func() {
-			fc.work()
-			wg.Done()
-		}()
-	}
-	go func() {
-		wg.Wait()
-		close(fc.Out)
-		fc.WG.Done()
-	}()
-}
+func (fc *fetcher) cleanup() { close(fc.Out) }
 
 func (fc *fetcher) work() {
 	for req := range fc.In {

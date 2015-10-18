@@ -15,12 +15,10 @@ const (
 )
 
 type scheduler struct {
+	conn
 	NewIn     chan *url.URL
 	AgainIn   <-chan *url.URL
 	Out       chan *url.URL
-	Done      chan struct{}
-	WG        *sync.WaitGroup
-	nworker   int
 	handler   Handler
 	store     URLStore
 	prioQueue PQ
@@ -35,7 +33,6 @@ func newScheduler(nworker int, handler Handler, store URLStore) *scheduler {
 	return &scheduler{
 		Out:       make(chan *url.URL, nworker),
 		ErrIn:     make(chan *url.URL, EQueueLen),
-		nworker:   nworker,
 		store:     store,
 		prioQueue: newPQueue(PQueueLen),
 		waitQueue: newWQueue(TQueueLen),
@@ -72,10 +69,10 @@ func (sched *scheduler) start() {
 			u := sched.prioQueue.Pop() // Pop will block when queue is empty
 			loc := u.Loc
 			select {
-			case sched.Out <- &loc:
-				sched.pool.Put(u)
 			case <-sched.Done:
 				return
+			case sched.Out <- &loc:
+				sched.pool.Put(u)
 			}
 		}
 	}()

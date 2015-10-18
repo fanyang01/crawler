@@ -5,7 +5,6 @@ import (
 	"io"
 	"log"
 	"net/url"
-	"sync"
 
 	"golang.org/x/net/html"
 )
@@ -25,35 +24,18 @@ type Link struct {
 }
 
 type finder struct {
-	In      <-chan *Response
-	Out     chan *Link
-	Done    chan struct{}
-	WG      *sync.WaitGroup
-	nworker int
+	conn
+	In  <-chan *Response
+	Out chan *Link
 }
 
 func newFinder(nworker int) *finder {
 	return &finder{
-		Out:     make(chan *Link, nworker),
-		nworker: nworker,
+		Out: make(chan *Link, nworker),
 	}
 }
 
-func (f *finder) start() {
-	var wg sync.WaitGroup
-	wg.Add(f.nworker)
-	for i := 0; i < f.nworker; i++ {
-		go func() {
-			f.work()
-			wg.Done()
-		}()
-	}
-	go func() {
-		wg.Wait()
-		close(f.Out)
-		f.WG.Done()
-	}()
-}
+func (f *finder) cleanup() { close(f.Out) }
 
 func (f *finder) work() {
 	for r := range f.In {

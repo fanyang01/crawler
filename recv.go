@@ -3,7 +3,6 @@ package crawler
 import (
 	"bytes"
 	"errors"
-	"sync"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -11,37 +10,20 @@ import (
 var ErrNotHTML = errors.New("content type is not HTML")
 
 type reciever struct {
+	conn
 	In      <-chan *Response
 	Out     chan *Response
-	Done    chan struct{}
-	WG      *sync.WaitGroup
 	handler Handler
-	nworker int
 }
 
 func newRespHandler(nworker int, handler Handler) *reciever {
 	return &reciever{
 		Out:     make(chan *Response, nworker),
-		nworker: nworker,
 		handler: handler,
 	}
 }
 
-func (rv *reciever) start() {
-	var wg sync.WaitGroup
-	wg.Add(rv.nworker)
-	for i := 0; i < rv.nworker; i++ {
-		go func() {
-			rv.work()
-			wg.Done()
-		}()
-	}
-	go func() {
-		wg.Wait()
-		close(rv.Out)
-		rv.WG.Done()
-	}()
-}
+func (rv *reciever) cleanup() { close(rv.Out) }
 
 func (rv *reciever) work() {
 	for r := range rv.In {
