@@ -29,8 +29,7 @@ type scheduler struct {
 }
 
 func newScheduler(nworker int, handler Handler, store URLStore) *scheduler {
-
-	return &scheduler{
+	this := &scheduler{
 		Out:       make(chan *url.URL, nworker),
 		ErrIn:     make(chan *url.URL, EQueueLen),
 		store:     store,
@@ -43,6 +42,8 @@ func newScheduler(nworker int, handler Handler, store URLStore) *scheduler {
 			},
 		},
 	}
+	this.nworker = nworker
+	return this
 }
 
 func (sched *scheduler) start() {
