@@ -3,8 +3,8 @@
 
 ## TODO
 
--[ ] Storage
--[ ] Page similarity(simhash)
--[ ] Article(compute the area of element)
--[ ] AJAX pages
--[ ] Page automation(login, ...)
+- [ ] Storage
+- [ ] Page similarity(simhash)
+- [ ] Article(compute the area of element)
+- [ ] AJAX pages
+- [ ] Page automation(login, ...)
