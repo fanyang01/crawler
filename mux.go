@@ -29,23 +29,23 @@ type (
 )
 
 // Once returns a scheduler that schedule each url to be crawled only once.
-func Once() SchedulerFunc {
-	return func(u URL) (score int64, at time.Time, done bool) {
+func Once() Scheduler {
+	return SchedulerFunc(func(u URL) (score int64, at time.Time, done bool) {
 		if u.Visited.Count > 0 {
 			done = true
 		} else {
 			done = false
 		}
 		return
-	}
+	})
 }
 
 // Every returns a scheduler that schedule each url to be crawled every delta duration.
-func Every(delta time.Duration) SchedulerFunc {
-	return func(u URL) (score int64, at time.Time, done bool) {
+func Every(delta time.Duration) Scheduler {
+	return SchedulerFunc(func(u URL) (score int64, at time.Time, done bool) {
 		at = u.Visited.Time.Add(delta)
 		return
-	}
+	})
 }
 
 func (f PreparerFunc) Prepare(req *Request)      { f(req) }

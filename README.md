@@ -3,8 +3,10 @@
 
 ## TODO
 
-- [ ] Storage
+- [ ] Add proxy support
+- [ ] Storage(Cassandra | MongoDB)
+- [ ] AJAX pages(nightmare.js, phantomJS)
+- [ ] DSL | YAML | TOML
 - [ ] Page similarity(simhash)
 - [ ] Article(compute the area of element)
-- [ ] AJAX pages
 - [ ] Page automation(login, ...)
