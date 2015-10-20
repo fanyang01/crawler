@@ -6,13 +6,12 @@ var DefaultOption = &Option{
 	MaxCacheSize: 1 << 25, // 32MB
 	MinDelay:     10 * time.Second,
 	RetryDelay:   10 * time.Second,
-	RobotoAgent:  "I'm a Roboto",
 	NWorker: struct {
-		Maker, Fetcher, Handler, Finder, Filter, Scheduler int
+		Maker, Fetcher, Reciever, Finder, Filter, Scheduler int
 	}{
 		Maker:     1,
 		Fetcher:   4,
-		Handler:   2,
+		Reciever:  2,
 		Finder:    4,
 		Filter:    2,
 		Scheduler: 2,
@@ -27,6 +26,6 @@ type Option struct {
 	EnableUnkownLen bool
 	MaxHTMLLen      int64
 	NWorker         struct {
-		Maker, Fetcher, Handler, Finder, Filter, Scheduler int
+		Maker, Fetcher, Reciever, Finder, Filter, Scheduler int
 	}
 }

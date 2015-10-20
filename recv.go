@@ -10,17 +10,19 @@ import (
 var ErrNotHTML = errors.New("content type is not HTML")
 
 type reciever struct {
-	conn
+	workerConn
 	In      <-chan *Response
 	Out     chan *Response
 	handler Handler
 }
 
 func newRespHandler(nworker int, handler Handler) *reciever {
-	return &reciever{
+	this := &reciever{
 		Out:     make(chan *Response, nworker),
 		handler: handler,
 	}
+	this.nworker = nworker
+	return this
 }
 
 func (rv *reciever) cleanup() { close(rv.Out) }

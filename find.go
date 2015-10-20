@@ -24,15 +24,17 @@ type Link struct {
 }
 
 type finder struct {
-	conn
+	workerConn
 	In  <-chan *Response
 	Out chan *Link
 }
 
 func newFinder(nworker int) *finder {
-	return &finder{
+	this := &finder{
 		Out: make(chan *Link, nworker),
 	}
+	this.nworker = nworker
+	return this
 }
 
 func (f *finder) cleanup() { close(f.Out) }

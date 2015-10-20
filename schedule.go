@@ -9,29 +9,28 @@ import (
 const (
 	PQueueLen  int = 4096
 	TQueueLen      = 4096
-	EQueueLen      = 512
 	RetryDelay     = time.Second * 30
 	MinDelay       = time.Second * 10
 )
 
 type scheduler struct {
-	conn
+	workerConn
 	NewIn     chan *url.URL
 	AgainIn   <-chan *url.URL
+	ErrIn     chan *url.URL
 	Out       chan *url.URL
 	handler   Handler
 	store     URLStore
 	prioQueue PQ
 	waitQueue WQ
-	ErrIn     chan *url.URL
 	sites     sites
+	once      sync.Once // used for closing Out
 	pool      sync.Pool
 }
 
 func newScheduler(nworker int, handler Handler, store URLStore) *scheduler {
 	this := &scheduler{
 		Out:       make(chan *url.URL, nworker),
-		ErrIn:     make(chan *url.URL, EQueueLen),
 		store:     store,
 		prioQueue: newPQueue(PQueueLen),
 		waitQueue: newWQueue(TQueueLen),
@@ -48,7 +47,7 @@ func newScheduler(nworker int, handler Handler, store URLStore) *scheduler {
 
 func (sched *scheduler) start() {
 	var wg sync.WaitGroup
-	wg.Add(sched.nworker + 3)
+	wg.Add(sched.nworker + 2)
 	for i := 0; i < sched.nworker; i++ {
 		go func() {
 			sched.work()
@@ -59,10 +58,6 @@ func (sched *scheduler) start() {
 		sched.popTQ()
 		wg.Done()
 	}()
-	go func() {
-		sched.retry()
-		wg.Done()
-	}()
 	// Pop URL from priority queue
 	go func() {
 		defer wg.Done()
@@ -70,10 +65,10 @@ func (sched *scheduler) start() {
 			u := sched.prioQueue.Pop() // Pop will block when queue is empty
 			loc := u.Loc
 			select {
-			case <-sched.Done:
-				return
 			case sched.Out <- &loc:
 				sched.pool.Put(u)
+			case <-sched.Done:
+				return
 			}
 		}
 	}()
@@ -83,7 +78,6 @@ func (sched *scheduler) start() {
 		close(sched.Out)
 		sched.WG.Done()
 	}()
-
 }
 
 func (sched *scheduler) work() {
@@ -91,33 +85,44 @@ func (sched *scheduler) work() {
 		var u *url.URL
 		select {
 		case u = <-sched.NewIn:
+			sched.enqueue(u)
 		case u = <-sched.AgainIn:
+			sched.enqueue(u)
+		case u = <-sched.ErrIn:
+			uu := newURL(*u)
+			uu.nextTime = time.Now().Add(RetryDelay)
+			sched.waitQueue.Push(uu)
 		case <-sched.Done:
-			// force sched.prioQueue.Pop() return, otherwise it may block forever
+			// NAIVE: force prioQueue recover from blocking
+			sched.prioQueue.Push(&URL{})
 			sched.prioQueue.Push(&URL{})
 			return
 		}
-		h := sched.store.Watch(*u)
-		if h == nil {
-			continue
-		}
-		uu := h.V()
-		minTime := uu.Visited.Time.Add(MinDelay)
-		uu.Score, uu.nextTime, uu.Done = sched.handler.Schedule(*uu)
-		if !uu.Done && uu.Visited.Count > 0 && uu.nextTime.Before(minTime) {
-			uu.nextTime = minTime
-		}
-		uuu := sched.pool.Get().(*URL)
-		*uuu = *uu
-		h.Unlock()
-		if uuu.Done {
-			continue
-		}
-		if uuu.nextTime.After(time.Now()) {
-			sched.waitQueue.Push(uuu)
-		} else {
-			sched.prioQueue.Push(uuu)
-		}
+	}
+}
+
+func (sched *scheduler) enqueue(u *url.URL) {
+	// Require that url has been stored.
+	h := sched.store.Watch(*u)
+	if h == nil {
+		return
+	}
+	uu := h.V()
+	minTime := uu.Visited.Time.Add(MinDelay)
+	uu.Score, uu.nextTime, uu.Done = sched.handler.Schedule(*uu)
+	if !uu.Done && uu.Visited.Count > 0 && uu.nextTime.Before(minTime) {
+		uu.nextTime = minTime
+	}
+	uuu := sched.pool.Get().(*URL)
+	*uuu = *uu
+	h.Unlock()
+	if uuu.Done {
+		return
+	}
+	if uuu.nextTime.After(time.Now()) {
+		sched.waitQueue.Push(uuu)
+	} else {
+		sched.prioQueue.Push(uuu)
 	}
 }
 
@@ -142,20 +147,6 @@ func (sched *scheduler) popTQ() {
 				sched.prioQueue.Push(u)
 			}
 			duration = 100 * time.Millisecond
-		}
-	}
-}
-
-// Periodically retry urls in error queue
-func (sched *scheduler) retry() {
-	for {
-		select {
-		case u := <-sched.ErrIn:
-			uu := newURL(*u)
-			uu.nextTime = time.Now().Add(RetryDelay)
-			sched.waitQueue.Push(uu)
-		case <-sched.Done:
-			return
 		}
 	}
 }

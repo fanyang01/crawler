@@ -19,6 +19,26 @@ type (
 	SchedulerFunc func(URL) (score int64, at time.Time, done bool)
 )
 
+// Once returns a scheduler that schedule each url to be crawled only once.
+func Once() SchedulerFunc {
+	return func(u URL) (score int64, at time.Time, done bool) {
+		if u.Visited.Count > 0 {
+			done = true
+		} else {
+			done = false
+		}
+		return
+	}
+}
+
+// Every returns a scheduler that schedule each url to be crawled every delta duration.
+func Every(delta time.Duration) SchedulerFunc {
+	return func(u URL) (score int64, at time.Time, done bool) {
+		at = u.Visited.Time.Add(delta)
+		return
+	}
+}
+
 func (f SetterFunc) SetRequest(req *Request)       { f(req) }
 func (f RecieverFunc) Recieve(resp *Response) bool { return f(resp) }
 func (f SchedulerFunc) Schedule(u URL) (score int64, at time.Time, done bool) {
@@ -101,7 +121,7 @@ func (mux *Mux) Schedule(u URL) (score int64, at time.Time, done bool) {
 	if f, ok := mux.tries[mux_SCHED].Lookup(u.Loc.String()); ok {
 		return f.(Scheduler).Schedule(u)
 	}
-	return 0, time.Time{}, false
+	return
 }
 
 // Accept implements Filter.

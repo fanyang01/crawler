@@ -6,16 +6,6 @@ import (
 	"time"
 )
 
-const (
-	U_Init     int = iota
-	U_Waiting      // in waiting queue
-	U_Enqueued     // in main queue
-	U_Sieving      // in filter
-	U_Fetched
-	U_Redirected
-	U_Error
-)
-
 // StoreHandle is a handle for modifying metadata of a url.
 type StoreHandle interface {
 	// V provides a pointer for modifying internal data.
@@ -48,7 +38,6 @@ type URL struct {
 	}
 	Depth        int
 	LastModified time.Time
-	Status       int
 	Done         bool
 	nextTime     time.Time
 }
@@ -70,8 +59,7 @@ type store struct {
 func newURL(u url.URL) *URL {
 	u.Fragment = ""
 	return &URL{
-		Loc:    u,
-		Status: U_Init,
+		Loc: u,
 	}
 }
 

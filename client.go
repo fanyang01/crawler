@@ -40,6 +40,7 @@ var (
 		Client:          DefaultHTTPClient,
 		MaxHTMLLen:      MaxHTMLLen,
 		EnableUnkownLen: true,
+		UserAgent:       "I'm a robot",
 	}
 )
 
@@ -48,12 +49,16 @@ type StdClient struct {
 	Client          *http.Client
 	MaxHTMLLen      int64
 	EnableUnkownLen bool
+	UserAgent       string
 }
 
 // Do implements Client.
 func (ct *StdClient) Do(req *Request) (resp *Response, err error) {
 	resp = &Response{}
 	resp.RequestURL = req.URL
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", ct.UserAgent)
+	}
 	resp.Response, err = ct.Client.Do(req.Request)
 	if err != nil {
 		return

@@ -7,7 +7,7 @@ import (
 )
 
 type filter struct {
-	conn
+	workerConn
 	In       chan *Link
 	NewOut   chan *url.URL
 	AgainOut chan *url.URL
@@ -17,14 +17,15 @@ type filter struct {
 }
 
 func newFilter(nworker int, handler Handler, store URLStore) *filter {
-
-	return &filter{
+	this := &filter{
 		NewOut:   make(chan *url.URL, nworker),
 		AgainOut: make(chan *url.URL, nworker),
 		handler:  handler,
 		store:    store,
 		sites:    newSites(),
 	}
+	this.nworker = nworker
+	return this
 }
 
 func (ft *filter) cleanup() {
@@ -58,9 +59,8 @@ func (ft *filter) work() {
 					continue
 				}
 				ft.store.Put(URL{
-					Loc:    *anchor.URL,
-					Status: U_Init,
-					Depth:  anchor.Depth,
+					Loc:   *anchor.URL,
+					Depth: anchor.Depth,
 				})
 				select {
 				case ft.NewOut <- anchor.URL:
