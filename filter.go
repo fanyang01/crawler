@@ -6,12 +6,16 @@ import (
 	"net/url"
 )
 
+var (
+	RobotAgent = "gocrawler"
+)
+
 type filter struct {
 	workerConn
 	In       chan *Link
 	NewOut   chan *url.URL
 	AgainOut chan *url.URL
-	ctrler  Controller
+	ctrler   Controller
 	store    URLStore
 	sites    *sites
 }
@@ -20,7 +24,7 @@ func newFilter(nworker int, ctrler Controller, store URLStore) *filter {
 	this := &filter{
 		NewOut:   make(chan *url.URL, nworker),
 		AgainOut: make(chan *url.URL, nworker),
-		ctrler:  ctrler,
+		ctrler:   ctrler,
 		store:    store,
 		sites:    newSites(),
 	}

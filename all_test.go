@@ -17,9 +17,9 @@ type testCtrler struct {
 	value chan []string
 }
 
-func (h testCtrler) Recieve(r *Response) bool {
-	h.text <- r.FindText("div.foo")
-	h.value <- r.FindAttr("div#hello", "key")
+func (t testCtrler) Handle(r *Response) bool {
+	t.text <- r.FindText("div.foo")
+	t.value <- r.FindAttr("div#hello", "key")
 	return true
 }
 

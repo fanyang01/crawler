@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	DefaultHandler = NewMux()
+	DefaultCtrler = NewMux()
 )
 
 // Crawler crawls web pages.
@@ -39,7 +39,7 @@ func NewCrawler(opt *Option, store URLStore, ctrler Controller) *Crawler {
 		store = newMemStore()
 	}
 	if ctrler == nil {
-		ctrler = DefaultHandler
+		ctrler = DefaultCtrler
 	}
 	cw := &Crawler{
 		option:   opt,

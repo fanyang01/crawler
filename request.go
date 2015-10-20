@@ -6,10 +6,6 @@ import (
 	"net/url"
 )
 
-const (
-	RobotAgent = "I'm a robot"
-)
-
 // Request contains a client for doing this request.
 type Request struct {
 	Client Client
