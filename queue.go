@@ -8,8 +8,12 @@ import (
 
 // PQ is priority queue, using URL.Score as priority.
 type PQ interface {
+	// Push adds a new url to queue. Blocking or not.
 	Push(*URL)
+	// Pop removes the element of highest priority. Blocking.
 	Pop() *URL
+	// Close closes queue, wake up all sleeping push/pop.
+	Close()
 }
 
 // WQ is waiting queue, using URL.nextTime as priority.
@@ -21,6 +25,8 @@ type WQ interface {
 	Pop() (*URL, bool)
 	// Pop all urls whose 'nextTime' is before/at now. No blocking.
 	MultiPop() (urls []*URL, any bool)
+	// Close closes queue, wake up all sleeping push.
+	Close()
 }
 
 type baseHeap []*URL
@@ -48,64 +54,114 @@ func (h pHeap) Less(i, j int) bool {
 	return h.baseHeap[i].Score > h.baseHeap[j].Score
 }
 
-type urlQueue struct {
-	heap interface {
-		heap.Interface
-		Top() interface{}
-	}
+type pqueue struct {
+	heap   heap.Interface
 	maxLen int
 	pop    *sync.Cond
 	push   *sync.Cond
+	closed bool
 	*sync.RWMutex
 }
 
-func newURLQueue(h interface {
-	heap.Interface
-	Top() interface{}
-}, maxLen int) urlQueue {
-	var q urlQueue
-	q.maxLen = maxLen
-	q.RWMutex = new(sync.RWMutex)
-	q.heap = h
+func newPQueue(maxLen int) *pqueue {
+	q := &pqueue{
+		heap:    &pHeap{},
+		maxLen:  maxLen,
+		RWMutex: new(sync.RWMutex),
+	}
 	q.pop = sync.NewCond(q.RWMutex)
 	q.push = sync.NewCond(q.RWMutex)
 	return q
 }
 
-func (q *urlQueue) Push(u *URL) {
+func (q *pqueue) Push(u *URL) {
 	q.Lock()
-	if q.heap.Len() >= q.maxLen {
+	defer q.Unlock()
+	for !q.closed && q.heap.Len() >= q.maxLen {
 		q.push.Wait()
+	}
+	if q.closed {
+		return
 	}
 	heap.Push(q.heap, u)
 	q.pop.Signal()
-	q.Unlock()
 }
 
-// Pop will block if heap is empty
-func (q *urlQueue) Pop() (u *URL) {
+// Pop will block if heap is empty.
+func (q *pqueue) Pop() (u *URL) {
 	q.Lock()
-	for q.heap.Len() == 0 {
+	defer q.Unlock()
+	for !q.closed && q.heap.Len() == 0 {
 		q.pop.Wait()
 	}
-	defer q.Unlock()
+	if q.closed {
+		return nil
+	}
 	i := heap.Pop(q.heap)
 	q.push.Signal()
 	return i.(*URL)
 }
 
-type wqueue struct {
-	urlQueue
-}
-type pqueue struct {
-	urlQueue
+func (q *pqueue) Close() {
+	q.Lock()
+	q.closed = true
+	q.pop.Broadcast()
+	q.push.Broadcast()
+	q.Unlock()
 }
 
-func newPQueue(maxLen int) *pqueue {
-	return &pqueue{newURLQueue(&pHeap{}, maxLen)}
+type wqueue struct {
+	heap interface {
+		heap.Interface
+		Top() interface{}
+	}
+	maxLen int
+	closed bool
+	push   *sync.Cond
+	*sync.RWMutex
 }
+
 func newWQueue(maxLen int) *wqueue {
-	return &wqueue{newURLQueue(&wHeap{}, maxLen)}
+	q := &wqueue{
+		heap:    &wHeap{},
+		maxLen:  maxLen,
+		RWMutex: new(sync.RWMutex),
+	}
+	q.push = sync.NewCond(q.RWMutex)
+	return q
+}
+
+func (q *wqueue) Push(u *URL) {
+	q.Lock()
+	defer q.Unlock()
+	for !q.closed && q.heap.Len() >= q.maxLen {
+		q.push.Wait()
+	}
+	if q.closed {
+		return
+	}
+	heap.Push(q.heap, u)
+}
+
+func (wq *wqueue) Pop() (*URL, bool) {
+	wq.Lock()
+	defer wq.Unlock()
+	if wq.closed || wq.heap.Len() == 0 {
+		return nil, false
+	}
+	v := wq.heap.Top()
+	if !v.(*URL).nextTime.After(time.Now()) {
+		v := heap.Pop(wq.heap)
+		wq.push.Signal()
+		return v.(*URL), true
+	}
+	return nil, false
+}
+
+func (wq *wqueue) Close() {
+	wq.Lock()
+	wq.closed = true
+	wq.Unlock()
 }
 
 func (wq *wqueue) IsAvailable() bool {
@@ -121,35 +177,22 @@ func (wq *wqueue) IsAvailable() bool {
 	return false
 }
 
-func (wq *wqueue) Pop() (*URL, bool) {
-	wq.Lock()
-	defer wq.Unlock()
-	if wq.heap.Len() == 0 {
-		return nil, false
-	}
-	v := wq.heap.Top()
-	if !v.(*URL).nextTime.After(time.Now()) {
-		v := heap.Pop(wq.heap)
-		return v.(*URL), true
-	}
-	return nil, false
-}
-
 func (wq *wqueue) MultiPop() (s []*URL, any bool) {
 	wq.Lock()
+	defer wq.Unlock()
 	for {
-		if wq.heap.Len() == 0 {
+		if wq.closed || wq.heap.Len() == 0 {
 			break
 		}
 		v := wq.heap.Top()
 		if !v.(*URL).nextTime.After(time.Now()) {
 			v := heap.Pop(wq.heap)
+			wq.push.Signal()
 			s = append(s, v.(*URL))
 			any = true
 			continue
 		}
 		break
 	}
-	wq.Unlock()
 	return
 }

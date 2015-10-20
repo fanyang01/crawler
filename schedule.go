@@ -62,7 +62,10 @@ func (sched *scheduler) start() {
 	go func() {
 		defer wg.Done()
 		for {
-			u := sched.prioQueue.Pop() // Pop will block when queue is empty
+			u := sched.prioQueue.Pop() // Pop will return nil if the queue is closed.
+			if u == nil {
+				return
+			}
 			loc := u.Loc
 			select {
 			case sched.Out <- &loc:
@@ -93,9 +96,10 @@ func (sched *scheduler) work() {
 			uu.nextTime = time.Now().Add(RetryDelay)
 			sched.waitQueue.Push(uu)
 		case <-sched.Done:
-			// NAIVE: force prioQueue recover from blocking
-			sched.prioQueue.Push(&URL{})
-			sched.prioQueue.Push(&URL{})
+			sched.once.Do(func() {
+				sched.prioQueue.Close()
+				sched.waitQueue.Close()
+			})
 			return
 		}
 	}
