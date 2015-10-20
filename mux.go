@@ -8,14 +8,23 @@ import (
 
 const (
 	mux_FILTER = 1 << iota
-	mux_SET
-	mux_RECV
+	mux_PREPARE
+	mux_HANDLE
 	mux_SCHED
 )
 
 type (
-	SetterFunc    func(*Request)
-	RecieverFunc  func(*Response) bool
+	Preparer interface {
+		Prepare(*Request)
+	}
+	Handler interface {
+		Handle(*Response) (follow bool)
+	}
+	Scheduler interface {
+		Schedule(URL) (score int64, at time.Time, done bool)
+	}
+	PreparerFunc  func(*Request)
+	HandlerFunc   func(*Response) bool
 	SchedulerFunc func(URL) (score int64, at time.Time, done bool)
 )
 
@@ -39,15 +48,19 @@ func Every(delta time.Duration) SchedulerFunc {
 	}
 }
 
-func (f SetterFunc) SetRequest(req *Request)       { f(req) }
-func (f RecieverFunc) Recieve(resp *Response) bool { return f(resp) }
+func (f PreparerFunc) Prepare(req *Request)      { f(req) }
+func (f HandlerFunc) Handle(resp *Response) bool { return f(resp) }
 func (f SchedulerFunc) Schedule(u URL) (score int64, at time.Time, done bool) {
 	return f(u)
 }
 
+type processMux struct {
+	tries map[int]*glob.Trie
+}
+
 // Mux is a multiplexer that supports wildcard *.
 type Mux struct {
-	tries map[int]*glob.Trie
+	processMux
 }
 
 // DefaultMux is the default multiplexer.
@@ -56,33 +69,35 @@ var DefaultMux = NewMux()
 // NewMux creates a new multiplexer.
 func NewMux() *Mux {
 	return &Mux{
-		tries: map[int]*glob.Trie{
-			mux_FILTER: glob.NewTrie(),
-			mux_SET:    glob.NewTrie(),
-			mux_RECV:   glob.NewTrie(),
-			mux_SCHED:  glob.NewTrie(),
+		processMux: processMux{
+			tries: map[int]*glob.Trie{
+				mux_FILTER:  glob.NewTrie(),
+				mux_PREPARE: glob.NewTrie(),
+				mux_HANDLE:  glob.NewTrie(),
+				mux_SCHED:   glob.NewTrie(),
+			},
 		},
 	}
 }
 
-// Set registers setter to set requests for urls matching pattern.
-func (mux *Mux) Set(pattern string, setter Setter) {
-	mux.tries[mux_SET].Add(pattern, setter)
+// Prepare registers a handler to set requests for urls matching pattern.
+func (mux *Mux) PrepareFor(pattern string, p Preparer) {
+	mux.tries[mux_PREPARE].Add(pattern, p)
 }
 
-// SetFunc registers a function to set requests for urls matching pattern.
-func (mux *Mux) SetFunc(pattern string, f func(*Request)) {
-	mux.Set(pattern, SetterFunc(f))
+// PrepareFunc registers a function to set requests for urls matching pattern.
+func (mux *Mux) PrepareFunc(pattern string, f func(*Request)) {
+	mux.PrepareFor(pattern, PreparerFunc(f))
 }
 
-// Recv registers r to recieve and handle responses for urls matching pattern.
-func (mux *Mux) Recv(pattern string, r Reciever) {
-	mux.tries[mux_RECV].Add(pattern, r)
+// Handle registers r to handle responses for urls matching pattern.
+func (mux *Mux) HandleResp(pattern string, h Handler) {
+	mux.tries[mux_HANDLE].Add(pattern, h)
 }
 
-// RecvFunc registers a function to recieve and handle responses for urls matching pattern.
-func (mux *Mux) RecvFunc(pattern string, f func(*Response) bool) {
-	mux.Recv(pattern, RecieverFunc(f))
+// HandleFunc registers a function to handle responses for urls matching pattern.
+func (mux *Mux) HandleFunc(pattern string, f func(*Response) bool) {
+	mux.HandleResp(pattern, HandlerFunc(f))
 }
 
 // Sched registers sched to schedule urls matching pattern.
@@ -96,36 +111,36 @@ func (mux *Mux) SchedFunc(pattern string,
 	mux.Sched(pattern, SchedulerFunc(f))
 }
 
-// Sieve is a filter to determine whether a url should be processed.
-func (mux *Mux) Sieve(pattern string, accept bool) {
+// Sift is a filter to determine whether a url should be processed.
+func (mux *Mux) Sift(pattern string, accept bool) {
 	mux.tries[mux_FILTER].Add(pattern, accept)
 }
 
-// SetRequest implements Setter.
-func (mux *Mux) SetRequest(req *Request) {
-	if f, ok := mux.tries[mux_SET].Lookup(req.URL.String()); ok {
-		f.(Setter).SetRequest(req)
+// Prepare implements Handler.
+func (mux *processMux) Prepare(req *Request) {
+	if f, ok := mux.tries[mux_PREPARE].Lookup(req.URL.String()); ok {
+		f.(Preparer).Prepare(req)
 	}
 }
 
-// Recieve implements Reciever.
-func (mux *Mux) Recieve(resp *Response) bool {
-	if f, ok := mux.tries[mux_RECV].Lookup(resp.Locations.String()); ok {
-		return f.(Reciever).Recieve(resp)
+// Handle implements Handler.
+func (mux *processMux) Handle(resp *Response) bool {
+	if f, ok := mux.tries[mux_HANDLE].Lookup(resp.Locations.String()); ok {
+		return f.(Handler).Handle(resp)
 	}
 	return true
 }
 
-// Schedule implements Scheduler.
-func (mux *Mux) Schedule(u URL) (score int64, at time.Time, done bool) {
+// Schedule implements Handler.
+func (mux *processMux) Schedule(u URL) (score int64, at time.Time, done bool) {
 	if f, ok := mux.tries[mux_SCHED].Lookup(u.Loc.String()); ok {
 		return f.(Scheduler).Schedule(u)
 	}
 	return
 }
 
-// Accept implements Filter.
-func (mux *Mux) Accept(anchor Anchor) bool {
+// Accept implements Handler.
+func (mux *processMux) Accept(anchor Anchor) bool {
 	if ac, ok := mux.tries[mux_FILTER].Lookup(anchor.URL.String()); ok {
 		return ac.(bool)
 	}

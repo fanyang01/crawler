@@ -11,16 +11,16 @@ type filter struct {
 	In       chan *Link
 	NewOut   chan *url.URL
 	AgainOut chan *url.URL
-	handler  Handler
+	ctrler  Controller
 	store    URLStore
 	sites    *sites
 }
 
-func newFilter(nworker int, handler Handler, store URLStore) *filter {
+func newFilter(nworker int, ctrler Controller, store URLStore) *filter {
 	this := &filter{
 		NewOut:   make(chan *url.URL, nworker),
 		AgainOut: make(chan *url.URL, nworker),
-		handler:  handler,
+		ctrler:  ctrler,
 		store:    store,
 		sites:    newSites(),
 	}
@@ -46,7 +46,7 @@ func (ft *filter) work() {
 		}
 		for _, anchor := range link.Anchors {
 			anchor.Depth = depth
-			if ft.handler.Accept(anchor) {
+			if ft.ctrler.Accept(anchor) {
 				// only handle new link
 				if _, ok := ft.store.Get(*anchor.URL); ok {
 					continue

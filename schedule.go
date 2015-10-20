@@ -19,7 +19,7 @@ type scheduler struct {
 	AgainIn   <-chan *url.URL
 	ErrIn     chan *url.URL
 	Out       chan *url.URL
-	handler   Handler
+	ctrler   Controller
 	store     URLStore
 	prioQueue PQ
 	waitQueue WQ
@@ -28,13 +28,13 @@ type scheduler struct {
 	pool      sync.Pool
 }
 
-func newScheduler(nworker int, handler Handler, store URLStore) *scheduler {
+func newScheduler(nworker int, ctrler Controller, store URLStore) *scheduler {
 	this := &scheduler{
 		Out:       make(chan *url.URL, nworker),
 		store:     store,
 		prioQueue: newPQueue(PQueueLen),
 		waitQueue: newWQueue(TQueueLen),
-		handler:   handler,
+		ctrler:   ctrler,
 		pool: sync.Pool{
 			New: func() interface{} {
 				return &URL{}
@@ -113,7 +113,7 @@ func (sched *scheduler) enqueue(u *url.URL) {
 	}
 	uu := h.V()
 	minTime := uu.Visited.Time.Add(MinDelay)
-	uu.Score, uu.nextTime, uu.Done = sched.handler.Schedule(*uu)
+	uu.Score, uu.nextTime, uu.Done = sched.ctrler.Schedule(*uu)
 	if !uu.Done && uu.Visited.Count > 0 && uu.nextTime.Before(minTime) {
 		uu.nextTime = minTime
 	}

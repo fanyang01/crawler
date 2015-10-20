@@ -18,19 +18,19 @@ type Request struct {
 
 type maker struct {
 	workerConn
-	In      <-chan *url.URL
-	Out     chan *Request
-	handler Handler
+	In     <-chan *url.URL
+	Out    chan *Request
+	ctrler Controller
 }
 
 type requestSetter interface {
 	SetRequest(*Request)
 }
 
-func newRequestMaker(nworker int, handler Handler) *maker {
+func newRequestMaker(nworker int, ctrler Controller) *maker {
 	this := &maker{
-		Out:     make(chan *Request, nworker),
-		handler: handler,
+		Out:    make(chan *Request, nworker),
+		ctrler: ctrler,
 	}
 	this.nworker = nworker
 	return this
@@ -45,7 +45,7 @@ func (rm *maker) newRequest(url *url.URL) (req *Request, err error) {
 	if req.Request, err = http.NewRequest("GET", u.String(), nil); err != nil {
 		return
 	}
-	rm.handler.SetRequest(req)
+	rm.ctrler.Prepare(req)
 	return
 }
 

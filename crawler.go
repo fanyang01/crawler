@@ -6,9 +6,13 @@ import (
 	"sync"
 )
 
+var (
+	DefaultHandler = NewMux()
+)
+
 // Crawler crawls web pages.
 type Crawler struct {
-	handler   Handler
+	ctrler    Controller
 	option    *Option
 	urlStore  URLStore
 	maker     *maker
@@ -27,30 +31,30 @@ type quit struct {
 }
 
 // NewCrawler creates a new crawler.
-func NewCrawler(opt *Option, store URLStore, handler Handler) *Crawler {
+func NewCrawler(opt *Option, store URLStore, ctrler Controller) *Crawler {
 	if opt == nil {
 		opt = DefaultOption
 	}
 	if store == nil {
 		store = newMemStore()
 	}
-	if handler == nil {
-		handler = DefaultHandler
+	if ctrler == nil {
+		ctrler = DefaultHandler
 	}
 	cw := &Crawler{
 		option:   opt,
 		urlStore: store,
-		handler:  handler,
+		ctrler:   ctrler,
 		done:     make(chan struct{}),
 	}
 
 	// connect each part
-	cw.maker = newRequestMaker(opt.NWorker.Maker, cw.handler)
+	cw.maker = newRequestMaker(opt.NWorker.Maker, cw.ctrler)
 	cw.fetcher = newFetcher(opt.NWorker.Fetcher, cw.urlStore, opt.MaxCacheSize)
-	cw.reciever = newRespHandler(opt.NWorker.Reciever, cw.handler)
+	cw.reciever = newRespHandler(opt.NWorker.Reciever, cw.ctrler)
 	cw.finder = newFinder(opt.NWorker.Finder)
-	cw.filter = newFilter(opt.NWorker.Filter, cw.handler, cw.urlStore)
-	cw.scheduler = newScheduler(opt.NWorker.Scheduler, cw.handler, cw.urlStore)
+	cw.filter = newFilter(opt.NWorker.Filter, cw.ctrler, cw.urlStore)
+	cw.scheduler = newScheduler(opt.NWorker.Scheduler, cw.ctrler, cw.urlStore)
 
 	cw.maker.In = cw.scheduler.Out
 	cw.fetcher.In = cw.maker.Out

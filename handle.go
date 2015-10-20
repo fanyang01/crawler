@@ -13,13 +13,13 @@ type reciever struct {
 	workerConn
 	In      <-chan *Response
 	Out     chan *Response
-	handler Handler
+	ctrler Handler
 }
 
-func newRespHandler(nworker int, handler Handler) *reciever {
+func newRespHandler(nworker int, ctrler Handler) *reciever {
 	this := &reciever{
 		Out:     make(chan *Response, nworker),
-		handler: handler,
+		ctrler: ctrler,
 	}
 	this.nworker = nworker
 	return this
@@ -29,7 +29,7 @@ func (rv *reciever) cleanup() { close(rv.Out) }
 
 func (rv *reciever) work() {
 	for r := range rv.In {
-		follow := rv.handler.Recieve(r)
+		follow := rv.ctrler.Handle(r)
 		r.CloseBody()
 		if !follow {
 			r = nil // downstream should check nil
