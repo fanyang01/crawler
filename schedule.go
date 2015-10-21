@@ -7,41 +7,47 @@ import (
 )
 
 const (
-	PQueueLen  int = 4096
-	TQueueLen      = 4096
-	RetryDelay     = time.Second * 30
-	MinDelay       = time.Second * 10
+	PQueueLen     int = 4096
+	TQueueLen         = 4096
+	RetryDelay        = time.Second * 30
+	MaxRetryTimes     = 5
+	MinDelay          = time.Second * 10
 )
 
 type scheduler struct {
 	workerConn
 	NewIn     chan *url.URL
 	AgainIn   <-chan *url.URL
-	ErrIn     chan *url.URL
+	ErrIn     <-chan *url.URL
 	Out       chan *url.URL
-	ctrler   Controller
+	ctrler    Controller
 	store     URLStore
 	prioQueue PQ
 	waitQueue WQ
 	sites     sites
-	once      sync.Once // used for closing Out
-	pool      sync.Pool
+	retry     time.Duration // duration between retry
+	once      sync.Once     // used for closing Out
 }
 
-func newScheduler(nworker int, ctrler Controller, store URLStore) *scheduler {
+type SchedItem struct {
+	URL   *url.URL
+	Next  time.Time
+	Score int
+}
+
+func (cw *Crawler) newScheduler() *scheduler {
+	nworker := cw.opt.NWorker.Scheduler
 	this := &scheduler{
 		Out:       make(chan *url.URL, nworker),
-		store:     store,
+		store:     cw.urlStore,
+		ctrler:    cw.ctrler,
 		prioQueue: newPQueue(PQueueLen),
 		waitQueue: newWQueue(TQueueLen),
-		ctrler:   ctrler,
-		pool: sync.Pool{
-			New: func() interface{} {
-				return &URL{}
-			},
-		},
+		retry:     cw.opt.RetryDuration,
 	}
 	this.nworker = nworker
+	this.WG = &cw.wg
+	this.Done = cw.done
 	return this
 }
 
@@ -62,14 +68,13 @@ func (sched *scheduler) start() {
 	go func() {
 		defer wg.Done()
 		for {
-			u := sched.prioQueue.Pop() // Pop will return nil if the queue is closed.
-			if u == nil {
+			item := sched.prioQueue.Pop() // Pop will return nil if the queue is closed.
+			if item == nil {
 				return
 			}
-			loc := u.Loc
 			select {
-			case sched.Out <- &loc:
-				sched.pool.Put(u)
+			case sched.Out <- item.URL:
+				item.URL = nil
 			case <-sched.Done:
 				return
 			}
@@ -92,9 +97,10 @@ func (sched *scheduler) work() {
 		case u = <-sched.AgainIn:
 			sched.enqueue(u)
 		case u = <-sched.ErrIn:
-			uu := newURL(*u)
-			uu.nextTime = time.Now().Add(RetryDelay)
-			sched.waitQueue.Push(uu)
+			sched.waitQueue.Push(&SchedItem{
+				URL:  u,
+				Next: time.Now().Add(sched.retry),
+			})
 		case <-sched.Done:
 			sched.once.Do(func() {
 				sched.prioQueue.Close()
@@ -106,27 +112,26 @@ func (sched *scheduler) work() {
 }
 
 func (sched *scheduler) enqueue(u *url.URL) {
-	// Require that url has been stored.
-	h := sched.store.Watch(*u)
-	if h == nil {
-		return
+	item := &SchedItem{
+		URL: u,
 	}
-	uu := h.V()
+	var done bool
+	uu, ok := sched.store.Get(u)
+	if !ok {
+		panic("store fault")
+	}
 	minTime := uu.Visited.Time.Add(MinDelay)
-	uu.Score, uu.nextTime, uu.Done = sched.ctrler.Schedule(*uu)
-	if !uu.Done && uu.Visited.Count > 0 && uu.nextTime.Before(minTime) {
-		uu.nextTime = minTime
-	}
-	uuu := sched.pool.Get().(*URL)
-	*uuu = *uu
-	h.Unlock()
-	if uuu.Done {
+	item.Score, item.Next, done = sched.ctrler.Schedule(uu)
+	if done {
 		return
 	}
-	if uuu.nextTime.After(time.Now()) {
-		sched.waitQueue.Push(uuu)
+	if item.Next.Before(minTime) {
+		item.Next = minTime
+	}
+	if item.Next.After(time.Now()) {
+		sched.waitQueue.Push(item)
 	} else {
-		sched.prioQueue.Push(uuu)
+		sched.prioQueue.Push(item)
 	}
 }
 
@@ -141,14 +146,14 @@ func (sched *scheduler) popTQ() {
 		}
 		if !sched.waitQueue.IsAvailable() {
 			time.Sleep(duration)
-			if duration < 5*time.Second {
+			if duration < 2*time.Second {
 				duration = duration * 2
 			}
 			continue
 		}
-		if urls, ok := sched.waitQueue.MultiPop(); ok {
-			for _, u := range urls {
-				sched.prioQueue.Push(u)
+		if items, ok := sched.waitQueue.MultiPop(); ok {
+			for _, i := range items {
+				sched.prioQueue.Push(i)
 			}
 			duration = 100 * time.Millisecond
 		}

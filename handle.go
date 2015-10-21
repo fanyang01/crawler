@@ -11,17 +11,20 @@ var ErrNotHTML = errors.New("content type is not HTML")
 
 type reciever struct {
 	workerConn
-	In      <-chan *Response
-	Out     chan *Response
+	In     <-chan *Response
+	Out    chan *Response
 	ctrler Handler
 }
 
-func newRespHandler(nworker int, ctrler Handler) *reciever {
+func (cw *Crawler) newRespHandler() *reciever {
+	nworker := cw.opt.NWorker.Handler
 	this := &reciever{
-		Out:     make(chan *Response, nworker),
-		ctrler: ctrler,
+		Out:    make(chan *Response, nworker),
+		ctrler: cw.ctrler,
 	}
 	this.nworker = nworker
+	this.WG = &cw.wg
+	this.Done = cw.done
 	return this
 }
 

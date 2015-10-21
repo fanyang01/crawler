@@ -19,22 +19,19 @@ type maker struct {
 	ctrler Controller
 }
 
-type requestSetter interface {
-	SetRequest(*Request)
-}
-
-func newRequestMaker(nworker int, ctrler Controller) *maker {
+func (cw *Crawler) newRequestMaker() *maker {
+	nworker := cw.opt.NWorker.Maker
 	this := &maker{
 		Out:    make(chan *Request, nworker),
-		ctrler: ctrler,
+		ctrler: cw.ctrler,
 	}
 	this.nworker = nworker
+	this.WG = &cw.wg
+	this.Done = cw.done
 	return this
 }
 
-func (rm *maker) newRequest(url *url.URL) (req *Request, err error) {
-	u := *url
-	u.Fragment = ""
+func (rm *maker) newRequest(u *url.URL) (req *Request, err error) {
 	req = &Request{
 		Client: DefaultClient,
 	}

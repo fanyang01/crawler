@@ -6,35 +6,35 @@ import (
 	"time"
 )
 
-// PQ is priority queue, using URL.Score as priority.
+// PQ is priority queue, using SchedItem.Score as priority.
 type PQ interface {
 	// Push adds a new url to queue. Blocking or not.
-	Push(*URL)
+	Push(*SchedItem)
 	// Pop removes the element of highest priority. Blocking.
-	Pop() *URL
+	Pop() *SchedItem
 	// Close closes queue, wake up all sleeping push/pop.
 	Close()
 }
 
-// WQ is waiting queue, using URL.nextTime as priority.
+// WQ is waiting queue, using SchedItem.Next as priority.
 type WQ interface {
-	Push(*URL)
-	// Check if any 'nextTime' is before/at now.
+	Push(*SchedItem)
+	// Check if any 'Next' is before/at now.
 	IsAvailable() bool
-	// Pop a url whose 'nextTime' is before/at now. No blocking.
-	Pop() (*URL, bool)
-	// Pop all urls whose 'nextTime' is before/at now. No blocking.
-	MultiPop() (urls []*URL, any bool)
+	// Pop a url whose 'Next' is before/at now. No blocking.
+	Pop() (*SchedItem, bool)
+	// Pop all urls whose 'Next' is before/at now. No blocking.
+	MultiPop() (items []*SchedItem, any bool)
 	// Close closes queue, wake up all sleeping push.
 	Close()
 }
 
-type baseHeap []*URL
+type baseHeap []*SchedItem
 
 func (q baseHeap) Len() int            { return len(q) }
 func (q baseHeap) Swap(i, j int)       { q[i], q[j] = q[j], q[i] }
 func (q baseHeap) Top() interface{}    { return q[0] }
-func (q *baseHeap) Push(x interface{}) { *q = append(*q, x.(*URL)) }
+func (q *baseHeap) Push(x interface{}) { *q = append(*q, x.(*SchedItem)) }
 func (q *baseHeap) Pop() interface{} {
 	n := len(*q)
 	v := (*q)[n-1]
@@ -45,7 +45,7 @@ func (q *baseHeap) Pop() interface{} {
 type wHeap struct{ baseHeap }
 
 func (h wHeap) Less(i, j int) bool {
-	return h.baseHeap[i].nextTime.Before(h.baseHeap[j].nextTime)
+	return h.baseHeap[i].Next.Before(h.baseHeap[j].Next)
 }
 
 type pHeap struct{ baseHeap }
@@ -74,7 +74,7 @@ func newPQueue(maxLen int) *pqueue {
 	return q
 }
 
-func (q *pqueue) Push(u *URL) {
+func (q *pqueue) Push(u *SchedItem) {
 	q.Lock()
 	defer q.Unlock()
 	for !q.closed && q.heap.Len() >= q.maxLen {
@@ -88,7 +88,7 @@ func (q *pqueue) Push(u *URL) {
 }
 
 // Pop will block if heap is empty.
-func (q *pqueue) Pop() (u *URL) {
+func (q *pqueue) Pop() (u *SchedItem) {
 	q.Lock()
 	defer q.Unlock()
 	for !q.closed && q.heap.Len() == 0 {
@@ -99,7 +99,7 @@ func (q *pqueue) Pop() (u *URL) {
 	}
 	i := heap.Pop(q.heap)
 	q.push.Signal()
-	return i.(*URL)
+	return i.(*SchedItem)
 }
 
 func (q *pqueue) Close() {
@@ -131,7 +131,7 @@ func newWQueue(maxLen int) *wqueue {
 	return q
 }
 
-func (q *wqueue) Push(u *URL) {
+func (q *wqueue) Push(u *SchedItem) {
 	q.Lock()
 	defer q.Unlock()
 	for !q.closed && q.heap.Len() >= q.maxLen {
@@ -143,17 +143,17 @@ func (q *wqueue) Push(u *URL) {
 	heap.Push(q.heap, u)
 }
 
-func (wq *wqueue) Pop() (*URL, bool) {
+func (wq *wqueue) Pop() (*SchedItem, bool) {
 	wq.Lock()
 	defer wq.Unlock()
 	if wq.closed || wq.heap.Len() == 0 {
 		return nil, false
 	}
 	v := wq.heap.Top()
-	if !v.(*URL).nextTime.After(time.Now()) {
+	if !v.(*SchedItem).Next.After(time.Now()) {
 		v := heap.Pop(wq.heap)
 		wq.push.Signal()
-		return v.(*URL), true
+		return v.(*SchedItem), true
 	}
 	return nil, false
 }
@@ -171,13 +171,13 @@ func (wq *wqueue) IsAvailable() bool {
 		return false
 	}
 	v := wq.heap.Top()
-	if !v.(*URL).nextTime.After(time.Now()) {
+	if !v.(*SchedItem).Next.After(time.Now()) {
 		return true
 	}
 	return false
 }
 
-func (wq *wqueue) MultiPop() (s []*URL, any bool) {
+func (wq *wqueue) MultiPop() (s []*SchedItem, any bool) {
 	wq.Lock()
 	defer wq.Unlock()
 	for {
@@ -185,10 +185,10 @@ func (wq *wqueue) MultiPop() (s []*URL, any bool) {
 			break
 		}
 		v := wq.heap.Top()
-		if !v.(*URL).nextTime.After(time.Now()) {
+		if !v.(*SchedItem).Next.After(time.Now()) {
 			v := heap.Pop(wq.heap)
 			wq.push.Signal()
-			s = append(s, v.(*URL))
+			s = append(s, v.(*SchedItem))
 			any = true
 			continue
 		}

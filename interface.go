@@ -10,7 +10,7 @@ type Controller interface {
 	// higher priority in queue.  Schedule also specifies the next time that
 	// this URL should be crawled at. If this URL is expected to be not crawled
 	// any more, return true for done.
-	Schedule(u URL) (score int64, at time.Time, done bool)
+	Schedule(u *URL) (score int, at time.Time, done bool)
 	// Accept determines whether a URL should be processed. It acts as a
 	// blacklist that preventing some unneccesary URLs to be processed.
 	Accept(anchor Anchor) bool

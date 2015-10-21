@@ -50,14 +50,17 @@ type fetcher struct {
 	store  URLStore
 }
 
-func newFetcher(nworker int, store URLStore, maxCacheSize int64) *fetcher {
+func (cw *Crawler) newFetcher() *fetcher {
+	nworker := cw.opt.NWorker.Fetcher
 	this := &fetcher{
 		Out:    make(chan *Response, nworker),
 		ErrOut: make(chan *url.URL, nworker),
-		store:  store,
-		cache:  newCachePool(maxCacheSize),
+		store:  cw.urlStore,
+		cache:  newCachePool(cw.opt.MaxCacheSize),
 	}
 	this.nworker = nworker
+	this.WG = &cw.wg
+	this.Done = cw.done
 	return this
 }
 
@@ -83,21 +86,10 @@ func (fc *fetcher) work() {
 			// Add to cache
 			fc.cache.Add(resp)
 		}
-		h := fc.store.WatchP(URL{Loc: *resp.Locations})
-		u := h.V()
-		u.Visited.Count++
-		u.Visited.Time = resp.Date
-		u.LastModified = resp.LastModified
-		h.Unlock()
+		fc.store.UpdateVisit(req.URL, resp.Date, resp.LastModified)
 		// redirect
 		if resp.Locations.String() != req.URL.String() {
-			if h := fc.store.Watch(*req.URL); h != nil {
-				u := h.V()
-				u.Visited.Count++
-				u.Visited.Time = resp.Date
-				u.LastModified = resp.LastModified
-				h.Unlock()
-			}
+			fc.store.UpdateVisit(resp.Locations, resp.Date, resp.LastModified)
 		}
 		select {
 		case fc.Out <- resp:

@@ -21,16 +21,16 @@ type (
 		Handle(*Response) (follow bool)
 	}
 	Scheduler interface {
-		Schedule(URL) (score int64, at time.Time, done bool)
+		Schedule(*URL) (score int, at time.Time, done bool)
 	}
 	PreparerFunc  func(*Request)
 	HandlerFunc   func(*Response) bool
-	SchedulerFunc func(URL) (score int64, at time.Time, done bool)
+	SchedulerFunc func(*URL) (score int, at time.Time, done bool)
 )
 
 // Once returns a scheduler that schedule each url to be crawled only once.
 func Once() Scheduler {
-	return SchedulerFunc(func(u URL) (score int64, at time.Time, done bool) {
+	return SchedulerFunc(func(u *URL) (score int, at time.Time, done bool) {
 		if u.Visited.Count > 0 {
 			done = true
 		} else {
@@ -42,7 +42,7 @@ func Once() Scheduler {
 
 // Every returns a scheduler that schedule each url to be crawled every delta duration.
 func Every(delta time.Duration) Scheduler {
-	return SchedulerFunc(func(u URL) (score int64, at time.Time, done bool) {
+	return SchedulerFunc(func(u *URL) (score int, at time.Time, done bool) {
 		at = u.Visited.Time.Add(delta)
 		return
 	})
@@ -50,7 +50,7 @@ func Every(delta time.Duration) Scheduler {
 
 func (f PreparerFunc) Prepare(req *Request)      { f(req) }
 func (f HandlerFunc) Handle(resp *Response) bool { return f(resp) }
-func (f SchedulerFunc) Schedule(u URL) (score int64, at time.Time, done bool) {
+func (f SchedulerFunc) Schedule(u *URL) (score int, at time.Time, done bool) {
 	return f(u)
 }
 
@@ -98,7 +98,7 @@ func (mux *Mux) AddScheduler(pattern string, sched Scheduler) {
 
 // AddScheduleFunc registers a function to schedule urls matching pattern.
 func (mux *Mux) AddScheduleFunc(pattern string,
-	f func(URL) (score int64, at time.Time, done bool)) {
+	f func(*URL) (score int, at time.Time, done bool)) {
 	mux.AddScheduler(pattern, SchedulerFunc(f))
 }
 
@@ -123,7 +123,7 @@ func (mux *Mux) Handle(resp *Response) bool {
 }
 
 // Schedule implements Controller.
-func (mux *Mux) Schedule(u URL) (score int64, at time.Time, done bool) {
+func (mux *Mux) Schedule(u *URL) (score int, at time.Time, done bool) {
 	if f, ok := mux.tries[mux_SCHED].Lookup(u.Loc.String()); ok {
 		return f.(Scheduler).Schedule(u)
 	}

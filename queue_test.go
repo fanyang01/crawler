@@ -9,12 +9,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func mustParseURL(ur string) url.URL {
+func mustParseURL(ur string) *url.URL {
 	u, err := url.Parse(ur)
 	if err != nil {
 		panic(err)
 	}
-	return *u
+	return u
 }
 
 func mustParseInt(s string) int {
@@ -27,52 +27,52 @@ func mustParseInt(s string) int {
 
 func TestPQ(t *testing.T) {
 	pq := newPQueue(100)
-	pq.Push(&URL{
+	pq.Push(&SchedItem{
 		Score: 300,
-		Loc:   mustParseURL("/300"),
+		URL:   mustParseURL("/300"),
 	})
-	pq.Push(&URL{
+	pq.Push(&SchedItem{
 		Score: 100,
-		Loc:   mustParseURL("/100"),
+		URL:   mustParseURL("/100"),
 	})
-	pq.Push(&URL{
+	pq.Push(&SchedItem{
 		Score: 200,
-		Loc:   mustParseURL("/200"),
+		URL:   mustParseURL("/200"),
 	})
-	var u *URL
+	var u *SchedItem
 	u = pq.Pop()
-	assert.Equal(t, "/300", u.Loc.Path)
+	assert.Equal(t, "/300", u.URL.Path)
 	u = pq.Pop()
-	assert.Equal(t, "/200", u.Loc.Path)
+	assert.Equal(t, "/200", u.URL.Path)
 	u = pq.Pop()
-	assert.Equal(t, "/100", u.Loc.Path)
+	assert.Equal(t, "/100", u.URL.Path)
 }
 
 func TestWQ(t *testing.T) {
 	wq := newWQueue(100)
 	now := time.Now()
-	wq.Push(&URL{
-		nextTime: now.Add(150 * time.Millisecond),
-		Loc:      mustParseURL("/150"),
+	wq.Push(&SchedItem{
+		Next: now.Add(150 * time.Millisecond),
+		URL:  mustParseURL("/150"),
 	})
-	wq.Push(&URL{
-		nextTime: now.Add(100 * time.Millisecond),
-		Loc:      mustParseURL("/100"),
+	wq.Push(&SchedItem{
+		Next: now.Add(100 * time.Millisecond),
+		URL:  mustParseURL("/100"),
 	})
-	wq.Push(&URL{
-		nextTime: now.Add(200 * time.Millisecond),
-		Loc:      mustParseURL("/200"),
+	wq.Push(&SchedItem{
+		Next: now.Add(200 * time.Millisecond),
+		URL:  mustParseURL("/200"),
 	})
 	time.Sleep(200 * time.Millisecond)
-	var u *URL
+	var u *SchedItem
 	var ok bool
 	u, ok = wq.Pop()
 	assert.True(t, ok)
-	assert.Equal(t, "/100", u.Loc.Path)
+	assert.Equal(t, "/100", u.URL.Path)
 	u, ok = wq.Pop()
 	assert.True(t, ok)
-	assert.Equal(t, "/150", u.Loc.Path)
+	assert.Equal(t, "/150", u.URL.Path)
 	u, ok = wq.Pop()
 	assert.True(t, ok)
-	assert.Equal(t, "/200", u.Loc.Path)
+	assert.Equal(t, "/200", u.URL.Path)
 }

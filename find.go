@@ -29,11 +29,14 @@ type finder struct {
 	Out chan *Link
 }
 
-func newFinder(nworker int) *finder {
+func (cw *Crawler) newFinder() *finder {
+	nworker := cw.opt.NWorker.Finder
 	this := &finder{
 		Out: make(chan *Link, nworker),
 	}
 	this.nworker = nworker
+	this.WG = &cw.wg
+	this.Done = cw.done
 	return this
 }
 

@@ -20,15 +20,18 @@ type filter struct {
 	sites    *sites
 }
 
-func newFilter(nworker int, ctrler Controller, store URLStore) *filter {
+func (cw *Crawler) newFilter() *filter {
+	nworker := cw.opt.NWorker.Filter
 	this := &filter{
 		NewOut:   make(chan *url.URL, nworker),
 		AgainOut: make(chan *url.URL, nworker),
-		ctrler:   ctrler,
-		store:    store,
+		ctrler:   cw.ctrler,
+		store:    cw.urlStore,
 		sites:    newSites(),
 	}
 	this.nworker = nworker
+	this.WG = &cw.wg
+	this.Done = cw.done
 	return this
 }
 
@@ -44,15 +47,13 @@ func (ft *filter) work() {
 		case <-ft.Done:
 			return
 		}
-		depth := 0
-		if base, ok := ft.store.Get(*link.Base); ok {
-			depth = base.Depth + 1
-		}
+		depth := ft.store.GetDepth(link.Base)
 		for _, anchor := range link.Anchors {
-			anchor.Depth = depth
+			anchor.Depth = depth + 1
+			anchor.URL.Fragment = ""
 			if ft.ctrler.Accept(anchor) {
 				// only handle new link
-				if _, ok := ft.store.Get(*anchor.URL); ok {
+				if ft.store.Exist(anchor.URL) {
 					continue
 				}
 				if err := ft.addSite(anchor.URL); err != nil {
@@ -62,7 +63,7 @@ func (ft *filter) work() {
 				if ok := ft.testRobot(anchor.URL); !ok {
 					continue
 				}
-				ft.store.Put(URL{
+				ft.store.PutIfNonExist(&URL{
 					Loc:   *anchor.URL,
 					Depth: anchor.Depth,
 				})
@@ -96,17 +97,18 @@ func (ft *filter) addSite(u *url.URL) error {
 	}
 	site.fetchSitemap()
 	for _, u := range site.Map.URLSet {
-		uu := u.Loc
-		if _, ok := ft.store.Get(uu); ok {
+		if ft.store.Exist(&u.Loc) {
 			continue
 		}
-		ft.store.Put(URL{
+		if ft.store.PutIfNonExist(&URL{
 			Loc:          u.Loc,
 			LastModified: u.LastModified,
 			Score:        int64(u.Priority * 1024.0),
 			Freq:         u.ChangeFreq,
-		})
-		ft.NewOut <- &uu
+		}) {
+			loc := u.Loc
+			ft.NewOut <- &loc
+		}
 	}
 	ft.sites.m[root] = site
 	return nil
