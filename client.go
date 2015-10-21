@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"path"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ const (
 )
 
 var (
+	UserAgent            = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/46.0.2490.71 Safari/537.36"
 	DefaultHTTPTransport = &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		Dial: (&net.Dialer{
@@ -31,18 +33,35 @@ var (
 		TLSHandshakeTimeout: 5 * time.Second,
 	}
 	DefaultHTTPClient = &http.Client{
-		Timeout:   time.Second * 5,
 		Transport: DefaultHTTPTransport,
 	}
-
 	// DefaultClient caches cachalbe content and limits the size of html file.
 	DefaultClient = &StdClient{
 		Client:          DefaultHTTPClient,
 		MaxHTMLLen:      MaxHTMLLen,
 		EnableUnkownLen: true,
-		UserAgent:       "I'm a robot",
+		UserAgent:       UserAgent,
 	}
+	CookieHTTPClient *http.Client
+	CookieClient     *StdClient
 )
+
+func init() {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		panic(err)
+	}
+	CookieHTTPClient = &http.Client{
+		Transport: DefaultHTTPTransport,
+		Jar:       jar,
+	}
+	CookieClient = &StdClient{
+		Client:          CookieHTTPClient,
+		MaxHTMLLen:      MaxHTMLLen,
+		EnableUnkownLen: true,
+		UserAgent:       UserAgent,
+	}
+}
 
 // StdClient is a client for crawling static pages.
 type StdClient struct {
