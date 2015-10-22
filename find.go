@@ -15,28 +15,31 @@ type Anchor struct {
 	Hyperlink bool     // is hyperlink?
 	Text      []byte   // anchor text
 	Depth     int      // length of path to find it
+	ok        bool
 }
 
 // Link is a collection of urls on a page.
 type Link struct {
 	Base    *url.URL
-	Anchors []Anchor
+	Anchors []*Anchor
 }
 
 type finder struct {
 	workerConn
-	In  <-chan *Response
-	Out chan *Link
+	In        <-chan *Response
+	Out       chan *Link
+	statistic *Statistic
 }
 
 func (cw *Crawler) newFinder() *finder {
 	nworker := cw.opt.NWorker.Finder
 	this := &finder{
-		Out: make(chan *Link, nworker),
+		Out:       make(chan *Link, nworker),
+		statistic: &cw.statistic,
 	}
 	this.nworker = nworker
-	this.WG = &cw.wg
-	this.Done = cw.done
+	this.wg = &cw.wg
+	this.quit = cw.quit
 	return this
 }
 
@@ -44,12 +47,9 @@ func (f *finder) cleanup() { close(f.Out) }
 
 func (f *finder) work() {
 	for r := range f.In {
-		if match := CT_HTML.match(r.ContentType); !match {
-			continue
-		}
 		select {
 		case f.Out <- findLink(r):
-		case <-f.Done:
+		case <-f.quit:
 			return
 		}
 	}
@@ -76,7 +76,7 @@ LOOP:
 					key, val, more := z.TagAttr()
 					if string(key) == "href" {
 						if u, err := resp.Locations.Parse(string(val)); err == nil {
-							link.Anchors = append(link.Anchors, Anchor{
+							link.Anchors = append(link.Anchors, &Anchor{
 								URL:       u,
 								Hyperlink: u.Host != link.Base.Host,
 								// TODO: anchor text

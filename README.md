@@ -3,6 +3,7 @@
 
 ## TODO
 
+- [x] automatically stop when no more urls to crawl
 - [ ] Add proxy support
 - [ ] Storage(Cassandra | MongoDB)
 - [ ] AJAX pages(nightmare.js, phantomJS)

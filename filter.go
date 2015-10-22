@@ -12,41 +12,34 @@ var (
 
 type filter struct {
 	workerConn
-	In       chan *Link
-	NewOut   chan *url.URL
-	AgainOut chan *url.URL
-	ctrler   Controller
-	store    URLStore
-	sites    *sites
+	In     chan *Link
+	Out    chan *Link
+	NewOut chan *url.URL
+	ctrler Controller
+	store  URLStore
+	sites  *sites
 }
 
 func (cw *Crawler) newFilter() *filter {
 	nworker := cw.opt.NWorker.Filter
 	this := &filter{
-		NewOut:   make(chan *url.URL, nworker),
-		AgainOut: make(chan *url.URL, nworker),
-		ctrler:   cw.ctrler,
-		store:    cw.urlStore,
-		sites:    newSites(),
+		Out:    make(chan *Link, nworker),
+		ctrler: cw.ctrler,
+		store:  cw.urlStore,
+		sites:  newSites(),
 	}
 	this.nworker = nworker
-	this.WG = &cw.wg
-	this.Done = cw.done
+	this.wg = &cw.wg
+	this.quit = cw.quit
 	return this
 }
 
 func (ft *filter) cleanup() {
-	close(ft.NewOut)
-	close(ft.AgainOut)
+	close(ft.Out)
 }
 
 func (ft *filter) work() {
 	for link := range ft.In {
-		select {
-		case ft.AgainOut <- link.Base:
-		case <-ft.Done:
-			return
-		}
 		depth := ft.store.GetDepth(link.Base)
 		for _, anchor := range link.Anchors {
 			anchor.Depth = depth + 1
@@ -63,16 +56,18 @@ func (ft *filter) work() {
 				if ok := ft.testRobot(anchor.URL); !ok {
 					continue
 				}
-				ft.store.PutIfNonExist(&URL{
+				if ft.store.PutIfNonExist(&URL{
 					Loc:   *anchor.URL,
 					Depth: anchor.Depth,
-				})
-				select {
-				case ft.NewOut <- anchor.URL:
-				case <-ft.Done:
-					return
+				}) {
+					anchor.ok = true
 				}
 			}
+		}
+		select {
+		case ft.Out <- link:
+		case <-ft.quit:
+			return
 		}
 	}
 }
@@ -97,14 +92,10 @@ func (ft *filter) addSite(u *url.URL) error {
 	}
 	site.fetchSitemap()
 	for _, u := range site.Map.URLSet {
-		if ft.store.Exist(&u.Loc) {
-			continue
-		}
 		if ft.store.PutIfNonExist(&URL{
-			Loc:          u.Loc,
-			LastModified: u.LastModified,
-			Score:        int64(u.Priority * 1024.0),
-			Freq:         u.ChangeFreq,
+			Loc:     u.Loc,
+			LastMod: u.LastModified,
+			Freq:    u.ChangeFreq,
 		}) {
 			loc := u.Loc
 			ft.NewOut <- &loc

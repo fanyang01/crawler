@@ -53,14 +53,13 @@ type fetcher struct {
 func (cw *Crawler) newFetcher() *fetcher {
 	nworker := cw.opt.NWorker.Fetcher
 	this := &fetcher{
-		Out:    make(chan *Response, nworker),
-		ErrOut: make(chan *url.URL, nworker),
-		store:  cw.urlStore,
-		cache:  newCachePool(cw.opt.MaxCacheSize),
+		Out:   make(chan *Response, nworker),
+		store: cw.urlStore,
+		cache: newCachePool(cw.opt.MaxCacheSize),
 	}
 	this.nworker = nworker
-	this.WG = &cw.wg
-	this.Done = cw.done
+	this.wg = &cw.wg
+	this.quit = cw.quit
 	return this
 }
 
@@ -78,7 +77,7 @@ func (fc *fetcher) work() {
 				log.Printf("fetcher: %v\n", err)
 				select {
 				case fc.ErrOut <- req.URL:
-				case <-fc.Done:
+				case <-fc.quit:
 					return
 				}
 				continue
@@ -93,7 +92,7 @@ func (fc *fetcher) work() {
 		}
 		select {
 		case fc.Out <- resp:
-		case <-fc.Done:
+		case <-fc.quit:
 			return
 		}
 	}

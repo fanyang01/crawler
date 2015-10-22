@@ -12,7 +12,7 @@ func (c NopCtrler) Handle(resp *Response) bool {
 func (c NopCtrler) Schedule(u *URL) (score int, at time.Time, done bool) {
 	return 0, time.Time{}, true
 }
-func (c NopCtrler) Accept(_ Anchor) bool { return true }
+func (c NopCtrler) Accept(_ *Anchor) bool { return true }
 
 // OnceCtrler visits each url once and follows urls found by crawler.
 type OnceCtrler struct{ NopCtrler }

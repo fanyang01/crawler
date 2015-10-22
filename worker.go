@@ -4,8 +4,8 @@ import "sync"
 
 type workerConn struct {
 	nworker int
-	WG      *sync.WaitGroup // managed by crawler
-	Done    chan struct{}
+	wg      *sync.WaitGroup // managed by crawler
+	quit    chan struct{}
 }
 
 func (c *workerConn) conn() *workerConn { return c }
@@ -28,6 +28,6 @@ func start(w worker) {
 	go func() {
 		wg.Wait()
 		w.cleanup()
-		w.conn().WG.Done()
+		w.conn().wg.Done()
 	}()
 }

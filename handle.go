@@ -3,44 +3,50 @@ package crawler
 import (
 	"bytes"
 	"errors"
+	"net/url"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
 var ErrNotHTML = errors.New("content type is not HTML")
 
-type reciever struct {
+type handler struct {
 	workerConn
-	In     <-chan *Response
-	Out    chan *Response
-	ctrler Handler
+	In        <-chan *Response
+	Out       chan *Response
+	DoneOut   chan *url.URL
+	statistic *Statistic
+	ctrler    Handler
 }
 
-func (cw *Crawler) newRespHandler() *reciever {
+func (cw *Crawler) newRespHandler() *handler {
 	nworker := cw.opt.NWorker.Handler
-	this := &reciever{
-		Out:    make(chan *Response, nworker),
-		ctrler: cw.ctrler,
+	this := &handler{
+		Out:       make(chan *Response, nworker),
+		ctrler:    cw.ctrler,
+		statistic: &cw.statistic,
 	}
 	this.nworker = nworker
-	this.WG = &cw.wg
-	this.Done = cw.done
+	this.wg = &cw.wg
+	this.quit = cw.quit
 	return this
 }
 
-func (rv *reciever) cleanup() { close(rv.Out) }
+func (rv *handler) cleanup() { close(rv.Out) }
 
-func (rv *reciever) work() {
+func (rv *handler) work() {
 	for r := range rv.In {
 		follow := rv.ctrler.Handle(r)
 		r.CloseBody()
-		if !follow {
-			r = nil // downstream should check nil
+		if !follow || !CT_HTML.match(r.ContentType) {
+			rv.DoneOut <- r.Locations
+			r.Locations = nil
+			r = nil
 			continue
 		}
 		select {
 		case rv.Out <- r:
-		case <-rv.Done:
+		case <-rv.quit:
 			return
 		}
 	}

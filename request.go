@@ -26,8 +26,8 @@ func (cw *Crawler) newRequestMaker() *maker {
 		ctrler: cw.ctrler,
 	}
 	this.nworker = nworker
-	this.WG = &cw.wg
-	this.Done = cw.done
+	this.wg = &cw.wg
+	this.quit = cw.quit
 	return this
 }
 
@@ -52,7 +52,7 @@ func (rm *maker) work() {
 		} else {
 			select {
 			case rm.Out <- req:
-			case <-rm.Done:
+			case <-rm.quit:
 				return
 			}
 		}

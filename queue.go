@@ -27,6 +27,7 @@ type WQ interface {
 	MultiPop() (items []*SchedItem, any bool)
 	// Close closes queue, wake up all sleeping push.
 	Close()
+	IsClosed() bool
 }
 
 type baseHeap []*SchedItem
@@ -162,6 +163,12 @@ func (wq *wqueue) Close() {
 	wq.Lock()
 	wq.closed = true
 	wq.Unlock()
+}
+
+func (wq *wqueue) IsClosed() bool {
+	wq.RLock()
+	defer wq.RUnlock()
+	return wq.closed
 }
 
 func (wq *wqueue) IsAvailable() bool {

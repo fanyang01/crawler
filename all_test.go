@@ -56,5 +56,5 @@ func TestAll(t *testing.T) {
 	assert.True(ok)
 	assert.Equal(1, uu.Visited.Count)
 	assert.True(uu.Visited.Time.After(time.Time{}))
-	cw.Stop()
+	cw.Wait()
 }

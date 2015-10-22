@@ -9,14 +9,13 @@ import (
 // URL contains metadata of a url in crawler.
 type URL struct {
 	Loc     url.URL
-	Score   int64
 	Freq    time.Duration
+	Depth   int
+	LastMod time.Time
 	Visited struct {
 		Count int
 		Time  time.Time
 	}
-	Depth        int
-	LastModified time.Time
 }
 
 func (u *URL) clone() *URL {
@@ -92,5 +91,5 @@ func (p *store) UpdateVisit(u *url.URL, at, lastmod time.Time) {
 	}
 	uu.Visited.Count++
 	uu.Visited.Time = at
-	uu.LastModified = lastmod
+	uu.LastMod = lastmod
 }

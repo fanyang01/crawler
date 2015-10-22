@@ -13,7 +13,7 @@ type Controller interface {
 	Schedule(u *URL) (score int, at time.Time, done bool)
 	// Accept determines whether a URL should be processed. It acts as a
 	// blacklist that preventing some unneccesary URLs to be processed.
-	Accept(anchor Anchor) bool
+	Accept(anchor *Anchor) bool
 	// Handle handles a response. If the content type of
 	// response is text/html, the body of the response is prefetched. Some
 	// utils are provided to handle html document.

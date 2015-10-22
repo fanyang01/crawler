@@ -131,7 +131,7 @@ func (mux *Mux) Schedule(u *URL) (score int, at time.Time, done bool) {
 }
 
 // Accept implements Controller.
-func (mux *Mux) Accept(anchor Anchor) bool {
+func (mux *Mux) Accept(anchor *Anchor) bool {
 	if ac, ok := mux.tries[mux_FILTER].Lookup(anchor.URL.String()); ok {
 		return ac.(bool)
 	}

@@ -93,12 +93,7 @@ func (ct *StdClient) Do(req *Request) (resp *Response, err error) {
 	resp.parseHeader()
 	// Only prefetch html content
 	if CT_HTML.match(resp.ContentType) {
-		if err = resp.ReadBody(
-			ct.MaxHTMLLen,
-			ct.EnableUnkownLen); err != nil {
-			return
-		}
-		resp.CloseBody()
+		err = resp.ReadBody(ct.MaxHTMLLen, ct.EnableUnkownLen)
 	}
 	return
 }

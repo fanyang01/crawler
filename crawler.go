@@ -11,14 +11,6 @@ var (
 	DefaultCtrler = NewMux()
 )
 
-type Statistic struct {
-	Uptime time.Time
-	URLs   int32
-	Times  int32
-	Errors int32
-	Done   int32
-}
-
 // Crawler crawls web pages.
 type Crawler struct {
 	ctrler    Controller
@@ -26,18 +18,13 @@ type Crawler struct {
 	urlStore  URLStore
 	maker     *maker
 	fetcher   *fetcher
-	reciever  *reciever
+	handler   *handler
 	finder    *finder
 	filter    *filter
 	scheduler *scheduler
 	statistic Statistic
-	done      chan struct{}
+	quit      chan struct{}
 	wg        sync.WaitGroup
-}
-
-type quit struct {
-	Done chan struct{}
-	WG   *sync.WaitGroup
 }
 
 // NewCrawler creates a new crawler.
@@ -55,25 +42,28 @@ func NewCrawler(opt *Option, store URLStore, ctrler Controller) *Crawler {
 		opt:      opt,
 		urlStore: store,
 		ctrler:   ctrler,
-		done:     make(chan struct{}),
+		quit:     make(chan struct{}),
 	}
 
 	// connect each part
 	cw.maker = cw.newRequestMaker()
 	cw.fetcher = cw.newFetcher()
-	cw.reciever = cw.newRespHandler()
+	cw.handler = cw.newRespHandler()
 	cw.finder = cw.newFinder()
 	cw.filter = cw.newFilter()
 	cw.scheduler = cw.newScheduler()
 
+	// normal flow
 	cw.maker.In = cw.scheduler.Out
 	cw.fetcher.In = cw.maker.Out
-	cw.reciever.In = cw.fetcher.Out
-	cw.finder.In = cw.reciever.Out
+	cw.handler.In = cw.fetcher.Out
+	cw.finder.In = cw.handler.Out
 	cw.filter.In = cw.finder.Out
-	cw.scheduler.ErrIn = cw.fetcher.ErrOut
-	cw.scheduler.NewIn = cw.filter.NewOut
-	cw.scheduler.AgainIn = cw.filter.AgainOut
+	cw.scheduler.ResIn = cw.filter.Out
+	// additional flow
+	cw.filter.NewOut = cw.scheduler.NewIn
+	cw.handler.DoneOut = cw.scheduler.DoneIn
+	cw.fetcher.ErrOut = cw.scheduler.ErrIn
 
 	return cw
 }
@@ -83,10 +73,12 @@ func (cw *Crawler) Crawl(seeds ...string) error {
 	cw.wg.Add(6)
 	start(cw.maker)
 	start(cw.fetcher)
-	start(cw.reciever)
+	start(cw.handler)
 	start(cw.finder)
 	start(cw.filter)
 	cw.scheduler.start()
+
+	cw.statistic.Uptime = time.Now()
 
 	err := cw.addSeeds(seeds...)
 	if err != nil {
@@ -94,6 +86,10 @@ func (cw *Crawler) Crawl(seeds ...string) error {
 		return err
 	}
 	return nil
+}
+
+func (cw *Crawler) Wait() {
+	cw.wg.Wait()
 }
 
 func (cw *Crawler) addSeeds(seeds ...string) error {
@@ -107,8 +103,7 @@ func (cw *Crawler) addSeeds(seeds ...string) error {
 		}
 		u.Fragment = ""
 		if cw.urlStore.PutIfNonExist(&URL{
-			Loc:   *u,
-			Score: 1024, // Give seeds highest priority
+			Loc: *u,
 		}) {
 			cw.scheduler.NewIn <- u
 		}
@@ -123,15 +118,15 @@ func (cw *Crawler) Enqueue(u string, score int64) {
 		return
 	}
 	if cw.urlStore.PutIfNonExist(&URL{
-		Loc:   *uu,
-		Score: score,
+		Loc: *uu,
 	}) {
 		cw.scheduler.NewIn <- uu
+		cw.statistic.IncAllCount()
 	}
 }
 
 // Stop stops the crawler.
 func (cw *Crawler) Stop() {
-	close(cw.done)
+	close(cw.quit)
 	cw.wg.Wait()
 }
