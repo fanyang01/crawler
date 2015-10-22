@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"mime"
 	"net"
 	"net/http"
@@ -15,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 const (
@@ -83,7 +84,9 @@ func (ct *StdClient) Do(req *Request) (resp *Response, err error) {
 		return
 	}
 
-	log.Printf("[%s] %s %s\n", resp.Status, req.Method, req.URL.String())
+	log.WithFields(log.Fields{
+		"URL": req.URL.String(),
+	}).Infoln(req.Method, resp.Status)
 
 	// Only status code 2xx is ok
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

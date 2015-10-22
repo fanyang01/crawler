@@ -2,8 +2,9 @@ package crawler
 
 import (
 	"fmt"
-	"log"
 	"net/url"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 var (
@@ -50,7 +51,7 @@ func (ft *filter) work() {
 					continue
 				}
 				if err := ft.addSite(anchor.URL); err != nil {
-					log.Printf("add site: %v", err)
+					log.Errorf("add site: %v", err)
 					continue
 				}
 				if ok := ft.testRobot(anchor.URL); !ok {

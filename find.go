@@ -3,9 +3,9 @@ package crawler
 import (
 	"bytes"
 	"io"
-	"log"
 	"net/url"
 
+	log "github.com/Sirupsen/logrus"
 	"golang.org/x/net/html"
 )
 
@@ -66,7 +66,7 @@ LOOP:
 		switch tt {
 		case html.ErrorToken:
 			if z.Err() != io.EOF {
-				log.Printf("find link: %v\n", z.Err())
+				log.Errorf("find link: %v", z.Err())
 			}
 			break LOOP
 		case html.StartTagToken:

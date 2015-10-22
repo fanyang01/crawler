@@ -2,12 +2,12 @@ package crawler
 
 import (
 	"errors"
-	"log"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	log "github.com/Sirupsen/logrus"
 )
 
 var (
@@ -74,7 +74,7 @@ func (fc *fetcher) work() {
 			var err error
 			resp, err = req.Client.Do(req)
 			if err != nil {
-				log.Printf("fetcher: %v\n", err)
+				log.Errorf("fetcher: %v", err)
 				select {
 				case fc.ErrOut <- req.URL:
 				case <-fc.quit:

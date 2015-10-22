@@ -4,11 +4,11 @@ import (
 	"encoding/xml"
 	"errors"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"sync"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/fanyang01/crawler/sitemap"
 	robot "github.com/temoto/robotstxt-go"
 )
@@ -97,12 +97,12 @@ func (site *Site) fetchSitemap() {
 		// Although absURL may point to another site, we use settings of this site to get it
 		body, err := getBody(site.Client, absURL)
 		if err != nil {
-			log.Printf("fetch sitemap: %v", err)
+			log.Errorf("fetch sitemap: %v", err)
 			return
 		}
 		var smap sitemap.Sitemap
 		if err := xml.Unmarshal(body, &smap); err != nil {
-			log.Printf("fetch sitemap: %v", err)
+			log.Errorf("fetch sitemap: %v", err)
 			return
 		}
 		site.Map.URLSet = append(site.Map.URLSet, smap.URLSet...)

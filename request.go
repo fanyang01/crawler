@@ -1,9 +1,10 @@
 package crawler
 
 import (
-	"log"
 	"net/http"
 	"net/url"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 // Request contains a client for doing this request.
@@ -47,7 +48,7 @@ func (rm *maker) cleanup() { close(rm.Out) }
 func (rm *maker) work() {
 	for u := range rm.In {
 		if req, err := rm.newRequest(u); err != nil {
-			log.Println(err)
+			log.Errorln(err)
 			continue
 		} else {
 			select {
