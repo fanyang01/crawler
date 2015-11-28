@@ -13,8 +13,8 @@ type URL struct {
 	Depth   int
 	LastMod time.Time
 	Visited struct {
-		Count int
-		Time  time.Time
+		Count    int
+		LastTime time.Time
 	}
 }
 
@@ -28,8 +28,8 @@ type URLStore interface {
 	Exist(u *url.URL) bool
 	Get(u *url.URL) (*URL, bool)
 	GetDepth(u *url.URL) int
-	PutIfNonExist(u *URL) bool
-	UpdateVisit(u *url.URL, at, lastmod time.Time)
+	PutNX(u *URL) bool
+	VisitAt(u *url.URL, at, lastmod time.Time)
 }
 
 type store struct {
@@ -69,7 +69,7 @@ func (p *store) GetDepth(u *url.URL) int {
 	return 0
 }
 
-func (p *store) PutIfNonExist(u *URL) bool {
+func (p *store) PutNX(u *URL) bool {
 	p.Lock()
 	defer p.Unlock()
 	if _, ok := p.m[u.Loc]; ok {
@@ -79,7 +79,7 @@ func (p *store) PutIfNonExist(u *URL) bool {
 	return true
 }
 
-func (p *store) UpdateVisit(u *url.URL, at, lastmod time.Time) {
+func (p *store) VisitAt(u *url.URL, at, lastmod time.Time) {
 	p.Lock()
 	defer p.Unlock()
 	uu, ok := p.m[*u]
@@ -90,6 +90,6 @@ func (p *store) UpdateVisit(u *url.URL, at, lastmod time.Time) {
 		p.m[*u] = uu
 	}
 	uu.Visited.Count++
-	uu.Visited.Time = at
+	uu.Visited.LastTime = at
 	uu.LastMod = lastmod
 }

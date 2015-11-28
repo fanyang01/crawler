@@ -10,24 +10,14 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-type Proxy struct {
-	direct, proxy *http.Client
+func NewProxy(addr string) (*http.Client, error) {
+	return parseProxy(addr)
 }
 
-func NewProxy(addr string) (*Proxy, error) {
-	this := &Proxy{
-		direct: DefaultHTTPClient,
-	}
-	if err := this.parse(addr); err != nil {
-		return nil, err
-	}
-	return this, nil
-}
-
-func (p *Proxy) parse(addr string) error {
+func parseProxy(addr string) (*http.Client, error) {
 	u, err := url.Parse(addr)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	switch u.Scheme {
 	case "socks5":
@@ -43,15 +33,15 @@ func (p *Proxy) parse(addr string) error {
 		}
 		dialer, err := proxy.SOCKS5("tcp", u.Host, auth, forward)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		transport := &http.Transport{
 			Dial:                dialer.Dial,
 			TLSHandshakeTimeout: 10 * time.Second,
 		}
-		p.proxy = &http.Client{
+		return &http.Client{
 			Transport: transport,
-		}
+		}, nil
 	case "http", "https":
 		transport := &http.Transport{
 			Proxy: http.ProxyURL(u),
@@ -61,11 +51,10 @@ func (p *Proxy) parse(addr string) error {
 			}).Dial,
 			TLSHandshakeTimeout: 10 * time.Second,
 		}
-		p.proxy = &http.Client{
+		return &http.Client{
 			Transport: transport,
-		}
+		}, nil
 	default:
-		return errors.New("unsupported proxy type")
+		return nil, errors.New("unsupported proxy type")
 	}
-	return nil
 }

@@ -1,30 +1,18 @@
 package crawler
 
 import (
-	"compress/flate"
-	"compress/gzip"
 	"errors"
-	"fmt"
-	"io/ioutil"
-	"mime"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
-	"path"
-	"strconv"
-	"strings"
+	"net/url"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-)
-
-const (
-	// MaxHTMLLen is the max size of a html file, which is 1MB here.
-	MaxHTMLLen = 1 << 20
+	"github.com/gorilla/websocket"
 )
 
 var (
-	UserAgent            = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/46.0.2490.71 Safari/537.36"
 	DefaultHTTPTransport = &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		Dial: (&net.Dialer{
@@ -33,18 +21,13 @@ var (
 		}).Dial,
 		TLSHandshakeTimeout: 5 * time.Second,
 	}
-	DefaultHTTPClient = &http.Client{
-		Transport: DefaultHTTPTransport,
-	}
-	// DefaultClient caches cachalbe content and limits the size of html file.
-	DefaultClient = &StdClient{
-		Client:          DefaultHTTPClient,
-		MaxHTMLLen:      MaxHTMLLen,
-		EnableUnkownLen: true,
-		UserAgent:       UserAgent,
-	}
-	CookieHTTPClient *http.Client
-	CookieClient     *StdClient
+	// DefaultHTTPClient uses DefaultHTTPTransport to make HTTP request,
+	// and enables the cookie jar.
+	DefaultHTTPClient *http.Client
+	// DefaultClient is the default client used to fetch static pages.
+	DefaultClient *StdClient
+	// DefaultAjaxClient is the default client used to fetch dynamic pages.
+	DefaultAjaxClient *AjaxClient
 )
 
 func init() {
@@ -52,34 +35,26 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	CookieHTTPClient = &http.Client{
+	DefaultHTTPClient = &http.Client{
 		Transport: DefaultHTTPTransport,
 		Jar:       jar,
 	}
-	CookieClient = &StdClient{
-		Client:          CookieHTTPClient,
-		MaxHTMLLen:      MaxHTMLLen,
-		EnableUnkownLen: true,
-		UserAgent:       UserAgent,
-	}
+	DefaultClient = &StdClient{DefaultHTTPClient}
 }
 
-// StdClient is a client for crawling static pages.
+// StdClient is used for static pages.
 type StdClient struct {
-	Client          *http.Client
-	MaxHTMLLen      int64
-	EnableUnkownLen bool
-	UserAgent       string
+	*http.Client
 }
 
 // Do implements Client.
-func (ct *StdClient) Do(req *Request) (resp *Response, err error) {
+func (c *StdClient) Do(req *Request) (resp *Response, err error) {
+	if c.Client == nil {
+		c.Client = DefaultHTTPClient
+	}
 	resp = &Response{}
 	resp.RequestURL = req.URL
-	if req.Header.Get("User-Agent") == "" {
-		req.Header.Set("User-Agent", ct.UserAgent)
-	}
-	resp.Response, err = ct.Client.Do(req.Request)
+	resp.Response, err = c.Client.Do(req.Request)
 	if err != nil {
 		return
 	}
@@ -96,147 +71,103 @@ func (ct *StdClient) Do(req *Request) (resp *Response, err error) {
 	resp.parseHeader()
 	// Only prefetch html content
 	if CT_HTML.match(resp.ContentType) {
-		err = resp.ReadBody(ct.MaxHTMLLen, ct.EnableUnkownLen)
+		err = resp.ReadBody(DefaultOption.MaxHTML)
 	}
 	return
 }
 
-func (resp *Response) parseHeader() {
-	var err error
-	// Parse neccesary headers
-	if t := resp.Header.Get("Date"); t != "" {
-		resp.Date, err = time.Parse(http.TimeFormat, t)
-		if err != nil {
-			resp.Date = time.Now()
-		}
-	} else {
-		resp.Date = time.Now()
-	}
-	if t := resp.Header.Get("Last-Modified"); t != "" {
-		// on error, Time's zero value is used.
-		resp.LastModified, _ = time.Parse(http.TimeFormat, t)
-	}
-	if t := resp.Header.Get("Expires"); t != "" {
-		resp.Expires, err = time.Parse(http.TimeFormat, t)
-		if err == nil {
-			resp.Cacheable = true
-		}
-	}
-
-	if a := resp.Header.Get("Age"); a != "" {
-		if seconds, err := strconv.ParseInt(a, 0, 32); err == nil {
-			resp.Age = time.Duration(seconds) * time.Second
-		}
-	}
-	if c := resp.Header.Get("Cache-Control"); c != "" {
-		if strings.HasPrefix(c, "s-maxage") {
-			if seconds, err := strconv.ParseInt(
-				strings.TrimPrefix(c, "s-maxage="), 0, 32); err == nil {
-				resp.MaxAge = time.Duration(seconds) * time.Second
-				resp.Cacheable = true
-			}
-		} else if strings.HasPrefix(c, "max-age") {
-			if seconds, err := strconv.ParseInt(
-				strings.TrimPrefix(c, "max-age="), 0, 32); err == nil {
-				resp.MaxAge = time.Duration(seconds) * time.Second
-				resp.Cacheable = true
-			}
-		}
-		if resp.MaxAge != 0 {
-			resp.Expires = resp.Date.Add(resp.MaxAge)
-		}
-	}
-	baseurl := resp.Request.URL
-	if baseurl == nil {
-		baseurl = resp.RequestURL
-	}
-	if l, err := resp.Location(); err == nil {
-		baseurl, resp.Locations = l, l
-	} else {
-		resp.Locations = baseurl
-	}
-	if l, err := baseurl.Parse(resp.Header.Get("Content-Location")); err == nil {
-		resp.ContentLocation = l
-	}
-
-	// Detect MIME types
-	resp.detectMIME()
-	return
+// AjaxClient connects to an Electron instance through
+// a websocket.
+type AjaxClient struct {
+	conn *websocket.Conn
 }
 
-// ReadBody reads the body of response. It can be called multi-times safely.
-// Response.Body will also be closed.
-func (resp *Response) ReadBody(maxLen int64, enableUnkownLen bool) error {
-	if resp.ready {
-		return nil
+func NewAjaxClient(wsAddr string) (*AjaxClient, error) {
+	conn, _, err := websocket.DefaultDialer.Dial(wsAddr, http.Header{})
+	if err != nil {
+		return nil, err
 	}
-	defer resp.CloseBody()
-	if resp.ContentLength > maxLen {
-		return ErrContentTooLong
-	}
-	if resp.ContentLength < 0 && !enableUnkownLen {
-		return ErrUnkownContentLength
-	}
-
-	// Uncompress http compression
-	// We prefer Content-Encoding than Tranfer-Encoding
-	var encoding string
-	if encoding = resp.Header.Get("Content-Encoding"); encoding == "" {
-		if len(resp.TransferEncoding) == 0 {
-			encoding = "identity"
-		} else if len(resp.TransferEncoding) == 1 {
-			encoding = resp.TransferEncoding[0]
-		} else {
-			return fmt.Errorf("too many encodings: %v", resp.TransferEncoding)
-		}
-	}
-
-	rc := resp.Body
-	needclose := false // resp.Body.Close() is defered
-	switch encoding {
-	case "identity", "chunked":
-	case "gzip":
-		r, err := gzip.NewReader(rc)
-		if err != nil {
-			return err
-		}
-		rc, needclose = ioutil.NopCloser(r), true
-	case "deflate":
-		rc, needclose = flate.NewReader(rc), true
-	default:
-		return fmt.Errorf("unsupported content encoding: %s", encoding)
-	}
-
-	var err error
-	resp.Content, err = ioutil.ReadAll(rc)
-	if needclose {
-		rc.Close()
-	}
-	return err
+	return &AjaxClient{
+		conn: conn,
+	}, nil
 }
 
-// CloseBody closes the body of response. It can be called multi-times safely.
-func (resp *Response) CloseBody() {
-	if resp.ready {
+type requestMsg struct {
+	URL     string      `json:"url,omitempty"`
+	Headers http.Header `json:"headers,omitempty"`
+	Proxy   string      `json:"proxy,omitempty"`
+	Cookies []struct {
+		Name  string `json:"name,omitempty"`
+		Value string `json:"value,omitempty"`
+	} `json:"cookies,omitempty"`
+}
+
+func reqToMsg(req *Request) *requestMsg {
+	m := &requestMsg{
+		URL:     req.URL.String(),
+		Headers: req.Header,
+		Proxy:   req.Proxy.String(),
+	}
+	for _, cookie := range req.Cookies {
+		m.Cookies = append(m.Cookies, struct {
+			Name  string `json:"name,omitempty"`
+			Value string `json:"value,omitempty"`
+		}{Name: cookie.Name, Value: cookie.Value})
+	}
+	return m
+}
+
+type responseMsg struct {
+	NewURL        string      `json:"newURL"`
+	OriginalURL   string      `json:"originalURL"`
+	RequestMethod string      `json:"requestMethod"`
+	StatusCode    int         `json:"statusCode",omitempty`
+	Content       []byte      `json:"content",omitempty`
+	Headers       http.Header `json:"headers"`
+	Cookies       []struct {
+		Name  string `json:"name,omitempty"`
+		Value string `json:"value,omitempty"`
+	} `json:"cookies,omitempty"`
+}
+
+func msgToResp(msg *responseMsg) *Response {
+	r := &http.Response{
+		Status:     http.StatusText(msg.StatusCode),
+		StatusCode: msg.StatusCode,
+		Proto:      "HTTP/1.0",
+		ProtoMajor: 1,
+		ProtoMinor: 0,
+		Header:     msg.Headers,
+		Request: &http.Request{
+			Method: msg.RequestMethod,
+		},
+	}
+	if u, err := url.Parse(msg.OriginalURL); err == nil {
+		r.Request.URL = u
+	}
+	if r.Header == nil {
+		r.Header = http.Header{}
+	}
+	if r.Header.Get("Location") == "" {
+		r.Header.Set("Location", msg.NewURL)
+	}
+	return &Response{
+		Response: r,
+		Content:  msg.Content,
+		Ready:    true,
+	}
+}
+
+func (c *AjaxClient) Do(req *Request) (resp *Response, err error) {
+	if err = c.conn.WriteJSON(reqToMsg(req)); err != nil {
 		return
 	}
-	resp.Body.Close()
-	resp.ready = true
-}
-
-func (resp *Response) detectMIME() {
-	if t := resp.Header.Get("Content-Type"); t != "" {
-		resp.ContentType = t
-	} else if resp.Locations != nil || resp.ContentLocation != nil {
-		var ext string
-		if resp.Locations != nil {
-			ext = path.Ext(resp.Locations.Path)
-		}
-		if ext == "" && resp.ContentLocation != nil {
-			ext = path.Ext(resp.ContentLocation.Path)
-		}
-		if ext != "" {
-			resp.ContentType = mime.TypeByExtension(ext)
-		}
+	var rp responseMsg
+	if err = c.conn.ReadJSON(&rp); err != nil {
+		return
 	}
+	resp = msgToResp(&rp)
+	resp.RequestURL = req.URL
+	resp.parseHeader()
+	return
 }

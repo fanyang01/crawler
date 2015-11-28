@@ -41,6 +41,7 @@ const (
 	SkipPrefix  = "^~ "
 	muxFILTER   = iota
 	muxPREPARE
+	muxREQTYPE
 	muxHANDLE
 	muxFOLLOW
 	muxSCORE
@@ -129,6 +130,7 @@ type Mux struct {
 	matcher [muxLEN]*Matcher
 }
 
+// NewMux creates an initialized multiplexer.
 func NewMux() *Mux {
 	mux := &Mux{}
 	for i := 0; i < len(mux.matcher); i++ {
@@ -168,6 +170,12 @@ func (mux *Mux) Disallow(pattern string) {
 	mux.matcher[muxFILTER].Add(pattern, false)
 }
 
+// Follow tells crawler to follow links on pages whose url matches pattern.
+// It is the default behavior.
+func (mux *Mux) Follow(pattern string) {
+	mux.matcher[muxFOLLOW].Add(pattern, true)
+}
+
 // NotFollow tells crawler not to follow links on pages whose url matches pattern.
 func (mux *Mux) NotFollow(pattern string) {
 	mux.matcher[muxFOLLOW].Add(pattern, false)
@@ -186,6 +194,17 @@ func (mux *Mux) SetTimes(pattern string, n int) {
 // SetDuration tells crawler the duration between two visiting to a url.
 func (mux *Mux) SetDuration(pattern string, d time.Duration) {
 	mux.matcher[muxDURATION].Add(pattern, d)
+}
+
+// Dynamic tells crawler that a url corresponds to a dynamic page.
+func (mux *Mux) Dynamic(pattern string) {
+	mux.matcher[muxREQTYPE].Add(pattern, crawler.ReqDynamic)
+}
+
+// Static tells crawler that a url corresponds to a static page.
+// It's the default behavior.
+func (mux *Mux) Static(pattern string) {
+	mux.matcher[muxREQTYPE].Add(pattern, crawler.ReqStatic)
 }
 
 // AddPreparer registers p to set requests whose url matches pattern.
@@ -210,7 +229,11 @@ func (mux *Mux) AddHandleFunc(pattern string, f func(*crawler.Response)) {
 
 // Prepare implements Controller.
 func (mux *Mux) Prepare(req *crawler.Request) {
-	if f, ok := mux.matcher[muxPREPARE].Get(req.URL.String()); ok {
+	url := req.URL.String()
+	if t, ok := mux.matcher[muxREQTYPE].Get(url); ok {
+		req.Type = t.(crawler.RequestType)
+	}
+	if f, ok := mux.matcher[muxPREPARE].Get(url); ok {
 		f.(Preparer).Prepare(req)
 	}
 }
@@ -241,7 +264,7 @@ func (mux *Mux) Schedule(u *crawler.URL) (score int, at time.Time, done bool) {
 	}
 
 	if d, ok := mux.matcher[muxDURATION].Get(url); ok {
-		at = u.Visited.Time.Add(d.(time.Duration))
+		at = u.Visited.LastTime.Add(d.(time.Duration))
 	}
 	if sc, ok := mux.matcher[muxSCORE].Get(url); ok {
 		score = sc.(int)

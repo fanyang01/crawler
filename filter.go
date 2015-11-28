@@ -1,33 +1,22 @@
 package crawler
 
-import (
-	"fmt"
-	"net/url"
-
-	log "github.com/Sirupsen/logrus"
-)
-
-var (
-	RobotAgent = "gocrawler"
-)
+import "net/url"
 
 type filter struct {
 	workerConn
 	In     chan *Link
 	Out    chan *Link
 	NewOut chan *url.URL
-	ctrler Controller
+	ctl    Controller
 	store  URLStore
-	sites  *sites
 }
 
 func (cw *Crawler) newFilter() *filter {
 	nworker := cw.opt.NWorker.Filter
 	this := &filter{
-		Out:    make(chan *Link, nworker),
-		ctrler: cw.ctrler,
-		store:  cw.urlStore,
-		sites:  newSites(),
+		Out:   make(chan *Link, nworker),
+		ctl:   cw.ctl,
+		store: cw.urlStore,
 	}
 	this.nworker = nworker
 	this.wg = &cw.wg
@@ -45,19 +34,12 @@ func (ft *filter) work() {
 		for _, anchor := range link.Anchors {
 			anchor.Depth = depth + 1
 			anchor.URL.Fragment = ""
-			if ft.ctrler.Accept(anchor) {
+			if ft.ctl.Accept(anchor) {
 				// only handle new link
 				if ft.store.Exist(anchor.URL) {
 					continue
 				}
-				if err := ft.addSite(anchor.URL); err != nil {
-					log.Errorf("add site: %v", err)
-					continue
-				}
-				if ok := ft.testRobot(anchor.URL); !ok {
-					continue
-				}
-				if ft.store.PutIfNonExist(&URL{
+				if ft.store.PutNX(&URL{
 					Loc:   *anchor.URL,
 					Depth: anchor.Depth,
 				}) {
@@ -71,48 +53,4 @@ func (ft *filter) work() {
 			return
 		}
 	}
-}
-
-func (ft *filter) addSite(u *url.URL) error {
-	root := siteRoot(u)
-	ft.sites.Lock()
-	defer ft.sites.Unlock()
-
-	site, ok := ft.sites.m[root]
-	if ok {
-		return nil
-	}
-
-	var err error
-	site, err = newSite(root)
-	if err != nil {
-		return err
-	}
-	if err := site.fetchRobots(); err != nil {
-		return fmt.Errorf("fetch robots.txt: %v", err)
-	}
-	site.fetchSitemap()
-	for _, u := range site.Map.URLSet {
-		if ft.store.PutIfNonExist(&URL{
-			Loc:     u.Loc,
-			LastMod: u.LastModified,
-			Freq:    u.ChangeFreq,
-		}) {
-			loc := u.Loc
-			ft.NewOut <- &loc
-		}
-	}
-	ft.sites.m[root] = site
-	return nil
-}
-
-func (ft *filter) testRobot(u *url.URL) bool {
-	ft.sites.RLock()
-	defer ft.sites.RUnlock()
-
-	site, ok := ft.sites.m[siteRoot(u)]
-	if !ok || site.Robot == nil {
-		return false
-	}
-	return site.Robot.TestAgent(u.Path, RobotAgent)
 }

@@ -7,24 +7,18 @@ import (
 	log "github.com/Sirupsen/logrus"
 )
 
-// Request contains a client for doing this request.
-type Request struct {
-	Client Client
-	*http.Request
-}
-
 type maker struct {
 	workerConn
-	In     <-chan *url.URL
-	Out    chan *Request
-	ctrler Controller
+	In  <-chan *url.URL
+	Out chan *Request
+	ctl Controller
 }
 
 func (cw *Crawler) newRequestMaker() *maker {
 	nworker := cw.opt.NWorker.Maker
 	this := &maker{
-		Out:    make(chan *Request, nworker),
-		ctrler: cw.ctrler,
+		Out: make(chan *Request, nworker),
+		ctl: cw.ctl,
 	}
 	this.nworker = nworker
 	this.wg = &cw.wg
@@ -33,13 +27,22 @@ func (cw *Crawler) newRequestMaker() *maker {
 }
 
 func (rm *maker) newRequest(u *url.URL) (req *Request, err error) {
-	req = &Request{
-		Client: DefaultClient,
-	}
+	req = &Request{}
 	if req.Request, err = http.NewRequest("GET", u.String(), nil); err != nil {
 		return
 	}
-	rm.ctrler.Prepare(req)
+	rm.ctl.Prepare(req)
+
+	if req.Client == nil {
+		switch req.Type {
+		case ReqDynamic:
+			req.Client = DefaultAjaxClient
+		case ReqStatic:
+			fallthrough
+		default:
+			req.Client = DefaultClient
+		}
+	}
 	return
 }
 

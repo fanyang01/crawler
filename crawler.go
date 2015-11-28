@@ -8,12 +8,12 @@ import (
 )
 
 var (
-	DefaultCtrler = NewMux()
+	DefaultCtrler = OnceController{}
 )
 
 // Crawler crawls web pages.
 type Crawler struct {
-	ctrler    Controller
+	ctl       Controller
 	opt       *Option
 	urlStore  URLStore
 	maker     *maker
@@ -28,20 +28,20 @@ type Crawler struct {
 }
 
 // NewCrawler creates a new crawler.
-func NewCrawler(opt *Option, store URLStore, ctrler Controller) *Crawler {
+func NewCrawler(opt *Option, store URLStore, ctl Controller) *Crawler {
 	if opt == nil {
 		opt = DefaultOption
 	}
 	if store == nil {
 		store = newMemStore()
 	}
-	if ctrler == nil {
-		ctrler = DefaultCtrler
+	if ctl == nil {
+		ctl = DefaultCtrler
 	}
 	cw := &Crawler{
 		opt:      opt,
 		urlStore: store,
-		ctrler:   ctrler,
+		ctl:      ctl,
 		quit:     make(chan struct{}),
 	}
 
@@ -102,7 +102,7 @@ func (cw *Crawler) addSeeds(seeds ...string) error {
 			return err
 		}
 		u.Fragment = ""
-		if cw.urlStore.PutIfNonExist(&URL{
+		if cw.urlStore.PutNX(&URL{
 			Loc: *u,
 		}) {
 			cw.scheduler.NewIn <- u
@@ -117,11 +117,11 @@ func (cw *Crawler) Enqueue(u string, score int64) {
 	if err != nil {
 		return
 	}
-	if cw.urlStore.PutIfNonExist(&URL{
+	if cw.urlStore.PutNX(&URL{
 		Loc: *uu,
 	}) {
 		cw.scheduler.NewIn <- uu
-		cw.statistic.IncAllCount()
+		cw.statistic.IncURL()
 	}
 }
 

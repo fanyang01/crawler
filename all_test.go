@@ -11,13 +11,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type testCtrler struct {
-	OnceCtrler
+type testController struct {
+	OnceController
 	text  chan string
 	value chan []string
 }
 
-func (t testCtrler) Handle(r *Response) bool {
+func (t testController) Handle(r *Response) bool {
 	t.text <- r.FindText("div.foo")
 	t.value <- r.FindAttr("div#hello", "key")
 	return true
@@ -38,15 +38,15 @@ func TestAll(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	ctrler := &testCtrler{
+	ctl := &testController{
 		text:  make(chan string, 2),
 		value: make(chan []string, 2),
 	}
 
-	cw := NewCrawler(nil, nil, ctrler)
+	cw := NewCrawler(nil, nil, ctl)
 	assert.Nil(cw.Crawl(ts.URL))
-	assert.Equal("bar", <-ctrler.text)
-	vs := <-ctrler.value
+	assert.Equal("bar", <-ctl.text)
+	vs := <-ctl.value
 	assert.Equal(1, len(vs))
 	assert.Equal("value", vs[0])
 
@@ -55,6 +55,6 @@ func TestAll(t *testing.T) {
 	uu, ok := cw.urlStore.Get(u)
 	assert.True(ok)
 	assert.Equal(1, uu.Visited.Count)
-	assert.True(uu.Visited.Time.After(time.Time{}))
+	assert.True(uu.Visited.LastTime.After(time.Time{}))
 	cw.Wait()
 }

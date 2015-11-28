@@ -16,14 +16,14 @@ type handler struct {
 	Out       chan *Response
 	DoneOut   chan *url.URL
 	statistic *Statistic
-	ctrler    Handler
+	ctl       Controller
 }
 
 func (cw *Crawler) newRespHandler() *handler {
 	nworker := cw.opt.NWorker.Handler
 	this := &handler{
 		Out:       make(chan *Response, nworker),
-		ctrler:    cw.ctrler,
+		ctl:       cw.ctl,
 		statistic: &cw.statistic,
 	}
 	this.nworker = nworker
@@ -36,7 +36,7 @@ func (rv *handler) cleanup() { close(rv.Out) }
 
 func (rv *handler) work() {
 	for r := range rv.In {
-		follow := rv.ctrler.Handle(r)
+		follow := rv.ctl.Handle(r)
 		r.CloseBody()
 		if !follow || !CT_HTML.match(r.ContentType) {
 			rv.DoneOut <- r.Locations
@@ -61,7 +61,7 @@ func (resp *Response) Document() (doc *goquery.Document, err error) {
 	if !CT_HTML.match(resp.ContentType) {
 		return nil, ErrNotHTML
 	}
-	if err = resp.ReadBody(MaxHTMLLen, true); err != nil {
+	if err = resp.ReadBody(DefaultOption.MaxHTML); err != nil {
 		return
 	}
 	if doc, err = goquery.NewDocumentFromReader(

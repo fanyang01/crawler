@@ -22,11 +22,10 @@ type scheduler struct {
 	Out       chan *url.URL
 	ResIn     chan *Link
 	cw        *Crawler
-	ctrler    Controller
+	ctl       Controller
 	store     URLStore
 	prioQueue PQ
 	waitQueue WQ
-	sites     sites
 	stat      *Statistic
 	retry     time.Duration // duration between retry
 	once      sync.Once     // used for closing Out
@@ -47,7 +46,7 @@ func (cw *Crawler) newScheduler() *scheduler {
 		ErrIn:     make(chan *url.URL, nworker),
 		Out:       make(chan *url.URL, 4*nworker),
 		store:     cw.urlStore,
-		ctrler:    cw.ctrler,
+		ctl:       cw.ctl,
 		prioQueue: newPQueue(PQueueLen),
 		waitQueue: newWQueue(TQueueLen),
 		stat:      &cw.statistic,
@@ -92,7 +91,7 @@ func (sd *scheduler) work() {
 		var u *url.URL
 		select {
 		case link := <-sd.ResIn:
-			sd.stat.IncTimesCount()
+			sd.stat.IncNtimes()
 			for _, anchor := range link.Anchors {
 				if anchor.ok {
 					sd.enqueueNew(anchor.URL)
@@ -100,14 +99,14 @@ func (sd *scheduler) work() {
 				}
 			}
 			if done := sd.enqueueAgain(link.Base); done {
-				if alldone := sd.stat.IncDoneCount(); alldone {
+				if alldone := sd.stat.IncFinish(); alldone {
 					sd.stop()
 					return
 				}
 			}
 			link.Base = nil
 		case u = <-sd.DoneIn:
-			if alldone := sd.stat.IncDoneCount(); alldone {
+			if alldone := sd.stat.IncFinish(); alldone {
 				sd.stop()
 				return
 			}
@@ -146,12 +145,12 @@ func (sd *scheduler) enqueueNew(u *url.URL) {
 	if !ok {
 		panic("store fault")
 	}
-	minTime := uu.Visited.Time.Add(MinDelay)
-	item.Score, item.Next, _ = sd.ctrler.Schedule(uu)
+	minTime := uu.Visited.LastTime.Add(MinDelay)
+	item.Score, item.Next, _ = sd.ctl.Schedule(uu)
 	if item.Next.Before(minTime) {
 		item.Next = minTime
 	}
-	sd.stat.IncAllCount()
+	sd.stat.IncURL()
 	if item.Next.After(time.Now()) {
 		sd.waitQueue.Push(item)
 	} else {
@@ -164,12 +163,12 @@ func (sd *scheduler) enqueueAgain(u *url.URL) (done bool) {
 	if !ok {
 		panic("store fault")
 	}
-	minTime := uu.Visited.Time.Add(MinDelay)
+	minTime := uu.Visited.LastTime.Add(MinDelay)
 
 	item := &SchedItem{
 		URL: u,
 	}
-	if item.Score, item.Next, done = sd.ctrler.Schedule(uu); done {
+	if item.Score, item.Next, done = sd.ctl.Schedule(uu); done {
 		return
 	}
 	if item.Next.Before(minTime) {
