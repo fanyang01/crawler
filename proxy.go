@@ -10,7 +10,7 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-func NewProxy(addr string) (*http.Client, error) {
+func NewProxyClient(addr string) (*http.Client, error) {
 	return parseProxy(addr)
 }
 

@@ -12,7 +12,8 @@ func (c NopController) Handle(resp *Response) bool {
 func (c NopController) Schedule(u *URL) (score int, at time.Time, done bool) {
 	return 0, time.Time{}, true
 }
-func (c NopController) Accept(_ *Anchor) bool { return true }
+func (c NopController) Accept(_ *Anchor) bool          { return true }
+func (c NopController) FindLink(_ *Response) []*Anchor { return nil }
 
 // OnceController visits each url once and follows urls found by crawler.
 type OnceController struct{ NopController }

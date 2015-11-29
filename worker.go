@@ -16,6 +16,12 @@ type worker interface {
 	cleanup()
 }
 
+func (cw *Crawler) initWorker(w worker, nworker int) {
+	w.conn().nworker = nworker
+	w.conn().wg = &cw.wg
+	w.conn().quit = cw.quit
+}
+
 func start(w worker) {
 	var wg sync.WaitGroup
 	wg.Add(w.conn().nworker)

@@ -12,6 +12,7 @@ type Option struct {
 	MaxCacheSize  int64
 	MinDelay      time.Duration
 	RetryDuration time.Duration
+	MaxRetry      int
 	RobotoAgent   string
 	MaxHTML       int64
 	NWorker       struct {
@@ -31,6 +32,7 @@ var (
 		MaxHTML:       1 << 20, // iMB
 		MinDelay:      10 * time.Second,
 		RetryDuration: 30 * time.Second,
+		MaxRetry:      4,
 		NWorker: struct {
 			Maker, Fetcher, Handler, Finder, Filter, Scheduler int
 		}{

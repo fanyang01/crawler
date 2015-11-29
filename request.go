@@ -11,18 +11,16 @@ type maker struct {
 	workerConn
 	In  <-chan *url.URL
 	Out chan *Request
-	ctl Controller
+	cw  *Crawler
 }
 
 func (cw *Crawler) newRequestMaker() *maker {
 	nworker := cw.opt.NWorker.Maker
 	this := &maker{
 		Out: make(chan *Request, nworker),
-		ctl: cw.ctl,
+		cw:  cw,
 	}
-	this.nworker = nworker
-	this.wg = &cw.wg
-	this.quit = cw.quit
+	cw.initWorker(this, nworker)
 	return this
 }
 
@@ -31,7 +29,7 @@ func (rm *maker) newRequest(u *url.URL) (req *Request, err error) {
 	if req.Request, err = http.NewRequest("GET", u.String(), nil); err != nil {
 		return
 	}
-	rm.ctl.Prepare(req)
+	rm.cw.ctl.Prepare(req)
 
 	if req.Client == nil {
 		switch req.Type {

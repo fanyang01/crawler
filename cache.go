@@ -38,7 +38,7 @@ func (cp *cachePool) Add(r *Response) {
 	if resp.Expires.Before(time.Now()) {
 		return
 	}
-	u0 := resp.Locations.String()
+	u0 := resp.NewURL.String()
 	u1 := resp.RequestURL.String()
 	cp.m[u0] = &resp
 	if u1 != u0 {

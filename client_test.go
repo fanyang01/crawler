@@ -32,9 +32,9 @@ func TestClient(t *testing.T) {
 	resp, err := DefaultClient.Do(req)
 	checkErr(err)
 	assert.Equal(t, 200, resp.StatusCode)
-	assert.Equal(t, ts.URL, resp.Locations.String())
+	assert.Equal(t, ts.URL, resp.NewURL.String())
 	assert.True(t, CT_PLAIN.match(resp.ContentType))
 	assert.Nil(t, resp.ReadBody(1<<10))
-	assert.True(t, resp.Ready)
+	assert.True(t, resp.Closed)
 	assert.True(t, bytes.Equal(resp.Content, []byte("foobar\n")))
 }

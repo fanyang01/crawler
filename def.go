@@ -46,8 +46,8 @@ type Response struct {
 	// RequestURL is the original url used to do request that finally
 	// produces this response.
 	RequestURL      *url.URL
-	Ready           bool     // body read and closed?
-	Locations       *url.URL // distinguish with method Location
+	NewURL          *url.URL
+	Closed          bool // body read and closed?
 	ContentLocation *url.URL
 	ContentType     string
 	Content         []byte
@@ -57,8 +57,10 @@ type Response struct {
 	Cacheable       bool
 	Age             time.Duration
 	MaxAge          time.Duration
+
 	// content will be parsed into document only if neccessary.
 	document *goquery.Document
+	links    []*Anchor
 }
 
 // Controller controls the working process of crawler.
@@ -79,5 +81,10 @@ type Controller interface {
 	// Handle handles a response. If the content type of
 	// response is text/html, the body of the response is prefetched. Some
 	// utils are provided to handle html document.
-	Handle(resp *Response) bool
+	Handle(resp *Response) (follow bool)
+
+	// FindLink finds more non-standard links from a response. Note
+	// that it doesn't need to handle standard links(<a href="..."></a>) in
+	// html document because the crawler will do this.
+	FindLink(resp *Response) []*Anchor
 }

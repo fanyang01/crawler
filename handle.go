@@ -12,23 +12,19 @@ var ErrNotHTML = errors.New("content type is not HTML")
 
 type handler struct {
 	workerConn
-	In        <-chan *Response
-	Out       chan *Response
-	DoneOut   chan *url.URL
-	statistic *Statistic
-	ctl       Controller
+	In      <-chan *Response
+	Out     chan *Response
+	DoneOut chan *url.URL
+	cw      *Crawler
 }
 
 func (cw *Crawler) newRespHandler() *handler {
 	nworker := cw.opt.NWorker.Handler
 	this := &handler{
-		Out:       make(chan *Response, nworker),
-		ctl:       cw.ctl,
-		statistic: &cw.statistic,
+		Out: make(chan *Response, nworker),
+		cw:  cw,
 	}
-	this.nworker = nworker
-	this.wg = &cw.wg
-	this.quit = cw.quit
+	cw.initWorker(this, nworker)
 	return this
 }
 
@@ -36,11 +32,11 @@ func (rv *handler) cleanup() { close(rv.Out) }
 
 func (rv *handler) work() {
 	for r := range rv.In {
-		follow := rv.ctl.Handle(r)
+		follow := rv.cw.ctl.Handle(r)
 		r.CloseBody()
 		if !follow || !CT_HTML.match(r.ContentType) {
-			rv.DoneOut <- r.Locations
-			r.Locations = nil
+			rv.DoneOut <- r.NewURL
+			r.NewURL = nil
 			r = nil
 			continue
 		}
@@ -60,9 +56,6 @@ func (resp *Response) Document() (doc *goquery.Document, err error) {
 	}
 	if !CT_HTML.match(resp.ContentType) {
 		return nil, ErrNotHTML
-	}
-	if err = resp.ReadBody(DefaultOption.MaxHTML); err != nil {
-		return
 	}
 	if doc, err = goquery.NewDocumentFromReader(
 		bytes.NewReader(resp.Content)); err != nil {

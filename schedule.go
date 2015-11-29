@@ -9,9 +9,7 @@ import (
 const (
 	PQueueLen     int = 4096
 	TQueueLen         = 4096
-	RetryDelay        = time.Second * 30
 	MaxRetryTimes     = 5
-	MinDelay          = time.Second * 10
 )
 
 type scheduler struct {
@@ -20,13 +18,10 @@ type scheduler struct {
 	DoneIn    chan *url.URL
 	ErrIn     chan *url.URL
 	Out       chan *url.URL
-	ResIn     chan *Link
+	ResIn     chan *Response
 	cw        *Crawler
-	ctl       Controller
-	store     URLStore
 	prioQueue PQ
 	waitQueue WQ
-	stat      *Statistic
 	retry     time.Duration // duration between retry
 	once      sync.Once     // used for closing Out
 	done      chan struct{}
@@ -45,17 +40,17 @@ func (cw *Crawler) newScheduler() *scheduler {
 		DoneIn:    make(chan *url.URL, nworker),
 		ErrIn:     make(chan *url.URL, nworker),
 		Out:       make(chan *url.URL, 4*nworker),
-		store:     cw.urlStore,
-		ctl:       cw.ctl,
+		cw:        cw,
 		prioQueue: newPQueue(PQueueLen),
 		waitQueue: newWQueue(TQueueLen),
-		stat:      &cw.statistic,
 		retry:     cw.opt.RetryDuration,
 		done:      make(chan struct{}),
 	}
+
 	this.nworker = nworker
 	this.wg = &cw.wg
 	this.quit = cw.quit
+
 	return this
 }
 
@@ -90,29 +85,33 @@ func (sd *scheduler) work() {
 	for {
 		var u *url.URL
 		select {
-		case link := <-sd.ResIn:
-			sd.stat.IncNtimes()
-			for _, anchor := range link.Anchors {
-				if anchor.ok {
+		case resp := <-sd.ResIn:
+			sd.cw.store.IncNTime()
+			for _, anchor := range resp.links {
+				if anchor.follow {
 					sd.enqueueNew(anchor.URL)
 					anchor.URL = nil
 				}
 			}
-			if done := sd.enqueueAgain(link.Base); done {
-				if alldone := sd.stat.IncFinish(); alldone {
+			if done := sd.enqueueAgain(resp.RequestURL); done {
+				if sd.cw.store.AllFinished() {
 					sd.stop()
 					return
 				}
 			}
-			link.Base = nil
 		case u = <-sd.DoneIn:
-			if alldone := sd.stat.IncFinish(); alldone {
+			sd.cw.store.SetStatus(u, URLfinished)
+			if sd.cw.store.AllFinished() {
 				sd.stop()
 				return
 			}
 		case u = <-sd.NewIn:
 			sd.enqueueNew(u)
 		case u = <-sd.ErrIn:
+			if cnt := sd.cw.store.IncErrCount(u); cnt >= sd.cw.opt.MaxRetry {
+				sd.cw.store.SetStatus(u, URLerror)
+				continue
+			}
 			sd.waitQueue.Push(&SchedItem{
 				URL:  u,
 				Next: time.Now().Add(sd.retry),
@@ -141,16 +140,15 @@ func (sd *scheduler) enqueueNew(u *url.URL) {
 	item := &SchedItem{
 		URL: u,
 	}
-	uu, ok := sd.store.Get(u)
+	uu, ok := sd.cw.store.Get(u)
 	if !ok {
 		panic("store fault")
 	}
-	minTime := uu.Visited.LastTime.Add(MinDelay)
-	item.Score, item.Next, _ = sd.ctl.Schedule(uu)
+	minTime := uu.Visited.LastTime.Add(sd.cw.opt.MinDelay)
+	item.Score, item.Next, _ = sd.cw.ctl.Schedule(uu)
 	if item.Next.Before(minTime) {
 		item.Next = minTime
 	}
-	sd.stat.IncURL()
 	if item.Next.After(time.Now()) {
 		sd.waitQueue.Push(item)
 	} else {
@@ -159,16 +157,17 @@ func (sd *scheduler) enqueueNew(u *url.URL) {
 }
 
 func (sd *scheduler) enqueueAgain(u *url.URL) (done bool) {
-	uu, ok := sd.store.Get(u)
+	uu, ok := sd.cw.store.Get(u)
 	if !ok {
 		panic("store fault")
 	}
-	minTime := uu.Visited.LastTime.Add(MinDelay)
+	minTime := uu.Visited.LastTime.Add(sd.cw.opt.MinDelay)
 
 	item := &SchedItem{
 		URL: u,
 	}
-	if item.Score, item.Next, done = sd.ctl.Schedule(uu); done {
+	if item.Score, item.Next, done = sd.cw.ctl.Schedule(uu); done {
+		sd.cw.store.SetStatus(u, URLfinished)
 		return
 	}
 	if item.Next.Before(minTime) {

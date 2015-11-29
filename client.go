@@ -69,10 +69,6 @@ func (c *StdClient) Do(req *Request) (resp *Response, err error) {
 		return
 	}
 	resp.parseHeader()
-	// Only prefetch html content
-	if CT_HTML.match(resp.ContentType) {
-		err = resp.ReadBody(DefaultOption.MaxHTML)
-	}
 	return
 }
 
@@ -154,7 +150,7 @@ func msgToResp(msg *responseMsg) *Response {
 	return &Response{
 		Response: r,
 		Content:  msg.Content,
-		Ready:    true,
+		Closed:   true,
 	}
 }
 

@@ -127,6 +127,7 @@ func (m *Matcher) Get(s string) (v interface{}, ok bool) {
 
 // Mux is a multiplexer.
 type Mux struct {
+	crawler.NopController
 	matcher [muxLEN]*Matcher
 }
 
@@ -240,7 +241,7 @@ func (mux *Mux) Prepare(req *crawler.Request) {
 
 // Handle implements Controller.
 func (mux *Mux) Handle(resp *crawler.Response) bool {
-	url := resp.Locations.String()
+	url := resp.NewURL.String()
 	if f, ok := mux.matcher[muxHANDLE].Get(url); ok {
 		f.(Handler).Handle(resp)
 	}

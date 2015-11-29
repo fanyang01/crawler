@@ -29,19 +29,17 @@ type fetcher struct {
 	Out    chan *Response
 	ErrOut chan *url.URL
 	cache  *cachePool
-	store  URLStore
+	cw     *Crawler
 }
 
 func (cw *Crawler) newFetcher() *fetcher {
 	nworker := cw.opt.NWorker.Fetcher
 	this := &fetcher{
 		Out:   make(chan *Response, nworker),
-		store: cw.urlStore,
 		cache: newCachePool(cw.opt.MaxCacheSize),
+		cw:    cw,
 	}
-	this.nworker = nworker
-	this.wg = &cw.wg
-	this.quit = cw.quit
+	cw.initWorker(this, nworker)
 	return this
 }
 
@@ -55,6 +53,10 @@ func (fc *fetcher) work() {
 		if resp, ok = fc.cache.Get(req.URL.String()); !ok {
 			var err error
 			resp, err = req.Client.Do(req)
+			// Prefetch html document
+			if err == nil && CT_HTML.match(resp.ContentType) {
+				err = resp.ReadBody(fc.cw.opt.MaxHTML)
+			}
 			if err != nil {
 				log.Errorf("fetcher: %v", err)
 				select {
@@ -67,11 +69,8 @@ func (fc *fetcher) work() {
 			// Add to cache
 			fc.cache.Add(resp)
 		}
-		fc.store.VisitAt(req.URL, resp.Date, resp.LastModified)
-		// redirect
-		if resp.Locations.String() != req.URL.String() {
-			fc.store.VisitAt(resp.Locations, resp.Date, resp.LastModified)
-		}
+		// Redirected response is threated as the response of original URL
+		fc.cw.store.UpdateVisited(req.URL, resp.Date, resp.LastModified)
 		select {
 		case fc.Out <- resp:
 		case <-fc.quit:
@@ -130,9 +129,9 @@ func (resp *Response) parseHeader() {
 	if baseurl = resp.Request.URL; baseurl == nil {
 		baseurl = resp.RequestURL
 	}
-	resp.Locations = baseurl
+	resp.NewURL = baseurl
 	if l, err := resp.Location(); err == nil {
-		baseurl, resp.Locations = l, l
+		baseurl, resp.NewURL = l, l
 	}
 	if l, err := baseurl.Parse(resp.Header.Get("Content-Location")); err == nil {
 		resp.ContentLocation = l
@@ -146,7 +145,7 @@ func (resp *Response) parseHeader() {
 // ReadBody reads the body of response. It can be called multi-times safely.
 // Response.Body will also be closed.
 func (resp *Response) ReadBody(maxLen int64) error {
-	if resp.Ready {
+	if resp.Closed {
 		return nil
 	}
 	defer resp.CloseBody()
@@ -192,20 +191,20 @@ func (resp *Response) ReadBody(maxLen int64) error {
 
 // CloseBody closes the body of response. It can be called multiply times safely.
 func (resp *Response) CloseBody() {
-	if resp.Ready {
+	if resp.Closed {
 		return
 	}
 	resp.Body.Close()
-	resp.Ready = true
+	resp.Closed = true
 }
 
 func (resp *Response) detectMIME() {
 	if t := resp.Header.Get("Content-Type"); t != "" {
 		resp.ContentType = t
-	} else if resp.Locations != nil || resp.ContentLocation != nil {
+	} else if resp.NewURL != nil || resp.ContentLocation != nil {
 		var ext string
-		if resp.Locations != nil {
-			ext = path.Ext(resp.Locations.Path)
+		if resp.NewURL != nil {
+			ext = path.Ext(resp.NewURL.Path)
 		}
 		if ext == "" && resp.ContentLocation != nil {
 			ext = path.Ext(resp.ContentLocation.Path)

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/url"
 	"sync"
-	"time"
 )
 
 var (
@@ -13,22 +12,23 @@ var (
 
 // Crawler crawls web pages.
 type Crawler struct {
-	ctl       Controller
-	opt       *Option
-	urlStore  URLStore
+	ctl   Controller
+	opt   *Option
+	store Store
+
 	maker     *maker
 	fetcher   *fetcher
 	handler   *handler
 	finder    *finder
 	filter    *filter
 	scheduler *scheduler
-	statistic Statistic
-	quit      chan struct{}
-	wg        sync.WaitGroup
+
+	quit chan struct{}
+	wg   sync.WaitGroup
 }
 
 // NewCrawler creates a new crawler.
-func NewCrawler(opt *Option, store URLStore, ctl Controller) *Crawler {
+func NewCrawler(opt *Option, store Store, ctl Controller) *Crawler {
 	if opt == nil {
 		opt = DefaultOption
 	}
@@ -39,10 +39,10 @@ func NewCrawler(opt *Option, store URLStore, ctl Controller) *Crawler {
 		ctl = DefaultCtrler
 	}
 	cw := &Crawler{
-		opt:      opt,
-		urlStore: store,
-		ctl:      ctl,
-		quit:     make(chan struct{}),
+		opt:   opt,
+		store: store,
+		ctl:   ctl,
+		quit:  make(chan struct{}),
 	}
 
 	// connect each part
@@ -78,8 +78,6 @@ func (cw *Crawler) Crawl(seeds ...string) error {
 	start(cw.filter)
 	cw.scheduler.start()
 
-	cw.statistic.Uptime = time.Now()
-
 	err := cw.addSeeds(seeds...)
 	if err != nil {
 		cw.Stop()
@@ -102,7 +100,7 @@ func (cw *Crawler) addSeeds(seeds ...string) error {
 			return err
 		}
 		u.Fragment = ""
-		if cw.urlStore.PutNX(&URL{
+		if cw.store.PutNX(&URL{
 			Loc: *u,
 		}) {
 			cw.scheduler.NewIn <- u
@@ -111,18 +109,20 @@ func (cw *Crawler) addSeeds(seeds ...string) error {
 	return nil
 }
 
-// Enqueue adds a url with optional score to queue.
-func (cw *Crawler) Enqueue(u string, score int64) {
-	uu, err := url.Parse(u)
-	if err != nil {
-		return
+// Enqueue adds urls to queue.
+func (cw *Crawler) Enqueue(urls ...string) error {
+	for _, u := range urls {
+		uu, err := url.Parse(u)
+		if err != nil {
+			return err
+		}
+		if cw.store.PutNX(&URL{
+			Loc: *uu,
+		}) {
+			cw.scheduler.NewIn <- uu
+		}
 	}
-	if cw.urlStore.PutNX(&URL{
-		Loc: *uu,
-	}) {
-		cw.scheduler.NewIn <- uu
-		cw.statistic.IncURL()
-	}
+	return nil
 }
 
 // Stop stops the crawler.

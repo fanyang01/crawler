@@ -6,6 +6,13 @@ import (
 	"time"
 )
 
+const (
+	// Status of a URL.
+	URLprocessing = iota
+	URLfinished
+	URLerror
+)
+
 // URL contains metadata of a url in crawler.
 type URL struct {
 	Loc     url.URL
@@ -16,6 +23,8 @@ type URL struct {
 		Count    int
 		LastTime time.Time
 	}
+	ErrCount int
+	Status   int
 }
 
 func (u *URL) clone() *URL {
@@ -23,34 +32,45 @@ func (u *URL) clone() *URL {
 	return &uu
 }
 
-// URLStore stores all URLs.
-type URLStore interface {
+// Store stores all URLs.
+type Store interface {
 	Exist(u *url.URL) bool
 	Get(u *url.URL) (*URL, bool)
 	GetDepth(u *url.URL) int
 	PutNX(u *URL) bool
-	VisitAt(u *url.URL, at, lastmod time.Time)
+	UpdateVisited(u *url.URL, at, lastmod time.Time)
+	SetStatus(u *url.URL, status int)
+	IncErrCount(u *url.URL) int
+
+	IncNTime()
+	IncNError()
+	AllFinished() bool
 }
 
-type store struct {
+type memStore struct {
 	sync.RWMutex
 	m map[url.URL]*URL
+
+	URLs     int32
+	Finished int32
+	Ntimes   int32
+	Errors   int32
 }
 
-func newMemStore() *store {
-	return &store{
+func newMemStore() *memStore {
+	return &memStore{
 		m: make(map[url.URL]*URL),
 	}
 }
 
-func (p *store) Exist(u *url.URL) bool {
+func (p *memStore) Exist(u *url.URL) bool {
 	p.RLock()
 	defer p.RUnlock()
 	_, ok := p.m[*u]
 	return ok
 }
 
-func (p *store) Get(u *url.URL) (uu *URL, ok bool) {
+func (p *memStore) Get(u *url.URL) (uu *URL, ok bool) {
 	p.RLock()
 	entry, present := p.m[*u]
 	if present {
@@ -60,7 +80,7 @@ func (p *store) Get(u *url.URL) (uu *URL, ok bool) {
 	return
 }
 
-func (p *store) GetDepth(u *url.URL) int {
+func (p *memStore) GetDepth(u *url.URL) int {
 	p.RLock()
 	defer p.RUnlock()
 	if uu, ok := p.m[*u]; ok {
@@ -69,27 +89,70 @@ func (p *store) GetDepth(u *url.URL) int {
 	return 0
 }
 
-func (p *store) PutNX(u *URL) bool {
+func (p *memStore) PutNX(u *URL) bool {
 	p.Lock()
 	defer p.Unlock()
 	if _, ok := p.m[u.Loc]; ok {
 		return false
 	}
 	p.m[u.Loc] = u.clone()
+	p.URLs++
 	return true
 }
 
-func (p *store) VisitAt(u *url.URL, at, lastmod time.Time) {
+func (p *memStore) UpdateVisited(u *url.URL, at, lastmod time.Time) {
 	p.Lock()
 	defer p.Unlock()
 	uu, ok := p.m[*u]
 	if !ok {
-		uu = &URL{
-			Loc: *u,
-		}
-		p.m[*u] = uu
+		return
 	}
 	uu.Visited.Count++
 	uu.Visited.LastTime = at
 	uu.LastMod = lastmod
+	uu.ErrCount = 0
+}
+
+func (p *memStore) SetStatus(u *url.URL, status int) {
+	p.Lock()
+	defer p.Unlock()
+
+	uu, ok := p.m[*u]
+	if !ok {
+		return
+	}
+	uu.Status = status
+	switch status {
+	case URLfinished, URLerror:
+		p.Finished++
+	}
+}
+
+func (p *memStore) IncErrCount(u *url.URL) int {
+	p.Lock()
+	defer p.Unlock()
+	uu, ok := p.m[*u]
+	if !ok {
+		return 0
+	}
+	uu.ErrCount++
+	return uu.ErrCount
+}
+
+func (s *memStore) IncNTime() {
+	s.Lock()
+	s.Ntimes++
+	s.Unlock()
+}
+
+func (s *memStore) IncNError() {
+	s.Lock()
+	s.Errors++
+	s.Unlock()
+}
+
+func (s *memStore) AllFinished() bool {
+	s.RLock()
+	defer s.RUnlock()
+	return s.Finished >= s.URLs
 }
