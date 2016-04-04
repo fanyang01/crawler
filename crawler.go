@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	DefaultCtrler = OnceController{}
+	DefaultController = OnceController{}
 )
 
 // Crawler crawls web pages.
@@ -36,7 +36,7 @@ func NewCrawler(opt *Option, store Store, ctl Controller) *Crawler {
 		store = newMemStore()
 	}
 	if ctl == nil {
-		ctl = DefaultCtrler
+		ctl = DefaultController
 	}
 	cw := &Crawler{
 		opt:   opt,

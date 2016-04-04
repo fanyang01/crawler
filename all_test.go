@@ -17,10 +17,10 @@ type testController struct {
 	value chan []string
 }
 
-func (t testController) Handle(r *Response) bool {
+func (t testController) Handle(r *Response) (bool, []*Link) {
 	t.text <- r.FindText("div.foo")
 	t.value <- r.FindAttr("div#hello", "key")
-	return true
+	return true, nil
 }
 
 func TestAll(t *testing.T) {

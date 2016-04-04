@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/Sirupsen/logrus"
 )
 
 var (
@@ -58,7 +58,7 @@ func (fc *fetcher) work() {
 				err = resp.ReadBody(fc.cw.opt.MaxHTML)
 			}
 			if err != nil {
-				log.Errorf("fetcher: %v", err)
+				logrus.Errorf("fetcher: %v", err)
 				select {
 				case fc.ErrOut <- req.URL:
 				case <-fc.quit:
@@ -100,28 +100,23 @@ func (resp *Response) parseHeader() {
 			resp.Cacheable = true
 		}
 	}
-
 	if a := resp.Header.Get("Age"); a != "" {
 		if seconds, err := strconv.ParseInt(a, 0, 32); err == nil {
 			resp.Age = time.Duration(seconds) * time.Second
 		}
 	}
 	if c := resp.Header.Get("Cache-Control"); c != "" {
-		if strings.HasPrefix(c, "s-maxage") {
-			if seconds, err := strconv.ParseInt(
-				strings.TrimPrefix(c, "s-maxage="), 0, 32); err == nil {
-				resp.MaxAge = time.Duration(seconds) * time.Second
-				resp.Cacheable = true
-			}
-		} else if strings.HasPrefix(c, "max-age") {
-			if seconds, err := strconv.ParseInt(
-				strings.TrimPrefix(c, "max-age="), 0, 32); err == nil {
-				resp.MaxAge = time.Duration(seconds) * time.Second
-				resp.Cacheable = true
-			}
+		var idx, seconds int
+		if idx = strings.Index(c, "s-maxage="); idx < 0 {
+			idx = strings.Index(c, "max-age=")
 		}
-		if resp.MaxAge != 0 {
-			resp.Expires = resp.Date.Add(resp.MaxAge)
+		if idx >= 0 {
+			idx = strings.Index(c[idx:], "=")
+			if _, err := fmt.Sscanf(c[idx+1:], "%d", &seconds); err == nil {
+				resp.MaxAge = time.Duration(seconds) * time.Second
+				resp.Expires = resp.Date.Add(resp.MaxAge)
+				resp.Cacheable = true
+			}
 		}
 	}
 
@@ -133,11 +128,11 @@ func (resp *Response) parseHeader() {
 	if l, err := resp.Location(); err == nil {
 		baseurl, resp.NewURL = l, l
 	}
-	if l, err := baseurl.Parse(resp.Header.Get("Content-Location")); err == nil {
+	if l, err := baseurl.Parse(
+		resp.Header.Get("Content-Location")); err == nil {
 		resp.ContentLocation = l
 	}
 
-	// Detect MIME types
 	resp.detectMIME()
 	return
 }

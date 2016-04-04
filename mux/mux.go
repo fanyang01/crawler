@@ -240,15 +240,15 @@ func (mux *Mux) Prepare(req *crawler.Request) {
 }
 
 // Handle implements Controller.
-func (mux *Mux) Handle(resp *crawler.Response) bool {
+func (mux *Mux) Handle(resp *crawler.Response) (bool, []*crawler.Link) {
 	url := resp.NewURL.String()
 	if f, ok := mux.matcher[muxHANDLE].Get(url); ok {
 		f.(Handler).Handle(resp)
 	}
 	if v, ok := mux.matcher[muxFOLLOW].Get(url); ok {
-		return v.(bool)
+		return v.(bool), nil
 	}
-	return true
+	return true, nil
 }
 
 // Schedule implements Controller.
@@ -274,8 +274,8 @@ func (mux *Mux) Schedule(u *crawler.URL) (score int, at time.Time, done bool) {
 }
 
 // Accept implements Controller.
-func (mux *Mux) Accept(anchor *crawler.Anchor) bool {
-	if ac, ok := mux.matcher[muxFILTER].Get(anchor.URL.String()); ok {
+func (mux *Mux) Accept(link *crawler.Link) bool {
+	if ac, ok := mux.matcher[muxFILTER].Get(link.URL.String()); ok {
 		return ac.(bool)
 	}
 	return false

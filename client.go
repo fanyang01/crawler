@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/Sirupsen/logrus"
 	"github.com/gorilla/websocket"
 )
 
@@ -59,7 +59,7 @@ func (c *StdClient) Do(req *Request) (resp *Response, err error) {
 		return
 	}
 
-	log.WithFields(log.Fields{
+	logrus.WithFields(logrus.Fields{
 		"URL": req.URL.String(),
 	}).Infoln(req.Method, resp.Status)
 
@@ -117,8 +117,8 @@ type responseMsg struct {
 	NewURL        string      `json:"newURL"`
 	OriginalURL   string      `json:"originalURL"`
 	RequestMethod string      `json:"requestMethod"`
-	StatusCode    int         `json:"statusCode",omitempty`
-	Content       []byte      `json:"content",omitempty`
+	StatusCode    int         `json:"statusCode,omitempty"`
+	Content       []byte      `json:"content,omitempty"`
 	Headers       http.Header `json:"headers"`
 	Cookies       []struct {
 		Name  string `json:"name,omitempty"`

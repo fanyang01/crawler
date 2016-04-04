@@ -27,19 +27,19 @@ func (ft *filter) cleanup() {
 func (ft *filter) work() {
 	for resp := range ft.In {
 		depth := ft.cw.store.GetDepth(resp.RequestURL)
-		for _, anchor := range resp.links {
-			anchor.Depth = depth + 1
-			anchor.URL.Fragment = ""
-			if ft.cw.ctl.Accept(anchor) {
+		for _, link := range resp.links {
+			link.Depth = depth + 1
+			link.URL.Fragment = ""
+			if ft.cw.ctl.Accept(link) {
 				// only handle new link
-				if ft.cw.store.Exist(anchor.URL) {
+				if ft.cw.store.Exist(link.URL) {
 					continue
 				}
 				if ft.cw.store.PutNX(&URL{
-					Loc:   *anchor.URL,
-					Depth: anchor.Depth,
+					Loc:   *link.URL,
+					Depth: link.Depth,
 				}) {
-					anchor.follow = true
+					link.follow = true
 				}
 			}
 		}

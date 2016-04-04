@@ -3,20 +3,11 @@ package crawler
 import (
 	"bytes"
 	"io"
-	"net/url"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/Sirupsen/logrus"
+
 	"golang.org/x/net/html"
 )
-
-// Anchor represents a anchor found by crawler.
-type Anchor struct {
-	URL       *url.URL // parsed url
-	Hyperlink bool     // is hyperlink?
-	Text      []byte   // anchor text
-	Depth     int      // length of path to find it
-	follow    bool
-}
 
 type finder struct {
 	workerConn
@@ -39,10 +30,9 @@ func (f *finder) cleanup() { close(f.Out) }
 
 func (f *finder) work() {
 	for r := range f.In {
-		r.links = f.cw.ctl.FindLink(r)
 		// Treat the new url as one found under the original url
 		if r.NewURL.String() != r.RequestURL.String() {
-			r.links = append(r.links, &Anchor{
+			r.links = append(r.links, &Link{
 				URL: r.NewURL,
 			})
 		}
@@ -62,7 +52,7 @@ LOOP:
 		switch tt {
 		case html.ErrorToken:
 			if z.Err() != io.EOF {
-				log.Errorf("find link: %v", z.Err())
+				logrus.Errorf("find link: %v", z.Err())
 			}
 			break LOOP
 		case html.StartTagToken:
@@ -72,7 +62,7 @@ LOOP:
 					key, val, more := z.TagAttr()
 					if string(key) == "href" {
 						if u, err := resp.NewURL.Parse(string(val)); err == nil {
-							resp.links = append(resp.links, &Anchor{
+							resp.links = append(resp.links, &Link{
 								URL:       u,
 								Hyperlink: u.Host != resp.NewURL.Host,
 								// TODO: anchor text

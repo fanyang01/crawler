@@ -36,6 +36,15 @@ type Request struct {
 	Client Client
 }
 
+// Link represents a link found by crawler.
+type Link struct {
+	URL       *url.URL // parsed url
+	Hyperlink bool     // is hyperlink?
+	Text      []byte   // anchor text
+	Depth     int      // length of path to find it
+	follow    bool
+}
+
 // Response contains a http response and some metadata.
 // Note the body of response may be read or not, depending on
 // the type of content and the size of content. Call ReadBody to
@@ -60,7 +69,8 @@ type Response struct {
 
 	// content will be parsed into document only if neccessary.
 	document *goquery.Document
-	links    []*Anchor
+	links    []*Link
+	follow   bool
 }
 
 // Controller controls the working process of crawler.
@@ -76,15 +86,13 @@ type Controller interface {
 
 	// Accept determines whether a URL should be processed. It acts as a
 	// blacklist that preventing some unneccesary URLs to be processed.
-	Accept(anchor *Anchor) bool
+	Accept(link *Link) bool
 
 	// Handle handles a response. If the content type of
 	// response is text/html, the body of the response is prefetched. Some
 	// utils are provided to handle html document.
-	Handle(resp *Response) (follow bool)
-
-	// FindLink finds more non-standard links from a response. Note
-	// that it doesn't need to handle standard links(<a href="..."></a>) in
-	// html document because the crawler will do this.
-	FindLink(resp *Response) []*Anchor
+	// Handle can also extract non-standard links from a response and
+	// return them. Note that it doesn't need to handle standard links(<a
+	// href="..."></a>) in html document because the crawler will do this.
+	Handle(resp *Response) (follow bool, links []*Link)
 }

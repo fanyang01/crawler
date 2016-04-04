@@ -2,18 +2,19 @@ package crawler
 
 import "time"
 
-// NopController is an empty controller - it walks through each seed once and does nothing.
+// NopController is an empty controller - it walks through each seed once
+// and does nothing.
 type NopController struct{}
 
 func (c NopController) Prepare(_ *Request) {}
-func (c NopController) Handle(resp *Response) bool {
-	return true
+func (c NopController) Handle(resp *Response) (bool, []*Link) {
+	return true, nil
 }
 func (c NopController) Schedule(u *URL) (score int, at time.Time, done bool) {
 	return 0, time.Time{}, true
 }
-func (c NopController) Accept(_ *Anchor) bool          { return true }
-func (c NopController) FindLink(_ *Response) []*Anchor { return nil }
+func (c NopController) Accept(_ *Link) bool          { return true }
+func (c NopController) FindLink(_ *Response) []*Link { return nil }
 
 // OnceController visits each url once and follows urls found by crawler.
 type OnceController struct{ NopController }

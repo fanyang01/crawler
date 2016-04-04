@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"net/url"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/Sirupsen/logrus"
 )
 
 type maker struct {
@@ -49,7 +49,7 @@ func (rm *maker) cleanup() { close(rm.Out) }
 func (rm *maker) work() {
 	for u := range rm.In {
 		if req, err := rm.newRequest(u); err != nil {
-			log.Errorln(err)
+			logrus.Errorln(err)
 			continue
 		} else {
 			select {

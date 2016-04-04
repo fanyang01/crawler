@@ -87,10 +87,10 @@ func (sd *scheduler) work() {
 		select {
 		case resp := <-sd.ResIn:
 			sd.cw.store.IncNTime()
-			for _, anchor := range resp.links {
-				if anchor.follow {
-					sd.enqueueNew(anchor.URL)
-					anchor.URL = nil
+			for _, link := range resp.links {
+				if link.follow {
+					sd.enqueueNew(link.URL)
+					link.URL = nil
 				}
 			}
 			if done := sd.enqueueAgain(resp.RequestURL); done {
