@@ -70,7 +70,7 @@ func (fc *fetcher) work() {
 			fc.cache.Add(resp)
 		}
 		// Redirected response is threated as the response of original URL
-		fc.cw.store.UpdateVisited(req.URL, resp.Date, resp.LastModified)
+		fc.cw.store.UpdateVisitTime(req.URL, resp.Date, resp.LastModified)
 		select {
 		case fc.Out <- resp:
 		case <-fc.quit:

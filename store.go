@@ -38,7 +38,7 @@ type Store interface {
 	Get(u *url.URL) (*URL, bool)
 	GetDepth(u *url.URL) int
 	PutNX(u *URL) bool
-	UpdateVisited(u *url.URL, at, lastmod time.Time)
+	UpdateVisitTime(u *url.URL, at, lastmod time.Time)
 	SetStatus(u *url.URL, status int)
 	IncErrCount(u *url.URL) int
 
@@ -100,7 +100,7 @@ func (p *memStore) PutNX(u *URL) bool {
 	return true
 }
 
-func (p *memStore) UpdateVisited(u *url.URL, at, lastmod time.Time) {
+func (p *memStore) UpdateVisitTime(u *url.URL, at, lastmod time.Time) {
 	p.Lock()
 	defer p.Unlock()
 	uu, ok := p.m[*u]

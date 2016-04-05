@@ -25,19 +25,23 @@ func mustParseInt(s string) int {
 	return int(i)
 }
 
-func TestPQ(t *testing.T) {
+func TestQueuePriority(t *testing.T) {
 	pq := newPQueue(100)
+	now := time.Now()
 	pq.Push(&SchedItem{
 		Score: 300,
 		URL:   mustParseURL("/300"),
+		Next:  now.Add(100 * time.Millisecond),
 	})
 	pq.Push(&SchedItem{
 		Score: 100,
 		URL:   mustParseURL("/100"),
+		Next:  now.Add(100 * time.Millisecond),
 	})
 	pq.Push(&SchedItem{
 		Score: 200,
 		URL:   mustParseURL("/200"),
+		Next:  now.Add(100 * time.Millisecond),
 	})
 	var u *SchedItem
 	u = pq.Pop()
@@ -48,8 +52,8 @@ func TestPQ(t *testing.T) {
 	assert.Equal(t, "/100", u.URL.Path)
 }
 
-func TestWQ(t *testing.T) {
-	wq := newWQueue(100)
+func TestQueueTime(t *testing.T) {
+	wq := newPQueue(100)
 	now := time.Now()
 	wq.Push(&SchedItem{
 		Next: now.Add(150 * time.Millisecond),
@@ -63,16 +67,11 @@ func TestWQ(t *testing.T) {
 		Next: now.Add(200 * time.Millisecond),
 		URL:  mustParseURL("/200"),
 	})
-	time.Sleep(200 * time.Millisecond)
 	var u *SchedItem
-	var ok bool
-	u, ok = wq.Pop()
-	assert.True(t, ok)
+	u = wq.Pop()
 	assert.Equal(t, "/100", u.URL.Path)
-	u, ok = wq.Pop()
-	assert.True(t, ok)
+	u = wq.Pop()
 	assert.Equal(t, "/150", u.URL.Path)
-	u, ok = wq.Pop()
-	assert.True(t, ok)
+	u = wq.Pop()
 	assert.Equal(t, "/200", u.URL.Path)
 }

@@ -6,35 +6,38 @@ import (
 	"time"
 )
 
-// PQ is priority queue, using SchedItem.Score as priority.
+// PQ is priority queue, using SchedItem.Next and SchedItem.Score as
+// compound priority. It can be operated in two modes: channel mode and
+// method mode, but only one mode can be used for a single instance.
 type PQ interface {
-	// Push adds a new url to queue. Blocking or not.
+	// Channel returns a pair of channel for push and pop operations.
+	Channel() (push chan<- *SchedItem, pop <-chan *SchedItem)
+	// Push inserts an item into queue.
 	Push(*SchedItem)
-	// Pop removes the element of highest priority. Blocking.
+	// Pop removes an item from queue.
 	Pop() *SchedItem
-	// Close closes queue, wake up all sleeping push/pop.
+	// Close closes queue.
 	Close()
-}
-
-// WQ is waiting queue, using SchedItem.Next as priority.
-type WQ interface {
-	Push(*SchedItem)
-	// Check if any 'Next' is before/at now.
-	IsAvailable() bool
-	// Pop a url whose 'Next' is before/at now. No blocking.
-	Pop() (*SchedItem, bool)
-	// Pop all urls whose 'Next' is before/at now. No blocking.
-	MultiPop() (items []*SchedItem, any bool)
-	// Close closes queue, wake up all sleeping push.
-	Close()
-	IsClosed() bool
 }
 
 type baseHeap []*SchedItem
 
+// Less compares compound priority of items.
+func (q baseHeap) Less(i, j int) bool {
+	if q[i].Next.Before(q[j].Next) {
+		return true
+	}
+	ti := q[i].Next.Round(time.Microsecond)
+	tj := q[j].Next.Round(time.Microsecond)
+	if ti.After(tj) {
+		return false
+	}
+	// ti = tj
+	return q[i].Score > q[j].Score
+}
+func (q baseHeap) Top() interface{}    { return q[0] }
 func (q baseHeap) Len() int            { return len(q) }
 func (q baseHeap) Swap(i, j int)       { q[i], q[j] = q[j], q[i] }
-func (q baseHeap) Top() interface{}    { return q[0] }
 func (q *baseHeap) Push(x interface{}) { *q = append(*q, x.(*SchedItem)) }
 func (q *baseHeap) Pop() interface{} {
 	n := len(*q)
@@ -43,163 +46,123 @@ func (q *baseHeap) Pop() interface{} {
 	return v
 }
 
-type wHeap struct{ baseHeap }
-
-func (h wHeap) Less(i, j int) bool {
-	return h.baseHeap[i].Next.Before(h.baseHeap[j].Next)
-}
-
-type pHeap struct{ baseHeap }
-
-func (h pHeap) Less(i, j int) bool {
-	return h.baseHeap[i].Score > h.baseHeap[j].Score
-}
+type qHeap struct{ baseHeap }
 
 type pqueue struct {
-	heap   heap.Interface
-	maxLen int
-	pop    *sync.Cond
-	push   *sync.Cond
-	closed bool
-	*sync.RWMutex
+	heap interface {
+		heap.Interface
+		Top() interface{}
+	}
+	maxLen            int
+	closed            bool
+	chMode            bool
+	chIn, chOut       chan *SchedItem
+	popCond, pushCond *sync.Cond
+	timer             *time.Timer
+	quit              chan struct{}
+	*sync.Mutex
 }
 
 func newPQueue(maxLen int) *pqueue {
 	q := &pqueue{
-		heap:    &pHeap{},
-		maxLen:  maxLen,
-		RWMutex: new(sync.RWMutex),
+		heap:   &qHeap{},
+		maxLen: maxLen,
+		Mutex:  new(sync.Mutex),
 	}
-	q.pop = sync.NewCond(q.RWMutex)
-	q.push = sync.NewCond(q.RWMutex)
+	q.popCond = sync.NewCond(q.Mutex)
+	q.pushCond = sync.NewCond(q.Mutex)
 	return q
+}
+
+func (q *pqueue) Channel() (push chan<- *SchedItem, pop <-chan *SchedItem) {
+	q.Lock()
+	defer q.Unlock()
+
+	if q.chIn != nil && q.chOut != nil {
+		return q.chIn, q.chOut
+	}
+
+	q.chIn = make(chan *SchedItem, 32)
+	// Small output buffer size means that we pop an item only when it's requested.
+	q.chOut = make(chan *SchedItem, 1)
+	go func() {
+		for {
+			select {
+			case item := <-q.chIn:
+				q.Push(item)
+			case <-q.quit:
+				return
+			}
+		}
+	}()
+	go func() {
+		for {
+			if item := q.Pop(); item != nil {
+				q.chOut <- item
+				continue
+			}
+			return
+		}
+	}()
+	return q.chIn, q.chOut
 }
 
 func (q *pqueue) Push(u *SchedItem) {
 	q.Lock()
 	defer q.Unlock()
 	for !q.closed && q.heap.Len() >= q.maxLen {
-		q.push.Wait()
+		q.pushCond.Wait()
 	}
 	if q.closed {
 		return
 	}
 	heap.Push(q.heap, u)
-	q.pop.Signal()
+	q.popCond.Signal()
 }
 
-// Pop will block if heap is empty.
-func (q *pqueue) Pop() (u *SchedItem) {
+// Pop will block if heap is empty or none of items should be removed at now.
+func (q *pqueue) Pop() *SchedItem {
 	q.Lock()
 	defer q.Unlock()
-	for !q.closed && q.heap.Len() == 0 {
-		q.pop.Wait()
+
+	var item *SchedItem
+	var now time.Time
+	wait := false
+
+WAIT:
+	for !q.closed && (q.heap.Len() == 0 || wait) {
+		q.popCond.Wait()
+		wait = false
 	}
 	if q.closed {
 		return nil
 	}
-	i := heap.Pop(q.heap)
-	q.push.Signal()
-	return i.(*SchedItem)
+
+	item = q.heap.Top().(*SchedItem)
+	now = time.Now()
+
+	if item.Next.Before(now) {
+		item = heap.Pop(q.heap).(*SchedItem)
+		q.pushCond.Signal()
+		return item
+	}
+
+	if q.timer != nil {
+		q.timer.Stop()
+	}
+	q.timer = time.AfterFunc(item.Next.Sub(now), func() {
+		q.Lock()
+		q.popCond.Signal()
+		q.Unlock()
+	})
+	wait = true
+	goto WAIT
 }
 
 func (q *pqueue) Close() {
 	q.Lock()
-	q.closed = true
-	q.pop.Broadcast()
-	q.push.Broadcast()
-	q.Unlock()
-}
-
-type wqueue struct {
-	heap interface {
-		heap.Interface
-		Top() interface{}
-	}
-	maxLen int
-	closed bool
-	push   *sync.Cond
-	*sync.RWMutex
-}
-
-func newWQueue(maxLen int) *wqueue {
-	q := &wqueue{
-		heap:    &wHeap{},
-		maxLen:  maxLen,
-		RWMutex: new(sync.RWMutex),
-	}
-	q.push = sync.NewCond(q.RWMutex)
-	return q
-}
-
-func (q *wqueue) Push(u *SchedItem) {
-	q.Lock()
 	defer q.Unlock()
-	for !q.closed && q.heap.Len() >= q.maxLen {
-		q.push.Wait()
-	}
-	if q.closed {
-		return
-	}
-	heap.Push(q.heap, u)
-}
-
-func (wq *wqueue) Pop() (*SchedItem, bool) {
-	wq.Lock()
-	defer wq.Unlock()
-	if wq.closed || wq.heap.Len() == 0 {
-		return nil, false
-	}
-	v := wq.heap.Top()
-	if !v.(*SchedItem).Next.After(time.Now()) {
-		v := heap.Pop(wq.heap)
-		wq.push.Signal()
-		return v.(*SchedItem), true
-	}
-	return nil, false
-}
-
-func (wq *wqueue) Close() {
-	wq.Lock()
-	wq.closed = true
-	wq.Unlock()
-}
-
-func (wq *wqueue) IsClosed() bool {
-	wq.RLock()
-	defer wq.RUnlock()
-	return wq.closed
-}
-
-func (wq *wqueue) IsAvailable() bool {
-	wq.RLock()
-	defer wq.RUnlock()
-	if wq.heap.Len() == 0 {
-		return false
-	}
-	v := wq.heap.Top()
-	if !v.(*SchedItem).Next.After(time.Now()) {
-		return true
-	}
-	return false
-}
-
-func (wq *wqueue) MultiPop() (s []*SchedItem, any bool) {
-	wq.Lock()
-	defer wq.Unlock()
-	for {
-		if wq.closed || wq.heap.Len() == 0 {
-			break
-		}
-		v := wq.heap.Top()
-		if !v.(*SchedItem).Next.After(time.Now()) {
-			v := heap.Pop(wq.heap)
-			wq.push.Signal()
-			s = append(s, v.(*SchedItem))
-			any = true
-			continue
-		}
-		break
-	}
-	return
+	q.closed = true
+	q.popCond.Broadcast()
+	q.pushCond.Broadcast()
 }

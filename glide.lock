@@ -1,0 +1,30 @@
+hash: 6236250c276c6c791f9dc83f255cd2baab4165d9defd6654445e4898974308d8
+updated: 2016-04-05T12:38:43.713048165+08:00
+imports:
+- name: github.com/andybalholm/cascadia
+  version: 3ad29d1ad1c4f2023e355603324348cf1f4b2d48
+- name: github.com/fanyang01/glob
+  version: f350cac5ec5e003ab1e9b953a77399ec07c792cc
+- name: github.com/gorilla/websocket
+  version: e2e3d8414d0fbae04004f151979f4e27c6747fe7
+- name: github.com/PuerkitoBio/goquery
+  version: 4126223a86db8598275b29db04d511cfdab67cf1
+- name: github.com/Sirupsen/logrus
+  version: 4b6ea7319e214d98c938f12692336f7ca9348d6b
+- name: github.com/stretchr/testify
+  version: 6fe211e493929a8aac0469b93f28b1d0688a9a3a
+  subpackages:
+  - assert
+- name: github.com/temoto/robotstxt-go
+  version: b8a039be43ce65409fe54b4bc09f2ae8a3925a54
+- name: golang.org/x/net
+  version: 318395d8b12f5dd0f1b7cd0fbb95195f49acb0f9
+  subpackages:
+  - html
+  - proxy
+  - html/atom
+- name: golang.org/x/sys
+  version: a60af9cbbc6ab800af4f2be864a31f423a0ae1f2
+  subpackages:
+  - unix
+devImports: []
