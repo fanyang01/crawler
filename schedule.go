@@ -152,7 +152,7 @@ func (sd *scheduler) schedURL(u *url.URL, isNew bool) (item *SchedItem, done boo
 	item = &SchedItem{
 		URL: u,
 	}
-	if item.Score, item.Next, done = sd.cw.ctl.Schedule(uu); done {
+	if item.Score, item.Next, done = sd.cw.ctrl.Schedule(uu); done {
 		sd.cw.store.SetStatus(u, URLfinished)
 		return
 	}

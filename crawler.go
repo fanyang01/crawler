@@ -12,7 +12,7 @@ var (
 
 // Crawler crawls web pages.
 type Crawler struct {
-	ctl   Controller
+	ctrl  Controller
 	opt   *Option
 	store Store
 
@@ -41,7 +41,7 @@ func NewCrawler(opt *Option, store Store, ctl Controller) *Crawler {
 	cw := &Crawler{
 		opt:   opt,
 		store: store,
-		ctl:   ctl,
+		ctrl:  ctl,
 		quit:  make(chan struct{}),
 	}
 

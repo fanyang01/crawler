@@ -29,7 +29,7 @@ func (rm *maker) newRequest(u *url.URL) (req *Request, err error) {
 	if req.Request, err = http.NewRequest("GET", u.String(), nil); err != nil {
 		return
 	}
-	rm.cw.ctl.Prepare(req)
+	rm.cw.ctrl.Prepare(req)
 
 	if req.Client == nil {
 		switch req.Type {

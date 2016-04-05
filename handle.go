@@ -32,7 +32,7 @@ func (rv *handler) cleanup() { close(rv.Out) }
 
 func (rv *handler) work() {
 	for r := range rv.In {
-		r.follow, r.links = rv.cw.ctl.Handle(r)
+		r.follow, r.links = rv.cw.ctrl.Handle(r)
 		r.CloseBody()
 		if !r.follow || !CT_HTML.match(r.ContentType) {
 			rv.DoneOut <- r.RequestURL

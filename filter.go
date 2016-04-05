@@ -30,7 +30,7 @@ func (ft *filter) work() {
 		for _, link := range resp.links {
 			link.Depth = depth + 1
 			link.URL.Fragment = ""
-			if ft.cw.ctl.Accept(link) {
+			if ft.cw.ctrl.Accept(link) {
 				// only handle new link
 				if ft.cw.store.Exist(link.URL) {
 					continue

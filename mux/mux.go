@@ -1,5 +1,5 @@
 /*
-Package mux gives an implementation of crawler.Controller.
+Package mux provides an implementation of crawler.Controller.
 
 This package uses patterns to register configurations and handlers.
 
