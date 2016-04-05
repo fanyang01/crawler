@@ -9,7 +9,6 @@ import (
 
 const (
 	PQueueLen     int = 4096
-	TQueueLen         = 4096
 	MaxRetryTimes     = 5
 )
 
@@ -31,15 +30,9 @@ type scheduler struct {
 	done  chan struct{}
 }
 
-type SchedItem struct {
-	URL   *url.URL
-	Next  time.Time
-	Score int
-}
-
 func (cw *Crawler) newScheduler() *scheduler {
 	nworker := cw.opt.NWorker.Scheduler
-	pq := newPQueue(PQueueLen)
+	pq := NewMemQueue(PQueueLen)
 	chIn, chOut := pq.Channel()
 	this := &scheduler{
 		NewIn:     make(chan *url.URL, nworker),

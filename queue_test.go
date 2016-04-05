@@ -26,22 +26,22 @@ func mustParseInt(s string) int {
 }
 
 func TestQueuePriority(t *testing.T) {
-	pq := newPQueue(100)
+	pq := NewMemQueue(100)
 	now := time.Now()
 	pq.Push(&SchedItem{
 		Score: 300,
 		URL:   mustParseURL("/300"),
-		Next:  now.Add(100 * time.Millisecond),
+		Next:  now.Add(50 * time.Millisecond),
 	})
 	pq.Push(&SchedItem{
 		Score: 100,
 		URL:   mustParseURL("/100"),
-		Next:  now.Add(100 * time.Millisecond),
+		Next:  now.Add(50 * time.Millisecond),
 	})
 	pq.Push(&SchedItem{
 		Score: 200,
 		URL:   mustParseURL("/200"),
-		Next:  now.Add(100 * time.Millisecond),
+		Next:  now.Add(50 * time.Millisecond),
 	})
 	var u *SchedItem
 	u = pq.Pop()
@@ -53,25 +53,73 @@ func TestQueuePriority(t *testing.T) {
 }
 
 func TestQueueTime(t *testing.T) {
-	wq := newPQueue(100)
+	wq := NewMemQueue(100)
 	now := time.Now()
-	wq.Push(&SchedItem{
-		Next: now.Add(150 * time.Millisecond),
-		URL:  mustParseURL("/150"),
-	})
-	wq.Push(&SchedItem{
-		Next: now.Add(100 * time.Millisecond),
-		URL:  mustParseURL("/100"),
-	})
-	wq.Push(&SchedItem{
-		Next: now.Add(200 * time.Millisecond),
-		URL:  mustParseURL("/200"),
-	})
-	var u *SchedItem
-	u = wq.Pop()
-	assert.Equal(t, "/100", u.URL.Path)
-	u = wq.Pop()
-	assert.Equal(t, "/150", u.URL.Path)
-	u = wq.Pop()
-	assert.Equal(t, "/200", u.URL.Path)
+	items := []*SchedItem{
+		{
+			Next: now.Add(50 * time.Millisecond),
+			URL:  mustParseURL("http://a.example.com/50"),
+		}, {
+			Next: now.Add(75 * time.Millisecond),
+			URL:  mustParseURL("http://b.example.com/75"),
+		}, {
+			Next: now.Add(25 * time.Millisecond),
+			URL:  mustParseURL("http://a.example.com/25"),
+		}, {
+			Next: now.Add(100 * time.Millisecond),
+			URL:  mustParseURL("http://b.example.com/100"),
+		},
+	}
+	exp := []string{
+		"/25",
+		"/50",
+		"/75",
+		"/100",
+	}
+	for _, item := range items {
+		wq.Push(item)
+	}
+	for i := 0; i < len(items); i++ {
+		u := wq.Pop()
+		assert.Equal(t, exp[i], u.URL.Path)
+	}
+}
+
+func TestQueueInterval(t *testing.T) {
+	siteA := &SiteInfo{Interval: 50 * time.Millisecond}
+	siteB := &SiteInfo{Interval: 25 * time.Millisecond}
+	wq := NewMemQueue(100)
+	now := time.Now()
+	items := []*SchedItem{
+		{
+			Next: now.Add(25 * time.Millisecond),
+			URL:  mustParseURL("http://a.example.com/25"),
+			Site: siteA,
+		}, {
+			Next: now.Add(50 * time.Millisecond),
+			URL:  mustParseURL("http://a.example.com/50"),
+			Site: siteA,
+		}, {
+			Next: now.Add(60 * time.Millisecond),
+			URL:  mustParseURL("http://b.example.com/60"),
+			Site: siteB,
+		}, {
+			Next: now.Add(100 * time.Millisecond),
+			URL:  mustParseURL("http://b.example.com/100"),
+			Site: siteB,
+		},
+	}
+	exp := []string{
+		"/25",
+		"/60",
+		"/50",
+		"/100",
+	}
+	for _, item := range items {
+		wq.Push(item)
+	}
+	for i := 0; i < len(items); i++ {
+		u := wq.Pop()
+		assert.Equal(t, exp[i], u.URL.Path)
+	}
 }
