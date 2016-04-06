@@ -80,13 +80,11 @@ func (sd *scheduler) work() {
 		case resp := <-sd.ResIn:
 			sd.cw.store.IncNTime()
 			for _, link := range resp.links {
-				if link.follow {
-					item, _, err := sd.schedURL(link.URL, true)
-					if err != nil {
-						return // TODO
-					}
-					sd.pqIn <- item
+				item, _, err := sd.schedURL(link.URL, true)
+				if err != nil {
+					return // TODO
 				}
+				sd.pqIn <- item
 			}
 			item, done, err := sd.schedURL(resp.RequestURL, false)
 			if err != nil {

@@ -1,10 +1,10 @@
-hash: 6236250c276c6c791f9dc83f255cd2baab4165d9defd6654445e4898974308d8
-updated: 2016-04-05T12:38:43.713048165+08:00
+hash: 4bbabd2c3ecc2bb59e0b793ec284a05b3b4a6074cc2cb950691683e9439aebc7
+updated: 2016-04-06T17:00:02.29094806+08:00
 imports:
 - name: github.com/andybalholm/cascadia
   version: 3ad29d1ad1c4f2023e355603324348cf1f4b2d48
 - name: github.com/fanyang01/glob
-  version: f350cac5ec5e003ab1e9b953a77399ec07c792cc
+  version: 8f080cc69b2f8cc44838425c0834b3096a41a4f1
 - name: github.com/gorilla/websocket
   version: e2e3d8414d0fbae04004f151979f4e27c6747fe7
 - name: github.com/PuerkitoBio/goquery
@@ -18,13 +18,32 @@ imports:
 - name: github.com/temoto/robotstxt-go
   version: b8a039be43ce65409fe54b4bc09f2ae8a3925a54
 - name: golang.org/x/net
-  version: 318395d8b12f5dd0f1b7cd0fbb95195f49acb0f9
+  version: af4fee9d05b66edc24197d189e6118f8ebce8c2b
   subpackages:
   - html
   - proxy
+  - html/charset
   - html/atom
 - name: golang.org/x/sys
-  version: a60af9cbbc6ab800af4f2be864a31f423a0ae1f2
+  version: 042a8f53ce82bbe081222da955159491e32146a0
   subpackages:
   - unix
+- name: golang.org/x/text
+  version: 1b466db55e0ba5d56ef5315c728216b42f796491
+  subpackages:
+  - encoding
+  - encoding/charmap
+  - encoding/simplifiedchinese
+  - transform
+  - encoding/htmlindex
+  - encoding/internal/identifier
+  - encoding/internal
+  - encoding/japanese
+  - encoding/korean
+  - encoding/traditionalchinese
+  - encoding/unicode
+  - language
+  - internal/utf8internal
+  - runes
+  - internal/tag
 devImports: []

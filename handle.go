@@ -5,7 +5,10 @@ import (
 	"errors"
 	"net/url"
 
+	"golang.org/x/net/html/charset"
+
 	"github.com/PuerkitoBio/goquery"
+	"github.com/fanyang01/crawler/util"
 )
 
 var ErrNotHTML = errors.New("content type is not HTML")
@@ -28,22 +31,51 @@ func (cw *Crawler) newRespHandler() *handler {
 	return this
 }
 
-func (rv *handler) cleanup() { close(rv.Out) }
+func (h *handler) cleanup() { close(h.Out) }
 
-func (rv *handler) work() {
-	for r := range rv.In {
-		r.follow, r.links = rv.cw.ctrl.Handle(r)
-		r.CloseBody()
-		if !r.follow || !CT_HTML.match(r.ContentType) {
-			rv.DoneOut <- r.RequestURL
-			continue
-		}
+func (h *handler) work() {
+	for r := range h.In {
+		h.handle(r)
 		select {
-		case rv.Out <- r:
-		case <-rv.quit:
+		case h.Out <- r:
+		case <-h.quit:
 			return
 		}
 	}
+}
+
+func (h *handler) handle(r *Response) {
+	if CT_HTML.match(r.ContentType) {
+		e, name, certain := charset.DetermineEncoding(r.Content, r.ContentType)
+		// according to charset package source, default unknown charset is windows-1252.
+		if !certain && name == "windows-1252" {
+			e = h.cw.opt.UnknownEncoding
+			name = h.cw.opt.UnknownEncodingName
+		}
+
+		// Trim leading BOM bytes
+		util.TrimBOM(r.Content, name)
+
+		r.Charset, r.CertainCharset, r.Encoding = name, certain, e
+		if name != "utf-8" {
+			if b, err := util.ConvToUTF8(r.Content, e); err == nil {
+				r.Content = b
+				r.CharsetDecoded = true
+			}
+		}
+	}
+
+	r.follow, r.links = h.cw.ctrl.Handle(r)
+	r.CloseBody()
+}
+
+// OriginalContent converts response content to its original encoding.
+func (resp *Response) OriginalContent() []byte {
+	if !resp.CharsetDecoded {
+		return resp.Content
+	}
+	b, _ := util.ConvTo(resp.Content, resp.Encoding)
+	return b
 }
 
 // Document parses content of response into HTML document if it has not been

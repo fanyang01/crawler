@@ -9,6 +9,7 @@ import:
   subpackages:
   - html
   - proxy
+  - html/charset
 - package: github.com/stretchr/testify
   subpackages:
   - assert

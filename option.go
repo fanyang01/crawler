@@ -1,6 +1,11 @@
 package crawler
 
-import "time"
+import (
+	"time"
+
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/simplifiedchinese"
+)
 
 const (
 	browserAgant = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/46.0.2490.71 Safari/537.36"
@@ -22,6 +27,8 @@ type Option struct {
 		ExecPath string
 		AppDir   string
 	}
+	UnknownEncoding     encoding.Encoding
+	UnknownEncodingName string
 }
 
 var (
@@ -43,5 +50,7 @@ var (
 			Filter:    8,
 			Scheduler: 8,
 		},
+		UnknownEncoding:     simplifiedchinese.GBK,
+		UnknownEncodingName: "gbk",
 	}
 )
