@@ -7,14 +7,14 @@ import "time"
 type NopController struct{}
 
 func (c NopController) Prepare(_ *Request) {}
-func (c NopController) Handle(resp *Response) (bool, []*Link) {
-	return true, nil
+func (c NopController) Handle(_ *Response) (bool, []*Link) {
+	return false, nil
 }
-func (c NopController) Schedule(u *URL) (score int, at time.Time, done bool) {
-	return 0, time.Time{}, true
+func (c NopController) Interval(_ string) time.Duration { return 0 }
+func (c NopController) Schedule(_ *URL) (score int, at time.Time, done bool) {
+	return 0, time.Time{}, false
 }
-func (c NopController) Accept(_ *Link) bool          { return true }
-func (c NopController) FindLink(_ *Response) []*Link { return nil }
+func (c NopController) Accept(_ *Link) bool { return true }
 
 // OnceController visits each url once and follows urls found by crawler.
 type OnceController struct{ NopController }

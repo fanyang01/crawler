@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	DefaultController = OnceController{}
+	DefaultController = NopController{}
 )
 
 // Crawler crawls web pages.
@@ -20,7 +20,6 @@ type Crawler struct {
 	fetcher   *fetcher
 	handler   *handler
 	finder    *finder
-	filter    *filter
 	scheduler *scheduler
 
 	quit chan struct{}
@@ -28,20 +27,20 @@ type Crawler struct {
 }
 
 // NewCrawler creates a new crawler.
-func NewCrawler(opt *Option, store Store, ctl Controller) *Crawler {
+func NewCrawler(opt *Option, store Store, ctrl Controller) *Crawler {
 	if opt == nil {
 		opt = DefaultOption
 	}
 	if store == nil {
 		store = newMemStore()
 	}
-	if ctl == nil {
-		ctl = DefaultController
+	if ctrl == nil {
+		ctrl = DefaultController
 	}
 	cw := &Crawler{
 		opt:   opt,
 		store: store,
-		ctrl:  ctl,
+		ctrl:  ctrl,
 		quit:  make(chan struct{}),
 	}
 
@@ -50,7 +49,6 @@ func NewCrawler(opt *Option, store Store, ctl Controller) *Crawler {
 	cw.fetcher = cw.newFetcher()
 	cw.handler = cw.newRespHandler()
 	cw.finder = cw.newFinder()
-	cw.filter = cw.newFilter()
 	cw.scheduler = cw.newScheduler()
 
 	// normal flow
@@ -58,10 +56,9 @@ func NewCrawler(opt *Option, store Store, ctl Controller) *Crawler {
 	cw.fetcher.In = cw.maker.Out
 	cw.handler.In = cw.fetcher.Out
 	cw.finder.In = cw.handler.Out
-	cw.filter.In = cw.finder.Out
-	cw.scheduler.ResIn = cw.filter.Out
+	cw.scheduler.ResIn = cw.finder.Out
+
 	// additional flow
-	cw.filter.NewOut = cw.scheduler.NewIn
 	cw.handler.DoneOut = cw.scheduler.DoneIn
 	cw.fetcher.ErrOut = cw.scheduler.ErrIn
 
@@ -70,12 +67,11 @@ func NewCrawler(opt *Option, store Store, ctl Controller) *Crawler {
 
 // Crawl starts the crawler using several seeds.
 func (cw *Crawler) Crawl(seeds ...string) error {
-	cw.wg.Add(6)
+	cw.wg.Add(5)
 	start(cw.maker)
 	start(cw.fetcher)
 	start(cw.handler)
 	start(cw.finder)
-	start(cw.filter)
 	cw.scheduler.start()
 
 	err := cw.addSeeds(seeds...)

@@ -9,6 +9,8 @@ import (
 	"golang.org/x/net/html"
 )
 
+const LinkPerPage = 32
+
 type finder struct {
 	workerConn
 	cw  *Crawler
@@ -36,16 +38,24 @@ func (f *finder) work() {
 				URL: r.NewURL,
 			})
 		}
+		if r.follow {
+			f.findLink(r)
+		}
 		select {
-		case f.Out <- findLink(f.cw, r):
+		case f.Out <- r:
 		case <-f.quit:
 			return
 		}
 	}
 }
 
-func findLink(cw *Crawler, resp *Response) *Response {
+func (f *finder) findLink(resp *Response) {
+	depth := f.cw.store.GetDepth(resp.RequestURL)
 	z := html.NewTokenizer(bytes.NewReader(resp.Content))
+	ch := make(chan *Link, LinkPerPage)
+	done := make(chan struct{})
+	go f.filter(resp, ch, done)
+
 LOOP:
 	for {
 		tt := z.Next()
@@ -62,11 +72,13 @@ LOOP:
 					key, val, more := z.TagAttr()
 					if string(key) == "href" {
 						if u, err := resp.NewURL.Parse(string(val)); err == nil {
-							resp.links = append(resp.links, &Link{
+							u.Fragment = ""
+							ch <- &Link{
 								URL:       u,
 								Hyperlink: u.Host != resp.NewURL.Host,
+								Depth:     depth + 1,
 								// TODO: anchor text
-							})
+							}
 						}
 						break
 					}
@@ -77,5 +89,24 @@ LOOP:
 			}
 		}
 	}
-	return resp
+	close(ch)
+	<-done
+}
+
+func (f *finder) filter(resp *Response, ch <-chan *Link, done chan<- struct{}) {
+	for link := range ch {
+		if f.cw.ctrl.Accept(link) {
+			// only handle new link
+			if f.cw.store.Exist(link.URL) {
+				continue
+			}
+			if f.cw.store.PutNX(&URL{
+				Loc:   *link.URL,
+				Depth: link.Depth,
+			}) {
+				resp.links = append(resp.links, link)
+			}
+		}
+	}
+	done <- struct{}{}
 }
