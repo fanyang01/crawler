@@ -54,7 +54,7 @@ func TestHandler(t *testing.T) {
 	}
 
 	for i, r := range rs {
-		r.Closed = true
+		r.BodyStatus = RespStatusReady
 		handler.handle(r)
 		assert.True(t, bytes.Equal(exp[i].Content, r.Content))
 		assert.Equal(t, exp[i].Charset, r.Charset)

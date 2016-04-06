@@ -47,6 +47,13 @@ type Link struct {
 	follow    bool
 }
 
+const (
+	RespStatusHeadOnly = iota
+	RespStatusClosed
+	RespStatusReady
+	RespStatusError
+)
+
 // Response contains a http response and some metadata.
 // Note the body of response may be read or not, depending on
 // the type of content and the size of content. Call ReadBody to
@@ -58,7 +65,6 @@ type Response struct {
 	// produces this response.
 	RequestURL      *url.URL
 	NewURL          *url.URL
-	Closed          bool // body read and closed?
 	ContentLocation *url.URL
 	ContentType     string
 	Content         []byte
@@ -68,6 +74,14 @@ type Response struct {
 	Cacheable       bool
 	Age             time.Duration
 	MaxAge          time.Duration
+
+	Refresh struct {
+		Second int
+		URL    *url.URL
+	}
+
+	BodyStatus int
+	BodyError  error
 
 	Charset        string
 	Encoding       encoding.Encoding

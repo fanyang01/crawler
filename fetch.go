@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"bytes"
 	"compress/flate"
 	"compress/gzip"
 	"errors"
@@ -13,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/html"
 
 	"github.com/Sirupsen/logrus"
 )
@@ -47,35 +50,60 @@ func (fc *fetcher) cleanup() { close(fc.Out) }
 
 func (fc *fetcher) work() {
 	for req := range fc.In {
-		// First check cache
 		var resp *Response
 		var ok bool
+		var err error
+		// First check cache
 		if resp, ok = fc.cache.Get(req.URL.String()); !ok {
-			var err error
-			resp, err = req.Client.Do(req)
-			// Prefetch html document
-			if err == nil && CT_HTML.match(resp.ContentType) {
-				err = resp.ReadBody(fc.cw.opt.MaxHTML)
-			}
-			if err != nil {
+			if resp, err = req.Client.Do(req); err != nil {
 				logrus.Errorf("fetcher: %v", err)
-				select {
-				case fc.ErrOut <- req.URL:
-				case <-fc.quit:
-					return
-				}
+				fc.ErrOut <- req.URL
 				continue
 			}
+
+			fc.parse(resp)
+
 			// Add to cache
 			fc.cache.Add(resp)
 		}
-		// Redirected response is threated as the response of original URL
+		// Redirected response is treated as the response of original URL
 		fc.cw.store.UpdateVisitTime(req.URL, resp.Date, resp.LastModified)
 		select {
 		case fc.Out <- resp:
 		case <-fc.quit:
 			return
 		}
+	}
+}
+
+func (fc *fetcher) parse(resp *Response) {
+	resp.parseHeader()
+	if sure := resp.detectMIME(); !sure {
+		if ok := fc.readBody(resp); ok {
+			resp.ContentType = http.DetectContentType(resp.Content)
+		}
+	}
+	// Prefetch html document
+	if CT_HTML.match(resp.ContentType) {
+		if ok := fc.readBody(resp); ok {
+			resp.scanMeta(resp.Content)
+		}
+	}
+}
+
+func (fc *fetcher) readBody(resp *Response) (ok bool) {
+	switch resp.BodyStatus {
+	case RespStatusHeadOnly:
+		if err := resp.ReadBody(fc.cw.opt.MaxHTML); err != nil {
+			logrus.Errorf("fetcher: %v", err)
+			fc.ErrOut <- resp.RequestURL
+			return false
+		}
+		return true
+	case RespStatusReady:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -132,18 +160,25 @@ func (resp *Response) parseHeader() {
 		resp.Header.Get("Content-Location")); err == nil {
 		resp.ContentLocation = l
 	}
-
-	resp.detectMIME()
 	return
 }
 
-// ReadBody reads the body of response. It can be called multi-times safely.
-// Response.Body will also be closed.
-func (resp *Response) ReadBody(maxLen int64) error {
-	if resp.Closed {
-		return nil
+// ReadBody reads the body of response and closes the body.
+// It can be called multiply times safely.
+func (resp *Response) ReadBody(maxLen int64) (err error) {
+	if resp.BodyStatus != RespStatusHeadOnly {
+		return resp.BodyError
 	}
-	defer resp.CloseBody()
+	defer func() {
+		resp.Body.Close()
+		if err != nil {
+			resp.BodyStatus = RespStatusError
+		} else {
+			resp.BodyStatus = RespStatusReady
+		}
+		resp.BodyError = err
+	}()
+
 	if resp.ContentLength > maxLen {
 		return ErrContentTooLong
 	}
@@ -176,7 +211,6 @@ func (resp *Response) ReadBody(maxLen int64) error {
 		return fmt.Errorf("unsupported content encoding: %s", encoding)
 	}
 
-	var err error
 	resp.Content, err = ioutil.ReadAll(rc)
 	if needclose {
 		rc.Close()
@@ -184,28 +218,144 @@ func (resp *Response) ReadBody(maxLen int64) error {
 	return err
 }
 
-// CloseBody closes the body of response. It can be called multiply times safely.
+// CloseBody closes the body of a response. It can be called multiply times.
 func (resp *Response) CloseBody() {
-	if resp.Closed {
-		return
+	if resp.BodyStatus == RespStatusHeadOnly {
+		resp.Body.Close()
+		resp.BodyStatus = RespStatusClosed
 	}
-	resp.Body.Close()
-	resp.Closed = true
 }
 
-func (resp *Response) detectMIME() {
+func (resp *Response) detectMIME() (sure bool) {
 	if t := resp.Header.Get("Content-Type"); t != "" {
 		resp.ContentType = t
-	} else if resp.NewURL != nil || resp.ContentLocation != nil {
-		var ext string
+		return true
+	}
+
+	if resp.NewURL != nil || resp.ContentLocation != nil {
+		var pth, ext string
 		if resp.NewURL != nil {
-			ext = path.Ext(resp.NewURL.Path)
+			pth = resp.NewURL.Path
+			ext = path.Ext(pth)
 		}
 		if ext == "" && resp.ContentLocation != nil {
-			ext = path.Ext(resp.ContentLocation.Path)
+			pth = resp.ContentLocation.Path
+			ext = path.Ext(pth)
 		}
 		if ext != "" {
 			resp.ContentType = mime.TypeByExtension(ext)
+			return true
+		} else if strings.HasSuffix(pth, "/") {
+			resp.ContentType = "text/html"
+			return true
 		}
 	}
+	resp.ContentType = string(CT_UNKOWN)
+	return false
+}
+
+func (resp *Response) scanMeta(content []byte) {
+	if len(content) == 0 {
+		return
+	}
+	if len(content) > 1024 {
+		content = content[:1024]
+	}
+	z := html.NewTokenizer(bytes.NewReader(content))
+	for {
+		switch z.Next() {
+		case html.ErrorToken:
+			return
+
+		case html.StartTagToken, html.SelfClosingTagToken:
+			tagName, hasAttr := z.TagName()
+			if !bytes.Equal(tagName, []byte("meta")) {
+				continue
+			}
+			attrList := make(map[string]bool)
+
+			const (
+				pragmaUnknown = iota
+				pragmaContentType
+				pragmaRefresh
+			)
+			pragma := pragmaUnknown
+			content := ""
+
+			for hasAttr {
+				var key, val []byte
+				key, val, hasAttr = z.TagAttr()
+				ks := string(key)
+				if attrList[ks] {
+					continue
+				}
+				attrList[ks] = true
+				// ASCII case-insensitive
+				for i, c := range val {
+					if 'A' <= c && c <= 'Z' {
+						val[i] = c + 0x20
+					}
+				}
+				switch ks {
+				case "http-equiv":
+					switch string(val) {
+					case "content-type":
+						pragma = pragmaContentType
+					case "refresh":
+						pragma = pragmaRefresh
+					}
+				case "content":
+					content = string(val)
+				case "charset":
+					if s := bytes.TrimSpace(val); len(s) > 0 {
+						resp.Charset = string(s)
+					}
+				}
+			}
+
+			switch pragma {
+			case pragmaUnknown:
+				continue
+			case pragmaContentType:
+				if content = strings.TrimSpace(content); content != "" {
+					resp.ContentType = fmtContentType(content)
+				}
+			case pragmaRefresh:
+				if content = strings.TrimSpace(content); content != "" {
+					resp.Refresh.Second, resp.Refresh.URL = parseRefresh(content, resp.NewURL)
+				}
+			}
+		}
+	}
+}
+
+func fmtContentType(s string) string {
+	m, p, err := mime.ParseMediaType(s)
+	if err != nil {
+		return s
+	}
+	return mime.FormatMediaType(m, p)
+}
+
+func parseRefresh(s string, u *url.URL) (second int, uu *url.URL) {
+	var i int
+	var err error
+	if i = strings.IndexAny(s, ";,"); i == -1 {
+		second, _ = strconv.Atoi(strings.TrimRight(s, " \t\n\f\r"))
+		return
+	}
+	if second, err = strconv.Atoi(strings.TrimRight(s[:i], " \t\n\f\r")); err != nil {
+		return
+	}
+	s = strings.TrimLeft(s[i+1:], " \t\n\f\r")
+	if i = strings.Index(s, "url"); i == -1 {
+		return
+	}
+	s = strings.TrimLeft(s[i+len("url"):], " \t\n\f\r")
+	if !strings.HasPrefix(s, "=") {
+		return
+	}
+	s = strings.TrimLeft(s[1:], " \t\n\f\r")
+	uu, _ = u.Parse(s)
+	return
 }

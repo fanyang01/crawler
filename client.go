@@ -68,7 +68,6 @@ func (c *StdClient) Do(req *Request) (resp *Response, err error) {
 		err = errors.New(resp.Status)
 		return
 	}
-	resp.parseHeader()
 	return
 }
 
@@ -148,9 +147,9 @@ func msgToResp(msg *responseMsg) *Response {
 		r.Header.Set("Location", msg.NewURL)
 	}
 	return &Response{
-		Response: r,
-		Content:  msg.Content,
-		Closed:   true,
+		Response:   r,
+		Content:    msg.Content,
+		BodyStatus: RespStatusReady,
 	}
 }
 
