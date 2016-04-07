@@ -3,7 +3,6 @@ package crawler
 import (
 	"net/url"
 	"sync"
-	"time"
 )
 
 type cachePool struct {
@@ -20,50 +19,51 @@ func newCachePool(maxSize int64) *cachePool {
 	}
 }
 
-func (cp *cachePool) Add(r *Response) {
+func (cp *cachePool) Set(r *Response) {
+	if !r.IsCacheable() || r.IsExpired() {
+		return
+	}
+	us := r.NewURL.String()
+	// TODO: maybe don't need copy?
+	rr := newResponse()
+	*rr = *r
+
 	cp.Lock()
 	defer cp.Unlock()
+
 	for key := range cp.m {
 		if cp.size+int64(len(r.Content)) <= cp.maxSize {
 			break
 		}
 		cp.size -= int64(len(cp.m[key].Content))
-		cp.m[key] = nil
+		cp.m[key].free()
 		delete(cp.m, key)
 	}
-	resp := *r
-	if !resp.Cacheable {
-		return
-	}
-	if resp.Expires.Before(time.Now()) {
-		return
-	}
-	u0 := resp.NewURL.String()
-	u1 := resp.RequestURL.String()
-	cp.m[u0] = &resp
-	if u1 != u0 {
-		cp.m[u1] = &resp
-	}
+	cp.m[us] = rr
 	cp.size += int64(len(r.Content))
 }
 
-func (cp *cachePool) Get(URL string) (resp *Response, ok bool) {
-	u, err := url.Parse(URL)
-	if err != nil {
-		return
+func (cp *cachePool) Get(u *url.URL) (r *Response, ok bool) {
+	us := u.String()
+	var rr *Response
+	cp.RLock()
+	rr, ok = cp.m[us]
+	cp.RUnlock()
+	if ok {
+		r = newResponse()
+		*r = *rr
 	}
+	return
+}
+
+func (cp *cachePool) Remove(u *url.URL) {
+	us := u.String()
 	cp.Lock()
-	defer cp.Unlock()
-	var r *Response
-	if r, ok = cp.m[u.String()]; !ok {
-		return
+	r := cp.m[us]
+	delete(cp.m, us)
+	if r != nil {
+		cp.size -= r.length()
+		r.free()
 	}
-	if r.Expires.Before(time.Now()) {
-		delete(cp.m, u.String())
-		return nil, false
-	}
-	rr := *r
-	// NOTE: it's IMPORTANT to update response's time
-	rr.Date = time.Now()
-	return &rr, true
+	cp.Unlock()
 }

@@ -56,7 +56,7 @@ func TestFetchParse(t *testing.T) {
 	assert.Equal(`text/html; charset=gbk`, resp.ContentType)
 	assert.Equal("gbk", resp.Charset)
 	assert.Equal(url+"1.html", resp.Refresh.URL.String())
-	assert.Equal(30, resp.Refresh.Second)
+	assert.Equal(30, resp.Refresh.Seconds)
 	assert.Nil(resp.ReadBody(1 << 10))
 	assert.Equal(RespStatusReady, resp.BodyStatus)
 	assert.True(bytes.Equal(resp.Content, []byte(page)))

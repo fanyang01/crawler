@@ -1,7 +1,7 @@
 package crawler
 
 import (
-	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -47,25 +47,48 @@ type StdClient struct {
 	*http.Client
 }
 
+// ResponseStatusError represents unexpected response status.
+type ResponseStatusError int
+
+func (e ResponseStatusError) Error() string {
+	if e == 0 {
+		return ""
+	}
+	return fmt.Sprintf("unexpected response status: %d %s", int(e), http.StatusText(int(e)))
+}
+
 // Do implements Client.
 func (c *StdClient) Do(req *Request) (resp *Response, err error) {
+	defer func() {
+		if err != nil {
+			resp.free()
+			resp = nil
+		}
+	}()
+
 	if c.Client == nil {
 		c.Client = DefaultHTTPClient
 	}
-	resp = &Response{}
+	resp = newResponse()
 	resp.RequestURL = req.URL
 	resp.Response, err = c.Client.Do(req.Request)
 	if err != nil {
 		return
 	}
+	resp.NewURL = resp.Request.URL
 
 	logrus.WithFields(logrus.Fields{
 		"URL": req.URL.String(),
 	}).Infoln(req.Method, resp.Status)
 
 	// Only status code 2xx is ok
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		err = errors.New(resp.Status)
+	switch {
+	case 200 <= resp.StatusCode && resp.StatusCode < 300:
+		// Do nothing
+	case resp.StatusCode == 304:
+		// Do nothing
+	default:
+		err = ResponseStatusError(resp.StatusCode)
 		return
 	}
 	return
@@ -163,6 +186,6 @@ func (c *AjaxClient) Do(req *Request) (resp *Response, err error) {
 	}
 	resp = msgToResp(&rp)
 	resp.RequestURL = req.URL
-	resp.parseHeader()
+	resp.parseLocation()
 	return
 }

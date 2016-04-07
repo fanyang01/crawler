@@ -53,18 +53,27 @@ func (fc *fetcher) work() {
 		var resp *Response
 		var ok bool
 		var err error
+
 		// First check cache
-		if resp, ok = fc.cache.Get(req.URL.String()); !ok {
+		if resp, ok = fc.cache.Get(req.URL); !ok {
 			if resp, err = req.Client.Do(req); err != nil {
 				logrus.Errorf("fetcher: %v", err)
 				fc.ErrOut <- req.URL
 				continue
 			}
-
+			if resp.NewURL != req.URL {
+				// TODO
+				rr := newResponse()
+				rr.NewURL = req.URL
+				rr.BodyStatus = RespStatusReady
+				rr.RedirectURL = resp.NewURL
+				fc.Out <- rr
+			}
+			resp.Timestamp = time.Now()
 			fc.parse(resp)
 
-			// Add to cache
-			fc.cache.Add(resp)
+			// TODO: move to somewhere resp.Content would not change.
+			// fc.cache.Set(resp)
 		}
 		// Redirected response is treated as the response of original URL
 		fc.cw.store.UpdateVisitTime(req.URL, resp.Date, resp.LastModified)
@@ -77,7 +86,9 @@ func (fc *fetcher) work() {
 }
 
 func (fc *fetcher) parse(resp *Response) {
-	resp.parseHeader()
+	resp.parseCache()
+	resp.parseLocation()
+
 	if sure := resp.detectMIME(); !sure {
 		if ok := fc.readBody(resp); ok {
 			resp.ContentType = http.DetectContentType(resp.Content)
@@ -107,47 +118,7 @@ func (fc *fetcher) readBody(resp *Response) (ok bool) {
 	}
 }
 
-func (resp *Response) parseHeader() {
-	var err error
-	// Parse neccesary headers
-	if t := resp.Header.Get("Date"); t != "" {
-		resp.Date, err = time.Parse(http.TimeFormat, t)
-		if err != nil {
-			resp.Date = time.Now()
-		}
-	} else {
-		resp.Date = time.Now()
-	}
-	if t := resp.Header.Get("Last-Modified"); t != "" {
-		// on error, Time's zero value is used.
-		resp.LastModified, _ = time.Parse(http.TimeFormat, t)
-	}
-	if t := resp.Header.Get("Expires"); t != "" {
-		resp.Expires, err = time.Parse(http.TimeFormat, t)
-		if err == nil {
-			resp.Cacheable = true
-		}
-	}
-	if a := resp.Header.Get("Age"); a != "" {
-		if seconds, err := strconv.ParseInt(a, 0, 32); err == nil {
-			resp.Age = time.Duration(seconds) * time.Second
-		}
-	}
-	if c := resp.Header.Get("Cache-Control"); c != "" {
-		var idx, seconds int
-		if idx = strings.Index(c, "s-maxage="); idx < 0 {
-			idx = strings.Index(c, "max-age=")
-		}
-		if idx >= 0 {
-			idx = strings.Index(c[idx:], "=")
-			if _, err := fmt.Sscanf(c[idx+1:], "%d", &seconds); err == nil {
-				resp.MaxAge = time.Duration(seconds) * time.Second
-				resp.Expires = resp.Date.Add(resp.MaxAge)
-				resp.Cacheable = true
-			}
-		}
-	}
-
+func (resp *Response) parseLocation() {
 	var baseurl *url.URL
 	if baseurl = resp.Request.URL; baseurl == nil {
 		baseurl = resp.RequestURL
@@ -156,9 +127,143 @@ func (resp *Response) parseHeader() {
 	if l, err := resp.Location(); err == nil {
 		baseurl, resp.NewURL = l, l
 	}
-	if l, err := baseurl.Parse(
-		resp.Header.Get("Content-Location")); err == nil {
+	if l, err := baseurl.Parse(resp.Header.Get("Content-Location")); err == nil {
 		resp.ContentLocation = l
+	}
+	if s := resp.Header.Get("Refresh"); s != "" {
+		resp.Refresh.Seconds, resp.Refresh.URL = parseRefresh(s, resp.NewURL)
+	}
+}
+
+// https://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html
+func (resp *Response) parseCache() {
+	var date time.Time
+	var err error
+	if t := resp.Header.Get("Date"); t != "" {
+		if date, err = time.Parse(http.TimeFormat, t); err != nil {
+			date = resp.Timestamp
+		}
+	}
+	resp.Date = date
+
+	var maxAge time.Duration
+	kv := map[string]string{}
+	if c := resp.Header.Get("Cache-Control"); c != "" {
+		kv = parseCacheControl(c)
+		var sec int64
+		if v, ok := kv["max-age"]; ok {
+			if i, err := strconv.ParseInt(v, 0, 32); err != nil {
+				sec = i
+			}
+		}
+		if v, ok := kv["s-maxage"]; ok {
+			if i, err := strconv.ParseInt(v, 0, 32); err == nil && i > sec {
+				sec = i
+			}
+		}
+		maxAge = time.Duration(sec) * time.Second
+		if maxAge == 0 {
+			if t := resp.Header.Get("Expires"); t != "" {
+				expire, err := time.Parse(http.TimeFormat, t)
+				if err == nil && !date.IsZero() {
+					maxAge = expire.Sub(date)
+				}
+			}
+		}
+	}
+	resp.MaxAge = maxAge
+
+	switch resp.StatusCode {
+	case 200, 203, 206, 300, 301:
+		// Do nothing
+	default:
+		resp.CacheType = CacheDisallow
+		return
+	}
+	exist := func(directive string) bool {
+		_, ok := kv[directive]
+		return ok
+	}
+	switch {
+	case exist("no-store"):
+		fallthrough
+	default:
+		resp.CacheType = CacheDisallow
+		return
+	case exist("must-revalidate") || exist("no-cache"):
+		resp.CacheType = CacheNeedValidate
+	case maxAge != 0:
+		resp.CacheType = CacheNormal
+	}
+
+	var age time.Duration
+	if a := resp.Header.Get("Age"); a != "" {
+		if seconds, err := strconv.ParseInt(a, 0, 32); err == nil {
+			age = time.Duration(seconds) * time.Second
+		}
+	}
+	resp.Age = computeAge(date, resp.Timestamp, age)
+
+	resp.ETag = resp.Header.Get("ETag")
+	if t := resp.Header.Get("Last-Modified"); t != "" {
+		resp.LastModified, _ = time.Parse(http.TimeFormat, t)
+	}
+}
+
+func max64(x, y time.Duration) time.Duration {
+	if x > y {
+		return x
+	}
+	return y
+}
+
+// Use a simplied calculation of rfc2616-sec13.
+func computeAge(date, resp time.Time, age time.Duration) time.Duration {
+	apparent := max64(0, resp.Sub(date))
+	recv := max64(apparent, age)
+	// assume delay = 0
+	// initial := recv + delay
+	resident := time.Now().Sub(resp)
+	return recv + resident
+}
+
+func (resp *Response) IsExpired() bool {
+	age := computeAge(resp.Date, resp.Timestamp, resp.Age)
+	if age > resp.MaxAge {
+		return true
+	}
+	return false
+}
+
+func (resp *Response) IsCacheable() bool {
+	switch resp.CacheType {
+	case CacheNeedValidate, CacheNormal:
+		return true
+	}
+	return false
+}
+
+func parseCacheControl(s string) (kv map[string]string) {
+	kv = make(map[string]string)
+	parts := strings.Split(strings.TrimSpace(s), ",")
+	if len(parts) == 1 && parts[0] == "" {
+		return
+	}
+	for i := 0; i < len(parts); i++ {
+		parts[i] = strings.TrimSpace(parts[i])
+		if len(parts[i]) == 0 {
+			continue
+		}
+		name, val := parts[i], ""
+		if j := strings.Index(name, "="); j >= 0 {
+			name = strings.TrimRight(name[:j], " \t\r\n\f")
+			val = strings.TrimLeft(name[j+1:], " \t\r\n\f")
+			if len(val) > 0 {
+				kv[name] = val
+			}
+			continue
+		}
+		kv[name] = ""
 	}
 	return
 }
@@ -199,7 +304,10 @@ func (resp *Response) ReadBody(maxLen int64) (err error) {
 	needclose := false // resp.Body.Close() is defered
 	switch encoding {
 	case "identity", "chunked":
+		// Do nothing
 	case "gzip":
+		// TODO: Normally gzip encoding is auto-decoded by http package,
+		// so this case may be needless.
 		r, err := gzip.NewReader(rc)
 		if err != nil {
 			return err
@@ -322,7 +430,7 @@ func (resp *Response) scanMeta(content []byte) {
 				}
 			case pragmaRefresh:
 				if content = strings.TrimSpace(content); content != "" {
-					resp.Refresh.Second, resp.Refresh.URL = parseRefresh(content, resp.NewURL)
+					resp.Refresh.Seconds, resp.Refresh.URL = parseRefresh(content, resp.NewURL)
 				}
 			}
 		}

@@ -54,7 +54,7 @@ func (h *handler) handle(r *Response) {
 		}
 
 		// Trim leading BOM bytes
-		util.TrimBOM(r.Content, name)
+		r.Content = util.TrimBOM(r.Content, name)
 
 		r.Charset, r.CertainCharset, r.Encoding = name, certain, e
 		if name != "utf-8" {

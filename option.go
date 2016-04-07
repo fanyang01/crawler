@@ -21,7 +21,7 @@ type Option struct {
 	RobotoAgent   string
 	MaxHTML       int64
 	NWorker       struct {
-		Maker, Fetcher, Handler, Finder, Filter, Scheduler int
+		Maker, Fetcher, Handler, Finder, Scheduler int
 	}
 	Electron struct {
 		ExecPath string
@@ -35,19 +35,18 @@ var (
 	DefaultOption = &Option{
 		UserAgent:     browserAgant,
 		RobotAgent:    "gocrawler",
-		MaxCacheSize:  1 << 25, // 32MB
+		MaxCacheSize:  1024,
 		MaxHTML:       1 << 20, // iMB
 		MinDelay:      10 * time.Second,
 		RetryDuration: 30 * time.Second,
 		MaxRetry:      4,
 		NWorker: struct {
-			Maker, Fetcher, Handler, Finder, Filter, Scheduler int
+			Maker, Fetcher, Handler, Finder, Scheduler int
 		}{
 			Maker:     8,
 			Fetcher:   32,
 			Handler:   8,
 			Finder:    32,
-			Filter:    8,
 			Scheduler: 8,
 		},
 		UnknownEncoding:     simplifiedchinese.GBK,
