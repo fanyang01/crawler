@@ -1,6 +1,6 @@
 package crawler
 
-import "strings"
+import "mime"
 
 type ContentType string
 
@@ -27,5 +27,7 @@ const (
 )
 
 func (ct ContentType) match(s string) bool {
-	return strings.HasPrefix(s, string(ct))
+	// return strings.HasPrefix(s, string(ct))
+	m, _, err := mime.ParseMediaType(s)
+	return err == nil && m == string(ct)
 }

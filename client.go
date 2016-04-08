@@ -39,12 +39,13 @@ func init() {
 		Transport: DefaultHTTPTransport,
 		Jar:       jar,
 	}
-	DefaultClient = &StdClient{DefaultHTTPClient}
+	DefaultClient = &StdClient{Client: DefaultHTTPClient}
 }
 
 // StdClient is used for static pages.
 type StdClient struct {
 	*http.Client
+	Cache *cachePool
 }
 
 // ResponseStatusError represents unexpected response status.
@@ -59,6 +60,23 @@ func (e ResponseStatusError) Error() string {
 
 // Do implements Client.
 func (c *StdClient) Do(req *Request) (resp *Response, err error) {
+	var rr *Response
+	if req.Method == "GET" && c.Cache != nil {
+		var ok bool
+		if rr, ok = c.Cache.Get(req.URL); ok {
+			switch rr.CacheType {
+			case CacheNormal:
+				if !rr.IsExpired() {
+					return rr, nil
+				}
+				fallthrough
+			case CacheNeedValidate:
+				return c.revalidate(rr)
+			}
+		}
+	}
+
+	resp = newResponse()
 	defer func() {
 		if err != nil {
 			resp.free()
@@ -66,32 +84,87 @@ func (c *StdClient) Do(req *Request) (resp *Response, err error) {
 		}
 	}()
 
-	if c.Client == nil {
-		c.Client = DefaultHTTPClient
-	}
-	resp = newResponse()
-	resp.RequestURL = req.URL
-	resp.Response, err = c.Client.Do(req.Request)
-	if err != nil {
+	var rp *http.Response
+	if rp, err = c.Client.Do(req.Request); err != nil {
 		return
 	}
-	resp.NewURL = resp.Request.URL
+	switch {
+	case 200 <= rp.StatusCode && rp.StatusCode < 300:
+		// Only status code 2xx is ok
+	default:
+		err = ResponseStatusError(rp.StatusCode)
+		rp.Body.Close()
+		return
+	}
+	resp.init(req.URL, rp, time.Now())
+
+	if resp.parseCache(); c.Cache != nil {
+		c.Cache.Set(resp)
+	}
 
 	logrus.WithFields(logrus.Fields{
-		"URL": req.URL.String(),
-	}).Infoln(req.Method, resp.Status)
+		"Method": req.Method,
+		"Status": resp.Status,
+		"URL":    req.URL.String(),
+	}).Infoln()
 
-	// Only status code 2xx is ok
+	return
+}
+
+func (c *StdClient) revalidate(r *Response) (resp *Response, err error) {
+	req, _ := http.NewRequest("GET", r.URL.String(), nil)
+	if r.ETag != "" {
+		req.Header.Add("If-None-Match", r.ETag)
+	}
+	var lm time.Time
+	if lm = r.LastModified; lm.IsZero() {
+		lm = r.Timestamp
+	}
+	req.Header.Add("If-Modified-Since", lm.Format(http.TimeFormat))
+
+	var rp *http.Response
+	if rp, err = c.Client.Do(req); err != nil {
+		return
+	}
+	now := time.Now()
+	addToCache := func(r *Response) {
+		if r.parseCache(); r.IsCacheable() && !r.IsExpired() {
+			c.Cache.Set(r)
+		} else {
+			c.Cache.Remove(r.URL)
+		}
+	}
+
 	switch {
-	case 200 <= resp.StatusCode && resp.StatusCode < 300:
-		// Do nothing
-	case resp.StatusCode == 304:
-		// Do nothing
+	case rp.StatusCode == 304:
+		// TODO: only copy end-to-end headers
+		for k, vv := range rp.Header {
+			r.Header.Del(k)
+			for _, v := range vv {
+				r.Header.Set(k, v)
+			}
+		}
+		r.Timestamp = now
+		addToCache(r)
+	case 200 <= rp.StatusCode && rp.StatusCode < 300:
+		r.free()
+		r = newResponse()
+		r.init(req.URL, rp, now)
+		addToCache(r)
 	default:
+		rp.Body.Close()
 		err = ResponseStatusError(resp.StatusCode)
 		return
 	}
-	return
+	return r, nil
+}
+
+func (resp *Response) init(u *url.URL, rp *http.Response, stamp time.Time) {
+	resp.URL = u
+	resp.NewURL = rp.Request.URL
+	resp.Timestamp = stamp
+	resp.Response = rp
+	resp.initBody()
 }
 
 // AjaxClient connects to an Electron instance through
@@ -172,7 +245,7 @@ func msgToResp(msg *responseMsg) *Response {
 	return &Response{
 		Response:   r,
 		Content:    msg.Content,
-		BodyStatus: RespStatusReady,
+		BodyStatus: BodyStatusReady,
 	}
 }
 
@@ -185,7 +258,7 @@ func (c *AjaxClient) Do(req *Request) (resp *Response, err error) {
 		return
 	}
 	resp = msgToResp(&rp)
-	resp.RequestURL = req.URL
+	resp.URL = req.URL
 	resp.parseLocation()
 	return
 }

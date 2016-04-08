@@ -3,6 +3,7 @@ package crawler
 import (
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/Sirupsen/logrus"
 )
@@ -31,6 +32,7 @@ func (rm *maker) newRequest(u *url.URL) (req *Request, err error) {
 	}
 	rm.cw.ctrl.Prepare(req)
 
+	req.Method = strings.ToUpper(req.Method)
 	if req.Client == nil {
 		switch req.Type {
 		case ReqDynamic:
@@ -49,7 +51,7 @@ func (rm *maker) cleanup() { close(rm.Out) }
 func (rm *maker) work() {
 	for u := range rm.In {
 		if req, err := rm.newRequest(u); err != nil {
-			logrus.Errorln(err)
+			logrus.Errorf("make request: %v", err)
 			continue
 		} else {
 			select {

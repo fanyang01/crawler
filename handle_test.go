@@ -25,12 +25,15 @@ func TestHandler(t *testing.T) {
 	rs := []*Response{
 		{
 			Content:     []byte("<html>你好，世界</html>"),
+			pview:       []byte("<html>你好，世界</html>"),
 			ContentType: "text/html",
 		}, {
 			Content:     []byte("<html>你好，世界</html>"),
+			pview:       []byte("<html>你好，世界</html>"),
 			ContentType: "text/html; charset=utf-8",
 		}, {
 			Content:     []byte("<html><body></body></html>"),
+			pview:       []byte("<html><body></body></html>"),
 			ContentType: "text/html; charset=gbk",
 		},
 	}
@@ -54,7 +57,7 @@ func TestHandler(t *testing.T) {
 	}
 
 	for i, r := range rs {
-		r.BodyStatus = RespStatusReady
+		r.BodyStatus = BodyStatusReady
 		handler.handle(r)
 		assert.True(t, bytes.Equal(exp[i].Content, r.Content))
 		assert.Equal(t, exp[i].Charset, r.Charset)

@@ -31,6 +31,7 @@ func TestFetchParse(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Content-Location", "index.html")
 		fmt.Fprint(w, page)
 	}))
 	defer ts.Close()
@@ -45,19 +46,23 @@ func TestFetchParse(t *testing.T) {
 	resp, err := DefaultClient.Do(req)
 	checkErr(err)
 
-	cw := newTestCrawler()
-	f := cw.newFetcher()
-
-	f.parse(resp)
-
 	assert := assert.New(t)
+
+	resp.parseLocation()
+	resp.detectMIME()
+
+	preview, err := resp.preview(1024)
+	assert.Nil(err)
+
+	resp.scanMeta(preview)
 
 	assert.Equal(url, resp.NewURL.String())
 	assert.Equal(`text/html; charset=gbk`, resp.ContentType)
 	assert.Equal("gbk", resp.Charset)
 	assert.Equal(url+"1.html", resp.Refresh.URL.String())
+	assert.Equal(url+"index.html", resp.ContentLocation.String())
 	assert.Equal(30, resp.Refresh.Seconds)
 	assert.Nil(resp.ReadBody(1 << 10))
-	assert.Equal(RespStatusReady, resp.BodyStatus)
+	assert.Equal(BodyStatusReady, resp.BodyStatus)
 	assert.True(bytes.Equal(resp.Content, []byte(page)))
 }

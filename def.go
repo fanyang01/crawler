@@ -4,12 +4,7 @@ package crawler
 import (
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
-
-	"golang.org/x/text/encoding"
-
-	"github.com/PuerkitoBio/goquery"
 )
 
 // RequestType defines the type of a request.
@@ -18,7 +13,7 @@ type RequestType int
 const (
 	// Static content that can be reached by simple HTTP method.
 	ReqStatic RequestType = iota
-	// Dynamic pages that require a browser to complete rendering process.
+	// Dynamic pages that require a browser to complete rendering.
 	ReqDynamic
 )
 
@@ -42,110 +37,10 @@ type Request struct {
 // Link represents a link found by crawler.
 type Link struct {
 	URL       *url.URL // parsed url
-	Hyperlink bool     // is hyperlink?
 	Text      []byte   // anchor text
 	Depth     int      // length of path to find it
+	Hyperlink bool     // is hyperlink?
 	follow    bool
-}
-
-const (
-	RespStatusHeadOnly = iota
-	RespStatusClosed
-	RespStatusReady
-	RespStatusError
-)
-
-const (
-	CacheDisallow = iota
-	CacheNeedValidate
-	CacheNormal
-)
-
-// Response contains a http response and some metadata.
-// Note the body of response may be read or not, depending on
-// the type of content and the size of content. Call ReadBody to
-// safely read and close the body. Optionally, you can access Body
-// directly but do NOT close it.
-type Response struct {
-	*http.Response
-	// RequestURL is the original url used to do request that finally
-	// produces this response.
-	RequestURL      *url.URL
-	NewURL          *url.URL
-	RedirectURL     *url.URL
-	ContentLocation *url.URL
-	ContentType     string
-	Content         []byte
-
-	// Cache control
-	CacheType    int
-	Date         time.Time
-	Timestamp    time.Time
-	NetworkDelay time.Duration
-	Age          time.Duration
-	MaxAge       time.Duration
-	ETag         string
-	LastModified time.Time
-	// Expires   time.Time
-
-	Refresh struct {
-		Seconds int
-		URL     *url.URL
-	}
-
-	BodyStatus int
-	BodyError  error
-
-	Charset        string
-	Encoding       encoding.Encoding
-	CertainCharset bool
-	CharsetDecoded bool
-
-	// content will be parsed into document only if neccessary.
-	document *goquery.Document
-	links    []*Link
-	follow   bool
-}
-
-var (
-	// respFreeList is a global free list for Response object.
-	respFreeList = sync.Pool{
-		New: func() interface{} { return new(Response) },
-	}
-	respTemplate = Response{}
-)
-
-func newResponse() *Response {
-	r := respFreeList.Get().(*Response)
-	*r = respTemplate
-	return r
-}
-
-func (r *Response) free() {
-	// Let GC collect child objects.
-	r.RequestURL = nil
-	r.NewURL = nil
-	r.ContentLocation = nil
-	r.Refresh.URL = nil
-	r.document = nil
-
-	// TODO: reuse content buffer
-	r.Content = nil
-
-	if len(r.links) > LinkPerPage {
-		r.links = nil
-	}
-	r.links = r.links[:0]
-	respFreeList.Put(r)
-}
-
-func (r *Response) length() int64 {
-	l := int64(len(r.Content))
-	i := r.ContentLength
-	if i > l {
-		return i
-	}
-	return l
 }
 
 // Controller controls the working process of crawler.

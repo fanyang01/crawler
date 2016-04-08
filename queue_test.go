@@ -26,7 +26,8 @@ func mustParseInt(s string) int {
 }
 
 func TestQueuePriority(t *testing.T) {
-	pq := NewMemQueue(100)
+	cw := newTestCrawler()
+	pq := cw.NewMemQueue(100)
 	now := time.Now()
 	pq.Push(&SchedItem{
 		Score: 300,
@@ -53,7 +54,8 @@ func TestQueuePriority(t *testing.T) {
 }
 
 func TestQueueTime(t *testing.T) {
-	wq := NewMemQueue(100)
+	cw := newTestCrawler()
+	wq := cw.NewMemQueue(100)
 	now := time.Now()
 	items := []*SchedItem{
 		{
@@ -85,28 +87,39 @@ func TestQueueTime(t *testing.T) {
 	}
 }
 
+type _testIntervalController struct {
+	OnceController
+}
+
+func (c _testIntervalController) Interval(host string) time.Duration {
+	switch host {
+	case "a.example.com":
+		return 50 * time.Millisecond
+	case "b.example.com":
+		return 25 * time.Millisecond
+	default:
+		return 0
+	}
+}
+
 func TestQueueInterval(t *testing.T) {
-	siteA := &SiteInfo{Interval: 50 * time.Millisecond}
-	siteB := &SiteInfo{Interval: 25 * time.Millisecond}
-	wq := NewMemQueue(100)
+	ctrl := _testIntervalController{}
+	cw := NewCrawler(nil, nil, ctrl)
+	wq := cw.NewMemQueue(100)
 	now := time.Now()
 	items := []*SchedItem{
 		{
 			Next: now.Add(25 * time.Millisecond),
 			URL:  mustParseURL("http://a.example.com/25"),
-			Site: siteA,
 		}, {
 			Next: now.Add(50 * time.Millisecond),
 			URL:  mustParseURL("http://a.example.com/50"),
-			Site: siteA,
 		}, {
 			Next: now.Add(60 * time.Millisecond),
 			URL:  mustParseURL("http://b.example.com/60"),
-			Site: siteB,
 		}, {
 			Next: now.Add(100 * time.Millisecond),
 			URL:  mustParseURL("http://b.example.com/100"),
-			Site: siteB,
 		},
 	}
 	exp := []string{

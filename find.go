@@ -32,14 +32,23 @@ func (f *finder) cleanup() { close(f.Out) }
 
 func (f *finder) work() {
 	for r := range f.In {
+		depth := f.cw.store.GetDepth(r.URL)
 		// Treat the new url as one found under the original url
-		if r.NewURL.String() != r.RequestURL.String() {
-			r.links = append(r.links, &Link{
-				URL: r.NewURL,
+		original := r.URL.String()
+		if r.NewURL.String() != original {
+			f.filter(r, &Link{
+				URL:   r.NewURL,
+				Depth: depth + 1,
+			})
+		}
+		if refresh := r.Refresh.URL; refresh != nil && refresh.String() != original {
+			f.filter(r, &Link{
+				URL:   r.Refresh.URL,
+				Depth: depth + 1,
 			})
 		}
 		if r.follow {
-			f.findLink(r)
+			f.findLink(r, depth)
 		}
 		select {
 		case f.Out <- r:
@@ -49,12 +58,26 @@ func (f *finder) work() {
 	}
 }
 
-func (f *finder) findLink(resp *Response) {
-	depth := f.cw.store.GetDepth(resp.RequestURL)
+func (f *finder) filter(resp *Response, link *Link) {
+	if f.cw.ctrl.Accept(link) {
+		// only handle new link
+		if f.cw.store.Exist(link.URL) {
+			return
+		}
+		if f.cw.store.PutNX(&URL{
+			Loc:   *link.URL,
+			Depth: link.Depth,
+		}) {
+			resp.links = append(resp.links, link)
+		}
+	}
+}
+
+func (f *finder) findLink(resp *Response, depth int) {
 	z := html.NewTokenizer(bytes.NewReader(resp.Content))
 	ch := make(chan *Link, LinkPerPage)
 	done := make(chan struct{})
-	go f.filter(resp, ch, done)
+	go f.consume(resp, ch, done)
 
 LOOP:
 	for {
@@ -93,20 +116,9 @@ LOOP:
 	<-done
 }
 
-func (f *finder) filter(resp *Response, ch <-chan *Link, done chan<- struct{}) {
+func (f *finder) consume(resp *Response, ch <-chan *Link, done chan<- struct{}) {
 	for link := range ch {
-		if f.cw.ctrl.Accept(link) {
-			// only handle new link
-			if f.cw.store.Exist(link.URL) {
-				continue
-			}
-			if f.cw.store.PutNX(&URL{
-				Loc:   *link.URL,
-				Depth: link.Depth,
-			}) {
-				resp.links = append(resp.links, link)
-			}
-		}
+		f.filter(resp, link)
 	}
 	done <- struct{}{}
 }

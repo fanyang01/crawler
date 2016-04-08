@@ -32,7 +32,7 @@ type scheduler struct {
 
 func (cw *Crawler) newScheduler() *scheduler {
 	nworker := cw.opt.NWorker.Scheduler
-	pq := NewMemQueue(PQueueLen)
+	pq := cw.NewMemQueue(PQueueLen)
 	chIn, chOut := pq.Channel()
 	this := &scheduler{
 		NewIn:     make(chan *url.URL, nworker),
@@ -77,6 +77,13 @@ func (sd *scheduler) work() {
 	for {
 		select {
 		// Input:
+		case u = <-sd.NewIn:
+			item, _, err := sd.schedURL(u, true)
+			if err != nil {
+				return // TODO
+			}
+			sd.pqIn <- item
+			continue
 		case resp := <-sd.ResIn:
 			sd.cw.store.IncNTime()
 			for _, link := range resp.links {
@@ -86,38 +93,25 @@ func (sd *scheduler) work() {
 				}
 				sd.pqIn <- item
 			}
-			item, done, err := sd.schedURL(resp.RequestURL, false)
+			item, done, err := sd.schedURL(resp.URL, false)
 			if err != nil {
 				return // TODO
 			} else if !done {
 				sd.pqIn <- item
 				continue // for loop
 			}
-			if sd.cw.store.AllFinished() {
-				sd.stop()
-				return
-			}
-		case u = <-sd.NewIn:
-			item, _, err := sd.schedURL(u, true)
-			if err != nil {
-				return // TODO
-			}
-			sd.pqIn <- item
 		case u = <-sd.DoneIn:
 			sd.cw.store.SetStatus(u, URLfinished)
-			if sd.cw.store.AllFinished() {
-				sd.stop()
-				return
-			}
 		case u = <-sd.ErrIn:
 			if cnt := sd.cw.store.IncErrCount(u); cnt >= sd.cw.opt.MaxRetry {
 				sd.cw.store.SetStatus(u, URLerror)
-				continue
+				break // select
 			}
 			sd.pqIn <- &SchedItem{
 				URL:  u,
 				Next: time.Now().Add(sd.retry),
 			}
+			continue
 		// Output:
 		case item = <-sd.pqOut:
 			sd.Out <- item.URL
@@ -128,6 +122,10 @@ func (sd *scheduler) work() {
 			sd.once.Do(func() {
 				sd.prioQueue.Close()
 			})
+			return
+		}
+		if sd.cw.store.AllFinished() {
+			sd.stop()
 			return
 		}
 	}

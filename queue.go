@@ -21,22 +21,10 @@ type PQ interface {
 	Close()
 }
 
-type SiteInfo struct {
-	Interval time.Duration
-}
-
 type SchedItem struct {
 	URL   *url.URL
 	Next  time.Time
 	Score int
-	Site  *SiteInfo
-}
-
-func (si SchedItem) interval() time.Duration {
-	if si.Site != nil {
-		return si.Site.Interval
-	}
-	return 0
 }
 
 type primaryItem struct {
@@ -116,16 +104,18 @@ type MemQueue struct {
 	popCond, pushCond *sync.Cond
 	timer             *time.Timer
 	quit              chan struct{}
+	cw                *Crawler
 	*sync.Mutex
 }
 
-func NewMemQueue(maxLen int) *MemQueue {
+func (cw *Crawler) NewMemQueue(maxLen int) *MemQueue {
 	q := &MemQueue{
 		primary: primaryHeap{
 			M: make(map[string]*secondaryEntry),
 		},
 		maxLen: maxLen,
 		Mutex:  new(sync.Mutex),
+		cw:     cw,
 	}
 	q.popCond = sync.NewCond(q.Mutex)
 	q.pushCond = sync.NewCond(q.Mutex)
@@ -203,7 +193,7 @@ func (q *MemQueue) Push(item *SchedItem) {
 	host := item.URL.Host
 	h := q.getSecondary(item.URL)
 	heap.Push(h, item)
-	q.updatePrimary(host, item.interval())
+	q.updatePrimary(host, q.cw.ctrl.Interval(host))
 	q.popCond.Signal()
 }
 
@@ -232,7 +222,7 @@ WAIT:
 		host := pi.Host
 		h := pi.secondary
 		si := h.Top()
-		interval := si.interval()
+		interval := q.cw.ctrl.Interval(si.URL.Host)
 
 		if si.Next.Before(now) {
 			heap.Pop(h)

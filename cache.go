@@ -23,36 +23,31 @@ func (cp *cachePool) Set(r *Response) {
 	if !r.IsCacheable() || r.IsExpired() {
 		return
 	}
-	us := r.NewURL.String()
-	// TODO: maybe don't need copy?
-	rr := newResponse()
-	*rr = *r
+	us := r.URL.String()
+	// TODO: validate that it's safe to save the pointer
+	// rr := newResponse()
+	// *rr = *r
 
 	cp.Lock()
 	defer cp.Unlock()
 
 	for key := range cp.m {
-		if cp.size+int64(len(r.Content)) <= cp.maxSize {
+		if cp.size+r.length() <= cp.maxSize {
 			break
 		}
-		cp.size -= int64(len(cp.m[key].Content))
+		cp.size -= cp.m[key].length()
 		cp.m[key].free()
 		delete(cp.m, key)
 	}
-	cp.m[us] = rr
-	cp.size += int64(len(r.Content))
+	cp.m[us] = r
+	cp.size += r.length()
 }
 
 func (cp *cachePool) Get(u *url.URL) (r *Response, ok bool) {
 	us := u.String()
-	var rr *Response
 	cp.RLock()
-	rr, ok = cp.m[us]
+	r, ok = cp.m[us]
 	cp.RUnlock()
-	if ok {
-		r = newResponse()
-		*r = *rr
-	}
 	return
 }
 

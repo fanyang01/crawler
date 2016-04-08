@@ -8,6 +8,7 @@ import (
 	"golang.org/x/net/html/charset"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/Sirupsen/logrus"
 	"github.com/fanyang01/crawler/util"
 )
 
@@ -36,6 +37,7 @@ func (h *handler) cleanup() { close(h.Out) }
 func (h *handler) work() {
 	for r := range h.In {
 		h.handle(r)
+		r.CloseBody()
 		select {
 		case h.Out <- r:
 		case <-h.quit:
@@ -46,13 +48,19 @@ func (h *handler) work() {
 
 func (h *handler) handle(r *Response) {
 	if CT_HTML.match(r.ContentType) {
-		e, name, certain := charset.DetermineEncoding(r.Content, r.ContentType)
+		// fmt.Println(string(r.pview), r.ContentType)
+		e, name, certain := charset.DetermineEncoding(r.pview, r.ContentType)
 		// according to charset package source, default unknown charset is windows-1252.
 		if !certain && name == "windows-1252" {
 			e = h.cw.opt.UnknownEncoding
 			name = h.cw.opt.UnknownEncodingName
 		}
 
+		if err := r.ReadBody(h.cw.opt.MaxHTML); err != nil {
+			// TODO
+			logrus.Error(err)
+			return
+		}
 		// Trim leading BOM bytes
 		r.Content = util.TrimBOM(r.Content, name)
 
@@ -66,7 +74,6 @@ func (h *handler) handle(r *Response) {
 	}
 
 	r.follow, r.links = h.cw.ctrl.Handle(r)
-	r.CloseBody()
 }
 
 // OriginalContent converts response content to its original encoding.

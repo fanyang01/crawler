@@ -31,5 +31,5 @@ func TestClient(t *testing.T) {
 	resp, err := DefaultClient.Do(req)
 	checkErr(err)
 	assert.Equal(t, 200, resp.StatusCode)
-	assert.Equal(t, ts.URL, resp.RequestURL.String())
+	assert.Equal(t, ts.URL, resp.URL.String())
 }
