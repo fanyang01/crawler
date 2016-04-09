@@ -1,5 +1,5 @@
-hash: 4bbabd2c3ecc2bb59e0b793ec284a05b3b4a6074cc2cb950691683e9439aebc7
-updated: 2016-04-06T17:00:02.29094806+08:00
+hash: 74706614ca20d6792bcace4da0c4c09dab93a414807167d6e226cfff01ceb713
+updated: 2016-04-09T18:36:09.608528971+08:00
 imports:
 - name: github.com/andybalholm/cascadia
   version: 3ad29d1ad1c4f2023e355603324348cf1f4b2d48
@@ -7,43 +7,45 @@ imports:
   version: 8f080cc69b2f8cc44838425c0834b3096a41a4f1
 - name: github.com/gorilla/websocket
   version: e2e3d8414d0fbae04004f151979f4e27c6747fe7
+- name: github.com/mfonda/simhash
+  version: 79f94a1100d6da8bee6f6c253efc860a137a3186
 - name: github.com/PuerkitoBio/goquery
-  version: 4126223a86db8598275b29db04d511cfdab67cf1
+  version: 2e29ea41f0d13f4a303c75553f4eeadddc7a4c56
 - name: github.com/Sirupsen/logrus
   version: 4b6ea7319e214d98c938f12692336f7ca9348d6b
 - name: github.com/stretchr/testify
-  version: 6fe211e493929a8aac0469b93f28b1d0688a9a3a
+  version: 0744955171b0b6e1871ff9d7366abc2b7a7fcec0
   subpackages:
   - assert
 - name: github.com/temoto/robotstxt-go
   version: b8a039be43ce65409fe54b4bc09f2ae8a3925a54
 - name: golang.org/x/net
-  version: af4fee9d05b66edc24197d189e6118f8ebce8c2b
+  version: e45385e9b226f570b1f086bf287b25d3d4117776
   subpackages:
   - html
   - proxy
   - html/charset
   - html/atom
 - name: golang.org/x/sys
-  version: 042a8f53ce82bbe081222da955159491e32146a0
+  version: a80ff226bd294315526e7ae48959d55635143ea7
   subpackages:
   - unix
 - name: golang.org/x/text
-  version: 1b466db55e0ba5d56ef5315c728216b42f796491
+  version: 5ee49cfe751141f8017047bab800d1f528ee3be1
   subpackages:
   - encoding
-  - encoding/charmap
   - encoding/simplifiedchinese
+  - encoding/unicode
   - transform
+  - encoding/charmap
   - encoding/htmlindex
   - encoding/internal/identifier
   - encoding/internal
+  - internal/utf8internal
+  - runes
   - encoding/japanese
   - encoding/korean
   - encoding/traditionalchinese
-  - encoding/unicode
   - language
-  - internal/utf8internal
-  - runes
   - internal/tag
 devImports: []
