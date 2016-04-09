@@ -69,7 +69,7 @@ type Controller interface {
 
 	// Follow determines whether the crawler should follow links in an HTML
 	// document.
-	Follow(u *url.URL) bool
+	Follow(u *url.URL, depth int) bool
 
 	// Handle handles a response. If the content type of response is
 	// text/html, the body of the response is prefetched. Some utils are

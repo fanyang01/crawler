@@ -68,7 +68,7 @@ func (cw *Crawler) Crawl(seeds ...string) error {
 	start(cw.maker)
 	start(cw.fetcher)
 	start(cw.handler)
-	cw.scheduler.start()
+	start(cw.scheduler)
 
 	err := cw.addSeeds(seeds...)
 	if err != nil {

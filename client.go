@@ -98,7 +98,9 @@ func (c *StdClient) Do(req *Request) (resp *Response, err error) {
 	}
 	resp.init(req.URL, rp, time.Now())
 
-	if resp.parseCache(); c.Cache != nil {
+	// Date is used by store
+	resp.parseCache()
+	if c.Cache != nil {
 		c.Cache.Set(resp)
 	}
 

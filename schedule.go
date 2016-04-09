@@ -47,29 +47,11 @@ func (cw *Crawler) newScheduler() *scheduler {
 		done:      make(chan struct{}),
 	}
 
-	this.nworker = nworker
-	this.wg = &cw.wg
-	this.quit = cw.quit
-
+	cw.initWorker(this, nworker)
 	return this
 }
 
-func (sd *scheduler) start() {
-	var wg sync.WaitGroup
-	wg.Add(sd.nworker)
-	for i := 0; i < sd.nworker; i++ {
-		go func() {
-			sd.work()
-			wg.Done()
-		}()
-	}
-
-	go func() {
-		wg.Wait()
-		close(sd.Out)
-		sd.wg.Done()
-	}()
-}
+func (sd *scheduler) cleanup() { close(sd.Out) }
 
 func (sd *scheduler) work() {
 	var u *url.URL

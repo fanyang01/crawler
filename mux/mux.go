@@ -122,10 +122,11 @@ const (
 	muxPREPARE
 	muxREQTYPE
 	muxHANDLE
-	muxFOLLOW
+	muxNOFOLLOW
 	muxSCORE
 	muxINTERVAL
-	muxTIMES
+	muxFREQ
+	muxDEPTH
 	muxLEN
 )
 
@@ -179,7 +180,7 @@ func (mux *Mux) Disallow(pattern string) {
 // DoNotFollow tells crawler not to follow links on pages whose url matches pattern.
 // The default behavior is to follow links.
 func (mux *Mux) DoNotFollow(pattern string) {
-	mux.matcher[muxFOLLOW].Add(pattern, false)
+	mux.matcher[muxNOFOLLOW].Add(pattern, false)
 }
 
 // SetScore sets score for urls matching pattern.
@@ -189,7 +190,12 @@ func (mux *Mux) SetScore(pattern string, score int) {
 
 // SetFreq tells crawler the maximum number of times a url should be crawled.
 func (mux *Mux) SetFreq(pattern string, n int) {
-	mux.matcher[muxTIMES].Add(pattern, n)
+	mux.matcher[muxFREQ].Add(pattern, n)
+}
+
+// SetMaxDepth limits the crawler to stop at given depth.
+func (mux *Mux) SetMaxDepth(pattern string, depth int) {
+	mux.matcher[muxDEPTH].Add(pattern, depth)
 }
 
 // SetHostInterval tells crawler the interval between two visiting to a site.
@@ -250,9 +256,14 @@ func (mux *Mux) Handle(resp *crawler.Response) []*crawler.Link {
 }
 
 // Follow implements Controller.
-func (mux *Mux) Follow(u *url.URL) bool {
-	if v, ok := mux.matcher[muxFOLLOW].Get(u.String()); ok {
-		return v.(bool)
+func (mux *Mux) Follow(u *url.URL, depth int) bool {
+	if _, ok := mux.matcher[muxNOFOLLOW].Get(u.String()); ok {
+		return false
+	}
+	if max, ok := mux.matcher[muxDEPTH].Get(u.String()); ok {
+		if depth >= max.(int) {
+			return false
+		}
 	}
 	return true
 }
@@ -260,7 +271,7 @@ func (mux *Mux) Follow(u *url.URL) bool {
 // Schedule implements Controller.
 func (mux *Mux) Schedule(u *crawler.URL) (score int, at time.Time, done bool) {
 	url := u.Loc.String()
-	if t, ok := mux.matcher[muxTIMES].Get(url); ok {
+	if t, ok := mux.matcher[muxFREQ].Get(url); ok {
 		if u.Visited.Count >= t.(int) {
 			done = true
 			return
@@ -269,9 +280,6 @@ func (mux *Mux) Schedule(u *crawler.URL) (score int, at time.Time, done bool) {
 		done = true
 		return
 	}
-	// if d, ok := mux.matcher[muxDURATION].Get(url); ok {
-	// 	at = u.Visited.LastTime.Add(d.(time.Duration))
-	// }
 	if sc, ok := mux.matcher[muxSCORE].Get(url); ok {
 		score = sc.(int)
 	}

@@ -243,8 +243,8 @@ func parseCacheControl(s string) (kv map[string]string) {
 		}
 		name, val := parts[i], ""
 		if j := strings.Index(name, "="); j >= 0 {
-			name = strings.TrimRight(name[:j], " \t\r\n\f")
 			val = strings.TrimLeft(name[j+1:], " \t\r\n\f")
+			name = strings.TrimRight(name[:j], " \t\r\n\f")
 			if len(val) > 0 {
 				kv[name] = val
 			}

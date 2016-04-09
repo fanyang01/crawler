@@ -25,6 +25,18 @@ func mustParseInt(s string) int {
 	return int(i)
 }
 
+func newTestCrawler() *Crawler {
+	opt := DefaultOption
+	store := newMemStore()
+	ctrl := DefaultController
+	cw := &Crawler{
+		opt:   opt,
+		store: store,
+		ctrl:  ctrl,
+	}
+	return cw
+}
+
 func TestQueuePriority(t *testing.T) {
 	cw := newTestCrawler()
 	pq := cw.NewMemQueue(100)

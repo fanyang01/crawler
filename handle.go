@@ -68,7 +68,9 @@ func (h *handler) handle(r *Response) {
 		r.Body, _ = util.NewUTF8Reader(name, r.Body)
 	}
 
-	if r.follow = h.cw.ctrl.Follow(r.URL); !r.follow {
+	depth := h.cw.store.GetDepth(r.URL)
+
+	if r.follow = h.cw.ctrl.Follow(r.URL, depth); !r.follow {
 		r.links = h.cw.ctrl.Handle(r)
 		return
 	}

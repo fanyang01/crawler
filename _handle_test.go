@@ -7,18 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func newTestCrawler() *Crawler {
-	opt := DefaultOption
-	store := newMemStore()
-	ctrl := DefaultController
-	cw := &Crawler{
-		opt:   opt,
-		store: store,
-		ctrl:  ctrl,
-	}
-	return cw
-}
-
 func TestHandler(t *testing.T) {
 	cw := newTestCrawler()
 	handler := cw.newRespHandler()

@@ -21,7 +21,7 @@ type Option struct {
 	RobotoAgent   string
 	MaxHTML       int64
 	NWorker       struct {
-		Maker, Fetcher, Handler, Finder, Scheduler int
+		Maker, Fetcher, Handler, Scheduler int
 	}
 	Electron struct {
 		ExecPath string
@@ -38,15 +38,14 @@ var (
 		MaxCacheSize:  1024,
 		MaxHTML:       1 << 20, // iMB
 		MinDelay:      10 * time.Second,
-		RetryDuration: 30 * time.Second,
+		RetryDuration: 20 * time.Second,
 		MaxRetry:      4,
 		NWorker: struct {
-			Maker, Fetcher, Handler, Finder, Scheduler int
+			Maker, Fetcher, Handler, Scheduler int
 		}{
 			Maker:     8,
 			Fetcher:   32,
-			Handler:   8,
-			Finder:    32,
+			Handler:   32,
 			Scheduler: 8,
 		},
 		UnknownEncoding:     simplifiedchinese.GBK,

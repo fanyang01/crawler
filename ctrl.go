@@ -12,7 +12,7 @@ type NopController struct{}
 func (c NopController) Prepare(_ *Request)              {}
 func (c NopController) Interval(_ string) time.Duration { return 0 }
 func (c NopController) Charset(_ *url.URL) string       { return "utf-8" }
-func (c NopController) Follow(_ *url.URL) bool          { return false }
+func (c NopController) Follow(_ *url.URL, _ int) bool   { return false }
 func (c NopController) Handle(_ *Response) []*Link      { return nil }
 func (c NopController) Accept(_ *Link) bool             { return true }
 func (c NopController) Schedule(_ *URL) (score int, at time.Time, done bool) {
