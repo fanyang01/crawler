@@ -17,11 +17,12 @@ type testController struct {
 	value chan []string
 }
 
-func (t testController) Handle(r *Response) (bool, []*Link) {
+func (t testController) Handle(r *Response) []*Link {
 	t.text <- r.FindText("div.foo")
 	t.value <- r.FindAttr("div#hello", "key")
-	return true, nil
+	return nil
 }
+func (t testController) Follow(_ *url.URL) bool { return true }
 
 func TestAll(t *testing.T) {
 	assert := assert.New(t)

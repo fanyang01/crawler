@@ -3,7 +3,6 @@ package crawler
 import (
 	"bytes"
 	"errors"
-	"io/ioutil"
 	"mime"
 	"net/http"
 	"net/url"
@@ -101,37 +100,6 @@ func (resp *Response) parseLocation() {
 	}
 	if s := resp.Header.Get("Refresh"); s != "" {
 		resp.Refresh.Seconds, resp.Refresh.URL = parseRefresh(s, baseurl)
-	}
-}
-
-// ReadBody reads the body of response and closes the body.
-// It can be called multiply times safely.
-func (resp *Response) ReadBody(maxLen int64) (err error) {
-	if resp.BodyStatus != BodyStatusHeadOnly {
-		return resp.BodyError
-	}
-	defer func() {
-		resp.body.Close()
-		if err != nil {
-			resp.BodyStatus = BodyStatusError
-		} else {
-			resp.BodyStatus = BodyStatusReady
-		}
-		resp.BodyError = err
-	}()
-
-	if resp.ContentLength > maxLen {
-		return ErrContentTooLong
-	}
-	resp.Content, err = ioutil.ReadAll(resp.Body)
-	return err
-}
-
-// CloseBody closes the body of a response. It can be called multiply times.
-func (resp *Response) CloseBody() {
-	if resp.BodyStatus == BodyStatusHeadOnly {
-		resp.body.Close()
-		resp.BodyStatus = BodyStatusClosed
 	}
 }
 

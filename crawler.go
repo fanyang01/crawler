@@ -19,7 +19,6 @@ type Crawler struct {
 	maker     *maker
 	fetcher   *fetcher
 	handler   *handler
-	finder    *finder
 	scheduler *scheduler
 
 	quit chan struct{}
@@ -48,15 +47,13 @@ func NewCrawler(opt *Option, store Store, ctrl Controller) *Crawler {
 	cw.maker = cw.newRequestMaker()
 	cw.fetcher = cw.newFetcher()
 	cw.handler = cw.newRespHandler()
-	cw.finder = cw.newFinder()
 	cw.scheduler = cw.newScheduler()
 
 	// normal flow
 	cw.maker.In = cw.scheduler.Out
 	cw.fetcher.In = cw.maker.Out
 	cw.handler.In = cw.fetcher.Out
-	cw.finder.In = cw.handler.Out
-	cw.scheduler.ResIn = cw.finder.Out
+	cw.scheduler.ResIn = cw.handler.Out
 
 	// additional flow
 	cw.handler.DoneOut = cw.scheduler.DoneIn
@@ -67,11 +64,10 @@ func NewCrawler(opt *Option, store Store, ctrl Controller) *Crawler {
 
 // Crawl starts the crawler using several seeds.
 func (cw *Crawler) Crawl(seeds ...string) error {
-	cw.wg.Add(5)
+	cw.wg.Add(4)
 	start(cw.maker)
 	start(cw.fetcher)
 	start(cw.handler)
-	start(cw.finder)
 	cw.scheduler.start()
 
 	err := cw.addSeeds(seeds...)

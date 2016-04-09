@@ -245,7 +245,7 @@ func msgToResp(msg *responseMsg) *Response {
 	return &Response{
 		Response:   r,
 		Content:    msg.Content,
-		BodyStatus: BodyStatusReady,
+		BodyStatus: BodyStatusEOF,
 	}
 }
 

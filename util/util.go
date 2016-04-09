@@ -2,8 +2,11 @@ package util
 
 import (
 	"bytes"
+	"fmt"
+	"io"
 	"io/ioutil"
 
+	"golang.org/x/net/html/charset"
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
@@ -38,4 +41,54 @@ func TrimBOM(b []byte, encoding string) []byte {
 		b = bytes.TrimPrefix(b, bom)
 	}
 	return b
+}
+
+/*
+// naive implemntation
+func NewUTF8Reader(label string, r io.Reader) (io.Reader, error) {
+	e, name := charset.Lookup(label)
+	if e == nil {
+		return nil, fmt.Errorf("unsupported charset: %q", label)
+	}
+	// TODO: implement custom mulitreader to use a freelist?
+	preview := make([]byte, 512)
+	n, err := io.ReadFull(r, preview)
+	switch {
+	case err == io.ErrUnexpectedEOF:
+		preview = TrimBOM(preview[:n], name)
+		r = bytes.NewReader(preview)
+	case err != nil:
+		return nil, err
+	default:
+		preview = TrimBOM(preview, name)
+		r = io.MultiReader(bytes.NewReader(preview), r)
+	}
+	return transform.NewReader(r, e.NewDecoder()), nil
+}
+*/
+
+func NewUTF8Reader(label string, r io.Reader) (io.Reader, error) {
+	e, _ := charset.Lookup(label)
+	if e == nil {
+		return nil, fmt.Errorf("unsupported charset: %q", label)
+	}
+	return transform.NewReader(r, unicode.BOMOverride(e.NewDecoder())), nil
+}
+
+func DumpReader(r io.Reader, n int) (reader []io.Reader, done <-chan struct{}) {
+	var writer []io.Writer
+	for i := 0; i < n; i++ {
+		r, w := io.Pipe()
+		reader = append(reader, r)
+		writer = append(writer, w)
+	}
+	ch := make(chan struct{}, 1)
+	go func() {
+		io.Copy(io.MultiWriter(writer...), r)
+		ch <- struct{}{}
+		for i := 0; i < n; i++ {
+			writer[i].(*io.PipeWriter).Close()
+		}
+	}()
+	return reader, ch
 }

@@ -1,7 +1,6 @@
 package crawler
 
 import (
-	"bytes"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -62,7 +61,4 @@ func TestFetchParse(t *testing.T) {
 	assert.Equal(url+"1.html", resp.Refresh.URL.String())
 	assert.Equal(url+"index.html", resp.ContentLocation.String())
 	assert.Equal(30, resp.Refresh.Seconds)
-	assert.Nil(resp.ReadBody(1 << 10))
-	assert.Equal(BodyStatusReady, resp.BodyStatus)
-	assert.True(bytes.Equal(resp.Content, []byte(page)))
 }

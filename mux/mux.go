@@ -27,6 +27,7 @@ Search algorithm:
 package mux
 
 import (
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -39,15 +40,6 @@ const (
 	ExactPrefix = "= "
 	RegexPrefix = "~ "
 	SkipPrefix  = "^~ "
-	muxFILTER   = iota
-	muxPREPARE
-	muxREQTYPE
-	muxHANDLE
-	muxFOLLOW
-	muxSCORE
-	muxTIMES
-	muxDURATION
-	muxLEN
 )
 
 // Matcher is a url matcher.
@@ -125,6 +117,18 @@ func (m *Matcher) Get(s string) (v interface{}, ok bool) {
 	return
 }
 
+const (
+	muxFILTER = iota
+	muxPREPARE
+	muxREQTYPE
+	muxHANDLE
+	muxFOLLOW
+	muxSCORE
+	muxINTERVAL
+	muxTIMES
+	muxLEN
+)
+
 // Mux is a multiplexer.
 type Mux struct {
 	crawler.NopController
@@ -167,18 +171,14 @@ func (mux *Mux) Allow(pattern string) {
 }
 
 // Disallow specifies that urls matching pattern should not be processed.
+// It's the default behavior.
 func (mux *Mux) Disallow(pattern string) {
 	mux.matcher[muxFILTER].Add(pattern, false)
 }
 
-// Follow tells crawler to follow links on pages whose url matches pattern.
-// It is the default behavior.
-func (mux *Mux) Follow(pattern string) {
-	mux.matcher[muxFOLLOW].Add(pattern, true)
-}
-
-// NotFollow tells crawler not to follow links on pages whose url matches pattern.
-func (mux *Mux) NotFollow(pattern string) {
+// DoNotFollow tells crawler not to follow links on pages whose url matches pattern.
+// The default behavior is to follow links.
+func (mux *Mux) DoNotFollow(pattern string) {
 	mux.matcher[muxFOLLOW].Add(pattern, false)
 }
 
@@ -187,14 +187,15 @@ func (mux *Mux) SetScore(pattern string, score int) {
 	mux.matcher[muxSCORE].Add(pattern, score)
 }
 
-// SetTimes tells crawler the maximum number of times a url should be crawled.
-func (mux *Mux) SetTimes(pattern string, n int) {
+// SetFreq tells crawler the maximum number of times a url should be crawled.
+func (mux *Mux) SetFreq(pattern string, n int) {
 	mux.matcher[muxTIMES].Add(pattern, n)
 }
 
-// SetDuration tells crawler the duration between two visiting to a url.
-func (mux *Mux) SetDuration(pattern string, d time.Duration) {
-	mux.matcher[muxDURATION].Add(pattern, d)
+// SetHostInterval tells crawler the interval between two visiting to a site.
+// Note each host mantains a independent timer.
+func (mux *Mux) SetHostInterval(pattern string, d time.Duration) {
+	mux.matcher[muxINTERVAL].Add(pattern, d)
 }
 
 // Dynamic tells crawler that a url corresponds to a dynamic page.
@@ -240,15 +241,20 @@ func (mux *Mux) Prepare(req *crawler.Request) {
 }
 
 // Handle implements Controller.
-func (mux *Mux) Handle(resp *crawler.Response) (bool, []*crawler.Link) {
+func (mux *Mux) Handle(resp *crawler.Response) []*crawler.Link {
 	url := resp.NewURL.String()
 	if f, ok := mux.matcher[muxHANDLE].Get(url); ok {
 		f.(Handler).Handle(resp)
 	}
-	if v, ok := mux.matcher[muxFOLLOW].Get(url); ok {
-		return v.(bool), nil
+	return nil
+}
+
+// Follow implements Controller.
+func (mux *Mux) Follow(u *url.URL) bool {
+	if v, ok := mux.matcher[muxFOLLOW].Get(u.String()); ok {
+		return v.(bool)
 	}
-	return true, nil
+	return true
 }
 
 // Schedule implements Controller.
@@ -263,10 +269,9 @@ func (mux *Mux) Schedule(u *crawler.URL) (score int, at time.Time, done bool) {
 		done = true
 		return
 	}
-
-	if d, ok := mux.matcher[muxDURATION].Get(url); ok {
-		at = u.Visited.LastTime.Add(d.(time.Duration))
-	}
+	// if d, ok := mux.matcher[muxDURATION].Get(url); ok {
+	// 	at = u.Visited.LastTime.Add(d.(time.Duration))
+	// }
 	if sc, ok := mux.matcher[muxSCORE].Get(url); ok {
 		score = sc.(int)
 	}
@@ -279,4 +284,12 @@ func (mux *Mux) Accept(link *crawler.Link) bool {
 		return ac.(bool)
 	}
 	return false
+}
+
+// Interval implements Controller.
+func (mux *Mux) Interval(host string) time.Duration {
+	if d, ok := mux.matcher[muxINTERVAL].Get(host); ok {
+		return d.(time.Duration)
+	}
+	return 0
 }

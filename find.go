@@ -1,7 +1,6 @@
 package crawler
 
 import (
-	"bytes"
 	"io"
 
 	"github.com/Sirupsen/logrus"
@@ -11,54 +10,27 @@ import (
 
 const LinkPerPage = 32
 
-type finder struct {
-	workerConn
-	cw  *Crawler
-	In  <-chan *Response
-	Out chan *Response
-}
-
-func (cw *Crawler) newFinder() *finder {
-	nworker := cw.opt.NWorker.Finder
-	this := &finder{
-		cw:  cw,
-		Out: make(chan *Response, nworker),
+func (f *handler) find(r *Response, reader io.Reader, done chan<- struct{}) {
+	depth := f.cw.store.GetDepth(r.URL)
+	// Treat the new url as one found under the original url
+	original := r.URL.String()
+	if r.NewURL.String() != original {
+		f.filter(r, &Link{
+			URL:   r.NewURL,
+			Depth: depth + 1,
+		})
 	}
-	cw.initWorker(this, nworker)
-	return this
-}
-
-func (f *finder) cleanup() { close(f.Out) }
-
-func (f *finder) work() {
-	for r := range f.In {
-		depth := f.cw.store.GetDepth(r.URL)
-		// Treat the new url as one found under the original url
-		original := r.URL.String()
-		if r.NewURL.String() != original {
-			f.filter(r, &Link{
-				URL:   r.NewURL,
-				Depth: depth + 1,
-			})
-		}
-		if refresh := r.Refresh.URL; refresh != nil && refresh.String() != original {
-			f.filter(r, &Link{
-				URL:   r.Refresh.URL,
-				Depth: depth + 1,
-			})
-		}
-		if r.follow {
-			f.findLink(r, depth)
-		}
-		select {
-		case f.Out <- r:
-		case <-f.quit:
-			return
-		}
+	if refresh := r.Refresh.URL; refresh != nil && refresh.String() != original {
+		f.filter(r, &Link{
+			URL:   r.Refresh.URL,
+			Depth: depth + 1,
+		})
 	}
+	f.findLink(r, depth, reader)
+	done <- struct{}{}
 }
 
-func (f *finder) filter(resp *Response, link *Link) {
+func (f *handler) filter(resp *Response, link *Link) {
 	if f.cw.ctrl.Accept(link) {
 		// only handle new link
 		if f.cw.store.Exist(link.URL) {
@@ -73,8 +45,8 @@ func (f *finder) filter(resp *Response, link *Link) {
 	}
 }
 
-func (f *finder) findLink(resp *Response, depth int) {
-	z := html.NewTokenizer(bytes.NewReader(resp.Content))
+func (f *handler) findLink(resp *Response, depth int, reader io.Reader) {
+	z := html.NewTokenizer(reader)
 	ch := make(chan *Link, LinkPerPage)
 	done := make(chan struct{})
 	go f.consume(resp, ch, done)
@@ -116,7 +88,7 @@ LOOP:
 	<-done
 }
 
-func (f *finder) consume(resp *Response, ch <-chan *Link, done chan<- struct{}) {
+func (f *handler) consume(resp *Response, ch <-chan *Link, done chan<- struct{}) {
 	for link := range ch {
 		f.filter(resp, link)
 	}

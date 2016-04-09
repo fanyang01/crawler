@@ -62,11 +62,20 @@ type Controller interface {
 	// blacklist that preventing some unneccesary URLs to be processed.
 	Accept(link *Link) bool
 
+	// Charset determines the charset used by a HTML document.
+	// It will be called only when the crawler cannot determine the exact
+	// charset.
+	Charset(u *url.URL) (label string)
+
+	// Follow determines whether the crawler should follow links in an HTML
+	// document.
+	Follow(u *url.URL) bool
+
 	// Handle handles a response. If the content type of response is
 	// text/html, the body of the response is prefetched. Some utils are
 	// provided to handle html document. Handle can also extract
 	// non-standard links from a response and return them. Note that it
 	// doesn't need to handle standard links(<a href="..."></a>) in html
 	// document because the crawler will do this.
-	Handle(resp *Response) (follow bool, links []*Link)
+	Handle(resp *Response) []*Link
 }

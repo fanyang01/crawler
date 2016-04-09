@@ -42,26 +42,22 @@ func TestHandler(t *testing.T) {
 			Content:        []byte("<html>你好，世界</html>"),
 			Charset:        "utf-8",
 			CertainCharset: false,
-			CharsetDecoded: false,
 		}, {
 			Content:        []byte("<html>你好，世界</html>"),
 			Charset:        "utf-8",
 			CertainCharset: true,
-			CharsetDecoded: false,
 		}, {
 			Content:        []byte("<html><body></body></html>"),
 			Charset:        "gbk",
 			CertainCharset: true,
-			CharsetDecoded: true,
 		},
 	}
 
 	for i, r := range rs {
-		r.BodyStatus = BodyStatusReady
+		// r.BodyStatus = BodyStatusReady
 		handler.handle(r)
 		assert.True(t, bytes.Equal(exp[i].Content, r.Content))
 		assert.Equal(t, exp[i].Charset, r.Charset)
 		assert.Equal(t, exp[i].CertainCharset, r.CertainCharset)
-		assert.Equal(t, exp[i].CharsetDecoded, r.CharsetDecoded)
 	}
 }

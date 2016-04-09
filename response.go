@@ -21,8 +21,8 @@ import (
 
 const (
 	BodyStatusHeadOnly = iota
-	BodyStatusClosed
-	BodyStatusReady
+	BodyStatusReading
+	BodyStatusEOF
 	BodyStatusError
 )
 
@@ -63,8 +63,9 @@ type Response struct {
 		URL     *url.URL
 	}
 
-	body       io.ReadCloser
+	bodyCloser io.ReadCloser
 	Body       io.Reader
+	// Body        io.Reader
 	BodyStatus int
 	BodyError  error
 
@@ -255,12 +256,42 @@ func parseCacheControl(s string) (kv map[string]string) {
 }
 
 type bodyReader struct {
+	err    error
+	rc     *io.ReadCloser
+	status *int
+}
+
+func (br *bodyReader) Read(p []byte) (n int, err error) {
+	switch *br.status {
+	case BodyStatusHeadOnly:
+		*br.status = BodyStatusReading
+		fallthrough
+	case BodyStatusReading:
+		n, err = (*br.rc).Read(p)
+		switch {
+		case err == io.EOF:
+			*br.status = BodyStatusEOF
+			(*br.rc).Close()
+		case err != nil:
+			*br.status = BodyStatusError
+			br.err = err
+			(*br.rc).Close()
+		}
+		return
+	case BodyStatusEOF:
+		return 0, io.EOF
+	default:
+		return 0, br.err
+	}
+}
+
+type bodyReadCloser struct {
 	err      error
 	body, rc io.ReadCloser
 	closed   bool
 }
 
-func (rc *bodyReader) Read(p []byte) (int, error) {
+func (rc *bodyReadCloser) Read(p []byte) (int, error) {
 	if rc.closed {
 		return 0, errors.New("read on closed reader")
 	} else if rc.err != nil {
@@ -270,7 +301,7 @@ func (rc *bodyReader) Read(p []byte) (int, error) {
 	}
 	return rc.body.Read(p)
 }
-func (rc *bodyReader) Close() error {
+func (rc *bodyReadCloser) Close() error {
 	if rc.closed {
 		return nil
 	}
@@ -284,11 +315,15 @@ func (rc *bodyReader) Close() error {
 
 func (resp *Response) initBody() {
 	body := resp.Response.Body
-	br := &bodyReader{
+	brc := &bodyReadCloser{
 		body: body,
 	}
+	br := &bodyReader{
+		rc:     &resp.bodyCloser,
+		status: &resp.BodyStatus,
+	}
 	defer func() {
-		resp.body = br
+		resp.bodyCloser = brc
 		resp.Body = br
 	}()
 
@@ -301,7 +336,7 @@ func (resp *Response) initBody() {
 		} else if len(resp.TransferEncoding) == 1 {
 			encoding = resp.TransferEncoding[0]
 		} else {
-			br.err = fmt.Errorf("too many encodings: %v", resp.TransferEncoding)
+			brc.err = fmt.Errorf("too many encodings: %v", resp.TransferEncoding)
 			return
 		}
 	}
@@ -314,14 +349,14 @@ func (resp *Response) initBody() {
 		// so this case may be needless.
 		r, err := gzip.NewReader(body)
 		if err != nil {
-			br.err = err
+			brc.err = err
 			return
 		}
-		br.rc = ioutil.NopCloser(r)
+		brc.rc = ioutil.NopCloser(r)
 	case "deflate":
-		br.rc = flate.NewReader(body)
+		brc.rc = flate.NewReader(body)
 	default:
-		br.err = fmt.Errorf("unsupported content encoding: %s", encoding)
+		brc.err = fmt.Errorf("unsupported content encoding: %s", encoding)
 	}
 	return
 }

@@ -1,8 +1,9 @@
 package crawler
 
 import (
-	"bytes"
 	"errors"
+	"io"
+	"io/ioutil"
 	"net/url"
 
 	"golang.org/x/net/html/charset"
@@ -37,7 +38,7 @@ func (h *handler) cleanup() { close(h.Out) }
 func (h *handler) work() {
 	for r := range h.In {
 		h.handle(r)
-		r.CloseBody()
+		r.bodyCloser.Close()
 		select {
 		case h.Out <- r:
 		case <-h.quit:
@@ -47,42 +48,44 @@ func (h *handler) work() {
 }
 
 func (h *handler) handle(r *Response) {
-	if CT_HTML.match(r.ContentType) {
-		// fmt.Println(string(r.pview), r.ContentType)
-		e, name, certain := charset.DetermineEncoding(r.pview, r.ContentType)
-		// according to charset package source, default unknown charset is windows-1252.
-		if !certain && name == "windows-1252" {
-			e = h.cw.opt.UnknownEncoding
-			name = h.cw.opt.UnknownEncodingName
-		}
-
-		if err := r.ReadBody(h.cw.opt.MaxHTML); err != nil {
-			// TODO
-			logrus.Error(err)
-			return
-		}
-		// Trim leading BOM bytes
-		r.Content = util.TrimBOM(r.Content, name)
-
-		r.Charset, r.CertainCharset, r.Encoding = name, certain, e
-		if name != "utf-8" {
-			if b, err := util.ConvToUTF8(r.Content, e); err == nil {
-				r.Content = b
-				r.CharsetDecoded = true
-			}
-		}
+	if !CT_HTML.match(r.ContentType) {
+		r.links = h.cw.ctrl.Handle(r)
+		return
 	}
 
-	r.follow, r.links = h.cw.ctrl.Handle(r)
-}
-
-// OriginalContent converts response content to its original encoding.
-func (resp *Response) OriginalContent() []byte {
-	if !resp.CharsetDecoded {
-		return resp.Content
+	e, name, certain := charset.DetermineEncoding(r.pview, r.ContentType)
+	// according to charset package source, default unknown charset is windows-1252.
+	if !certain && name == "windows-1252" {
+		label := h.cw.ctrl.Charset(r.URL)
+		if e, name = charset.Lookup(label); e == nil {
+			logrus.Warn("unsupported charset:", label)
+		} else {
+			certain = true
+		}
 	}
-	b, _ := util.ConvTo(resp.Content, resp.Encoding)
-	return b
+	r.Charset, r.CertainCharset, r.Encoding = name, certain, e
+	if name != "" && e != nil {
+		r.Body, _ = util.NewUTF8Reader(name, r.Body)
+	}
+
+	if r.follow = h.cw.ctrl.Follow(r.URL); !r.follow {
+		r.links = h.cw.ctrl.Handle(r)
+		return
+	}
+
+	rs, chCopy := util.DumpReader(
+		io.LimitReader(r.Body, h.cw.opt.MaxHTML), 2,
+	)
+	r.Body = rs[0]
+	chFind := make(chan struct{}, 1)
+	go h.find(r, rs[1], chFind)
+
+	links := h.cw.ctrl.Handle(r)
+
+	io.Copy(ioutil.Discard, r.Body)
+	<-chCopy
+	<-chFind
+	r.links = append(r.links, links...)
 }
 
 // Document parses content of response into HTML document if it has not been
@@ -94,8 +97,7 @@ func (resp *Response) Document() (doc *goquery.Document, err error) {
 	if !CT_HTML.match(resp.ContentType) {
 		return nil, ErrNotHTML
 	}
-	if doc, err = goquery.NewDocumentFromReader(
-		bytes.NewReader(resp.Content)); err != nil {
+	if doc, err = goquery.NewDocumentFromReader(resp.Body); err != nil {
 		return
 	}
 	resp.document = doc
