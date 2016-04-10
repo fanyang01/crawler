@@ -54,9 +54,21 @@ func (cw *Crawler) newScheduler() *scheduler {
 func (sd *scheduler) cleanup() { close(sd.Out) }
 
 func (sd *scheduler) work() {
-	var u *url.URL
-	var item *SchedItem
+	var (
+		queueIn   chan<- *SchedItem
+		output    chan<- *url.URL
+		u, outURL *url.URL
+		waiting   = make([]*SchedItem, 0, LinkPerPage)
+		next      *SchedItem
+	)
 	for {
+		if outURL != nil {
+			output = sd.Out
+		}
+		if len(waiting) > 0 {
+			queueIn = sd.pqIn
+			next = waiting[0]
+		}
 		select {
 		// Input:
 		case u = <-sd.NewIn:
@@ -64,7 +76,7 @@ func (sd *scheduler) work() {
 			if err != nil {
 				return // TODO
 			}
-			sd.pqIn <- item
+			waiting = append(waiting, item)
 			continue
 		case resp := <-sd.ResIn:
 			sd.cw.store.IncNTime()
@@ -73,30 +85,38 @@ func (sd *scheduler) work() {
 				if err != nil {
 					return // TODO
 				}
-				sd.pqIn <- item
+				waiting = append(waiting, item)
 			}
 			item, done, err := sd.schedURL(resp.URL, false)
 			if err != nil {
 				return // TODO
 			} else if !done {
-				sd.pqIn <- item
-				continue // for loop
+				waiting = append(waiting, item)
+				continue
 			}
 		case u = <-sd.DoneIn:
 			sd.cw.store.SetStatus(u, URLfinished)
 		case u = <-sd.ErrIn:
 			if cnt := sd.cw.store.IncErrCount(u); cnt >= sd.cw.opt.MaxRetry {
 				sd.cw.store.SetStatus(u, URLerror)
-				break // select
+				break
 			}
 			sd.pqIn <- &SchedItem{
 				URL:  u,
 				Next: time.Now().Add(sd.retry),
 			}
 			continue
+		case item := <-sd.pqOut:
+			outURL = item.URL
+
 		// Output:
-		case item = <-sd.pqOut:
-			sd.Out <- item.URL
+		case queueIn <- next:
+			if waiting = waiting[1:]; len(waiting) == 0 {
+				queueIn = nil
+			}
+		case output <- outURL:
+			output, outURL = nil, nil
+
 		// Control:
 		case <-sd.done:
 			return
