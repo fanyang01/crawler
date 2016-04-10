@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/fanyang01/crawler/bktree"
 )
 
 const (
@@ -51,6 +53,8 @@ type memStore struct {
 	sync.RWMutex
 	m map[url.URL]*URL
 
+	bktree *bktree.Tree
+
 	URLs     int32
 	Finished int32
 	Ntimes   int32
@@ -59,7 +63,8 @@ type memStore struct {
 
 func newMemStore() *memStore {
 	return &memStore{
-		m: make(map[url.URL]*URL),
+		m:      make(map[url.URL]*URL),
+		bktree: bktree.New(),
 	}
 }
 

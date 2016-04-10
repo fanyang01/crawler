@@ -72,13 +72,11 @@ type Response struct {
 	Charset        string
 	Encoding       encoding.Encoding
 	CertainCharset bool
-	CharsetDecoded bool
 
 	// content will be parsed into document only if neccessary.
 	document *goquery.Document
 	pview    []byte
 	links    []*Link
-	follow   bool
 }
 
 var (

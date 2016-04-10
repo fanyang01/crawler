@@ -70,7 +70,7 @@ func (h *handler) handle(r *Response) {
 
 	depth := h.cw.store.GetDepth(r.URL)
 
-	if r.follow = h.cw.ctrl.Follow(r.URL, depth); !r.follow {
+	if follow := h.cw.ctrl.Follow(r.URL, depth); !follow {
 		r.links = h.cw.ctrl.Handle(r)
 		return
 	}
