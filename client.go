@@ -38,6 +38,7 @@ func init() {
 	DefaultHTTPClient = &http.Client{
 		Transport: DefaultHTTPTransport,
 		Jar:       jar,
+		Timeout:   10 * time.Second,
 	}
 	DefaultClient = &StdClient{Client: DefaultHTTPClient}
 }
@@ -105,10 +106,9 @@ func (c *StdClient) Do(req *Request) (resp *Response, err error) {
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"Method": req.Method,
-		"Status": resp.Status,
-		"URL":    req.URL.String(),
-	}).Infoln()
+		"func": "StdClient.Do",
+		"url":  req.URL.String(),
+	}).Infoln(req.Method + " " + resp.Status)
 
 	return
 }

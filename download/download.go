@@ -11,8 +11,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Sirupsen/logrus"
-
 	"github.com/fanyang01/crawler/bktree"
 	"github.com/fanyang01/crawler/fingerprint"
 )
@@ -49,97 +47,127 @@ func (f *FreeList) Put(b *bytes.Buffer) {
 	}
 }
 
-type Mirror struct {
-	BufPool   *FreeList
-	TargetDir string
-	bktree    struct {
+type SimDownloader struct {
+	Dir         string
+	GenPath     func(*url.URL) string
+	PreDownload bool
+
+	Distance int
+	Shingle  int
+	MaxToken int
+
+	FreeList *FreeList
+
+	bktree struct {
 		sync.RWMutex
 		*bktree.Tree
 	}
-	PreDownload bool
-	once        sync.Once
+	once sync.Once
 }
 
-func (m *Mirror) init() {
-	m.once.Do(func() {
-		if !m.PreDownload && m.BufPool == nil {
-			m.BufPool = NewFreeList(32, 1<<21) // 32 * 2MB
+func (d *SimDownloader) init() {
+	d.once.Do(func() {
+		if !d.PreDownload && d.FreeList == nil {
+			d.FreeList = NewFreeList(32, 1<<21) // 32 * 2MB
 		}
-		if m.bktree.Tree == nil {
-			m.bktree.Tree = bktree.New()
+		if d.bktree.Tree == nil {
+			d.bktree.Tree = bktree.New()
+		}
+		if d.GenPath == nil {
+			d.GenPath = d.genPath
+		}
+		if d.MaxToken == 0 {
+			d.MaxToken = 4096
 		}
 	})
 }
 
-func (m *Mirror) Handle(u *url.URL, r io.Reader) {
-	m.init()
-	ctx := logrus.WithFields(logrus.Fields{
-		"URL":  u.String(),
-		"func": "Mirror.Handle",
-	})
-
-	buf := m.BufPool.Get()
-	defer m.BufPool.Put(buf)
-	tee := io.TeeReader(r, buf)
-
-	fp := fingerprint.Compute(tee, 1<<11, 2)
-	if m.hasSimiliar(fp, 3) {
-		return
-	}
-	m.addFingerprint(fp)
-	if _, err := io.Copy(ioutil.Discard, tee); err != nil {
-		ctx.Error(err)
-		return
-	}
-
-	pth := m.genPath(u)
+func file(pth string) (f *os.File, err error) {
 	dir, _ := filepath.Split(pth)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		ctx.Error(err)
+	if err = os.MkdirAll(dir, 0755); err != nil {
 		return
 	}
-	f, err := os.OpenFile(
+	return os.OpenFile(
 		pth,
 		os.O_WRONLY|os.O_CREATE|os.O_EXCL,
 		0644,
 	)
-	if err != nil {
-		ctx.Error(err)
+}
+
+func (d *SimDownloader) Handle(u *url.URL, r io.Reader) (similar bool, err error) {
+	d.init()
+
+	var f *os.File
+	var buf *bytes.Buffer
+	var tee io.Reader
+	pth := d.GenPath(u)
+
+	if d.PreDownload {
+		if f, err = file(pth); err != nil {
+			return
+		}
+		defer f.Close()
+		tee = io.TeeReader(r, f)
+	} else {
+		buf = d.FreeList.Get()
+		defer d.FreeList.Put(buf)
+		tee = io.TeeReader(r, buf)
+	}
+
+	fp := fingerprint.Compute(tee, d.MaxToken, d.Shingle)
+	if d.hasSimilar(fp, d.Distance) {
+		similar = true
+		if d.PreDownload {
+			err = os.Remove(f.Name())
+		}
+		return
+	}
+
+	if _, err = io.Copy(ioutil.Discard, tee); err != nil {
+		return
+	} else if d.PreDownload { // content has been copy to file
+		goto DONE
+	} else if f, err = file(pth); err != nil {
 		return
 	}
 	defer f.Close()
 
 	if _, err = io.Copy(f, buf); err != nil {
-		ctx.Error(err)
-		os.Remove(f.Name())
+		os.Remove(f.Name()) // TODO: handler error
+		return
 	}
+DONE:
+	d.addFingerprint(fp)
+	return
 }
 
-func (m *Mirror) genPath(u *url.URL) string {
-	pth := u.EscapedPath() // TODO: use Path?
+func (d *SimDownloader) genPath(u *url.URL) string {
+	// pth := u.Path
+	pth := u.EscapedPath()
 	if strings.HasSuffix(pth, "/") {
 		pth += "index.html"
 	} else if path.Ext(pth) == "" {
-		pth += ".html"
+		pth += "/index.html"
 	}
 	if u.RawQuery != "" {
-		pth += ".query." + u.Query().Encode()
+		pth += ".QUERY." + u.Query().Encode()
 	}
 	return filepath.Join(
+		d.Dir,
 		u.Host,
 		filepath.FromSlash(path.Clean(pth)),
 	)
 }
 
-func (m *Mirror) addFingerprint(f uint64) {
-	m.bktree.Lock()
-	m.bktree.Add(f)
-	m.bktree.Unlock()
+func (d *SimDownloader) addFingerprint(f uint64) {
+	d.bktree.Lock()
+	d.bktree.Add(f)
+	d.bktree.Unlock()
 }
 
-func (m *Mirror) hasSimiliar(f uint64, d int) bool {
-	m.bktree.RLock()
-	ok := m.bktree.Has(f, d)
-	m.bktree.RUnlock()
+func (d *SimDownloader) hasSimilar(f uint64, r int) bool {
+	d.bktree.RLock()
+	ok := d.bktree.Has(f, r)
+	d.bktree.RUnlock()
 	return ok
 }

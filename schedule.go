@@ -101,10 +101,10 @@ func (sd *scheduler) work() {
 				sd.cw.store.SetStatus(u, URLerror)
 				break
 			}
-			sd.pqIn <- &SchedItem{
+			waiting = append(waiting, &SchedItem{
 				URL:  u,
 				Next: time.Now().Add(sd.retry),
-			}
+			})
 			continue
 		case item := <-sd.pqOut:
 			outURL = item.URL

@@ -12,7 +12,10 @@ type Tree struct {
 }
 
 func New() *Tree {
-	return &Tree{fingerprint: 0}
+	return &Tree{
+		fingerprint: 0,
+		child:       make(map[int]*Tree),
+	}
 }
 
 func Distance(a, b uint64) int {
@@ -51,6 +54,9 @@ func (t *Tree) Add(f uint64) {
 	if p := t.child[d]; p != nil {
 		p.Add(f)
 	} else {
-		t.child[d] = &Tree{fingerprint: f}
+		t.child[d] = &Tree{
+			fingerprint: f,
+			child:       make(map[int]*Tree),
+		}
 	}
 }
