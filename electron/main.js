@@ -4,34 +4,22 @@ const path = require('path');
 const fs = require('fs');
 const Websocket = require('ws');
 const electron = require('electron');
-const app = electron.app;  // Module to control application life.
-const BrowserWindow = electron.BrowserWindow;  // Module to create native browser window.
+const app = electron.app; // Module to control application life.
+const ipcMain = electron.ipcMain;
+const BrowserWindow = electron.BrowserWindow; // Module to create native browser window.
 
 const serverAddr = 'ws://localhost:8162';
 
-// Report crashes to our server.
-electron.crashReporter.start();
-
-// Keep a global reference of the window object, if you don't, the window will
-// be closed automatically when the JavaScript object is garbage collected.
-var ws = null,
-    client = null,
-    windows = [];
-
-function Emitter() {
-  EventEmitter.call(this);
-}
-util.inherits(Emitter, EventEmitter);
-
-const rendererScript = fs.readFileSync(path.join(__dirname, "./render.js"), "utf8");
+var ws = null;
+var client = null;
+  // windows = [],
+  // working = [];
 
 // Quit when all windows are closed.
 app.on('window-all-closed', function() {
-  // On OS X it is common for applications and their menu bar
-  // to stay active until the user quits explicitly with Cmd + Q
-  if (process.platform != 'darwin') {
-    app.quit();
-  }
+  // if (process.platform != 'darwin') {
+  //   app.quit();
+  // }
 });
 
 const newConnection = () => {
@@ -39,8 +27,7 @@ const newConnection = () => {
   ws.on('open', function() {
     console.log('[websocket] new connection');
     ws.send(JSON.stringify({
-      type: 'init',
-      content: 'OK',
+      type: 'init'
     }));
   });
 
@@ -55,13 +42,14 @@ const newConnection = () => {
   });
 
   ws.on('error', function(error) {
+    client = null;
     console.log('[websocket] error: ' + error);
   });
 
   ws.on('message', function(data, flags) {
     var message = JSON.parse(data);
     console.log('[websocket] received message, type: ' + message.type);
-    switch(message.type) {
+    switch (message.type) {
       case 'init':
         client = message.content;
         break;
@@ -75,51 +63,84 @@ const newConnection = () => {
 };
 
 const handleTask = (task) => {
-  var win = null;
-  if(windows.length === 0) {
-    win = new BrowserWindow({width: 800, height: 600});
-    win.on('closed', function() {
-      var idx = windows.indexOf(win);
-      if(idx >= 0)
-        windows.splice(idx, 1);
-    });
-  } else {
-    win = windows.shift();
-  }
+  // var win = null;
+  // if (windows.length === 0) {
+  //   win = new BrowserWindow({
+  //     webPreferences: {
+  //       preload: path.join(__dirname, "preload.js")
+  //     }
+  //   });
+  //   win.on('closed', function() {
+  //     windows = windows.filter((w) => !!w);
+  //     working = working.filter((w) => !!w);
+  //   });
+  // } else {
+  //   win = windows.shift();
+  // }
+
+  var win = new BrowserWindow({
+      webPreferences: {
+        preload: path.join(__dirname, "preload.js")
+      }
+    });  
+
   var timer = setTimeout(function() {
     timer = null;
+    win.destroy();
     ws.send(JSON.stringify({
       type: 'timeout',
       content: {
         id: task.id,
-        url: task.url
+        url: task.url,
+        client: client
       }
     }));
+  }, 60000);
+
+  win.webContents.on('dom-ready', function() {
+    console.log('dom-ready');
   });
 
   win.webContents.on('did-finish-load', function() {
-    if(timer === null)
+    if (timer === null)
       return;
     clearTimeout(timer);
-    win.webContents.executeJavaScript(rendererScript, false, function(result) {
-      ws.send(JSON.stringify({
-        type: 'task',
-        content: {
-          id: task.id,
-          originalURL: task.url,
-          newURL: win.getUrl(),
-          data: result
-        }
-      }));
-      win.webContents.stop();
-      windows.push(win);
+    console.log('did-finish-load');
+    win.webContents.send('main:cmd', {
+      type: 'default',
+      winId: win.id,
+      taskId: task.id,
+      originalURL: task.url
     });
   });
+
   win.loadURL(task.url);
 };
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
+ipcMain.on('renderer:dom', function(event, result) {
+  ws.send(JSON.stringify({
+    type: 'task',
+    content: {
+      id: result.taskId,
+      originalURL: result.originalURL,
+      newURL: result.newURL,
+      data: result.body,
+      client: client
+    }
+  }));
+
+  // var win;
+  // var idx = working.findIndex((w) => w && w.id === result.winId);
+  // if(idx >= 0) {
+  //   win = working[idx];
+  //   win.loadURL('about:blank');
+  //   working.splice(idx, 1);
+  //   windows.push(win);
+  // }
+  var win = BrowserWindow.fromId(result.winId);
+  if(win) win.destroy();
+});
+
 app.on('ready', function() {
   newConnection();
 });

@@ -1,0 +1,33 @@
+<html>
+<head>
+</head>
+<body>
+    <webview src="about:blank" id="content" autosize="on"></webview>
+    <script>
+        var ipc = require('electron').ipcRenderer;
+        var webview = document.getElementById('content');
+
+        ipc.on('url', function(url) {
+            console.log('child :: url received: ' + url);
+            webview.src = url;
+        });
+
+        webview.addEventListener('did-fail-load', function(e) {
+            console.log('child :: failed to load - ' + webview.src);
+            console.log('e : ' + JSON.stringify(e));
+        });
+
+        webview.addEventListener('did-finish-load', function() {
+            console.log('child :: finished loading - ' + webview.src);
+        });
+
+        webview.addEventListener('dom-ready', function() {
+            console.log('child :: dom-ready fired - ' + webview.src);
+        });
+
+        webview.addEventListener('did-get-response-details', function() {
+            console.log('child :: got response - ' + webview.src);
+        });
+    </script>
+</body>
+</html>
