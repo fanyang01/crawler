@@ -34,8 +34,8 @@ app.on('window-all-closed', function() {
 const newNATS = () => {
   const conn = new Emitter();
   conn.on('ok', function() {
-    nats.subscribe('job', { 'queue': 'job.workers' }, function(msg) {
-      handleTask(msg.task, 'nats', msg.reply);
+    nats.subscribe('job', { 'queue': 'job.workers' }, function(request, reply) {
+      handleTask(request, 'nats', reply);
     });
   });
 
@@ -52,7 +52,7 @@ const newNATS = () => {
   });
   nats.request('register', function(response) {
     console.log('[nats] registered successfully');
-    client = response.clientID;
+    client = response;
     conn.emit('ok');
   });
 };

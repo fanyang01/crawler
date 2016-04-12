@@ -14,3 +14,4 @@ import:
   subpackages:
   - assert
 - package: github.com/mfonda/simhash
+- package: github.com/mitchellh/mapstructure
