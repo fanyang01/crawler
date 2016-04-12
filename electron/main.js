@@ -12,8 +12,8 @@ const serverAddr = 'ws://localhost:8162';
 
 var ws = null;
 var client = null;
-  // windows = [],
-  // working = [];
+// windows = [],
+// working = [];
 
 // Quit when all windows are closed.
 app.on('window-all-closed', function() {
@@ -79,10 +79,10 @@ const handleTask = (task) => {
   // }
 
   var win = new BrowserWindow({
-      webPreferences: {
-        preload: path.join(__dirname, "preload.js")
-      }
-    });  
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js")
+    }
+  });
 
   var timer = setTimeout(function() {
     timer = null;
@@ -138,7 +138,7 @@ ipcMain.on('renderer:dom', function(event, result) {
   //   windows.push(win);
   // }
   var win = BrowserWindow.fromId(result.winId);
-  if(win) win.destroy();
+  if (win) win.destroy();
 });
 
 app.on('ready', function() {

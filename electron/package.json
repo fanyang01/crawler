@@ -1,29 +1,29 @@
 {
-    "name": "crawler",
-    "version": "1.0.0",
-    "description": "An crawler client that crawls dynamic webpages and send them to server",
-    "main": "main.js",
-    "scripts": {
-        "test": "electron --debug=5858 main.js",
-        "build:prepare": "mkdir -p build/",
-        "build:linux": "electron-packager . crawler-client --platform=linux --arch=x64 --version=0.37.5 --out=build/ --overwrite",
-        "clean": "rm -rf build/",
-        "build": "npm run clean && npm run build:prepare && npm run build:linux"
-    },
-    "repository": {
-        "type": "git",
-        "url": "github.com/fanyang01/crawler"
-    },
-    "keywords": [
-        "crawler"
-    ],
-    "author": "Fan Yang <yangfan879@gmail.com>",
-    "license": "MIT",
-    "dependencies": {
-        "electron-prebuilt": "^0.37.5",
-        "ws": "^1.0.1"
-    },
-    "devDependencies": {
-        "electron-packager": "^6.0.2"
-    }
+  "name": "crawler",
+  "version": "1.0.0",
+  "description": "An crawler client that crawls dynamic webpages and send them to server",
+  "main": "main.js",
+  "scripts": {
+    "test": "electron --debug=5858 main.js",
+    "build:prepare": "mkdir -p build/",
+    "build:linux": "electron-packager . crawler-client --platform=linux --arch=x64 --version=0.37.5 --out=build/ --overwrite",
+    "clean": "rm -rf build/",
+    "build": "npm run clean && npm run build:prepare && npm run build:linux"
+  },
+  "repository": {
+    "type": "git",
+    "url": "github.com/fanyang01/crawler"
+  },
+  "keywords": [
+    "crawler"
+  ],
+  "author": "Fan Yang <yangfan879@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "electron-prebuilt": "^0.37.5",
+    "ws": "^1.0.1"
+  },
+  "devDependencies": {
+    "electron-packager": "^6.0.2"
+  }
 }
