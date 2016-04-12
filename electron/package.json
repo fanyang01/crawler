@@ -6,7 +6,7 @@
   "scripts": {
     "test": "electron --debug=5858 main.js",
     "build:prepare": "mkdir -p build/",
-    "build:linux": "electron-packager . crawler-client --platform=linux --arch=x64 --version=0.37.5 --out=build/ --overwrite",
+    "build:linux": "electron-packager . crawler_client --platform=linux --arch=x64 --version=0.37.5 --out=build/ --overwrite --asar=true",
     "clean": "rm -rf build/",
     "build": "npm run clean && npm run build:prepare && npm run build:linux"
   },
@@ -21,6 +21,7 @@
   "license": "MIT",
   "dependencies": {
     "electron-prebuilt": "^0.37.5",
+    "nats": "^0.6.0",
     "ws": "^1.0.1"
   },
   "devDependencies": {

@@ -1,16 +1,25 @@
+const path = require('path');
 const EventEmitter = require('events');
 const util = require('util');
-const path = require('path');
 const fs = require('fs');
 const Websocket = require('ws');
+const NATS = require('nats');
 const electron = require('electron');
 const app = electron.app; // Module to control application life.
 const ipcMain = electron.ipcMain;
 const BrowserWindow = electron.BrowserWindow; // Module to create native browser window.
 
-const serverAddr = 'ws://localhost:8162';
+
+function Emitter() {
+  EventEmitter.call(this);
+}
+util.inherits(Emitter, EventEmitter);
+
+const natsURL = process.env.NATS_URL;
+const websocketURL = process.env.WEBSOCKET_URL || 'ws://localhost:8162';
 
 var ws = null;
+var nats = null;
 var client = null;
 // windows = [],
 // working = [];
@@ -22,8 +31,34 @@ app.on('window-all-closed', function() {
   // }
 });
 
-const newConnection = () => {
-  ws = new Websocket(serverAddr);
+const newNATS = () => {
+  const conn = new Emitter();
+  conn.on('ok', function() {
+    nats.subscribe('job', { 'queue': 'job.workers' }, function(msg) {
+      handleTask(msg.task, 'nats', msg.reply);
+    });
+  });
+
+  nats = NATS.connect({
+    url: natsURL
+  });
+  nats.on('error', function(e) {
+    console.log(`[nats] error [${nats.options.url}]: ${e}`);
+    process.exit(1);
+  });
+  nats.on('close', function() {
+    console.log('[nats] closed');
+    process.exit(0);
+  });
+  nats.request('register', function(response) {
+    console.log('[nats] registered successfully');
+    client = response.clientID;
+    conn.emit('ok');
+  });
+};
+
+const newWebsocket = () => {
+  ws = new Websocket(websocketURL);
   ws.on('open', function() {
     console.log('[websocket] new connection');
     ws.send(JSON.stringify({
@@ -44,6 +79,7 @@ const newConnection = () => {
   ws.on('error', function(error) {
     client = null;
     console.log('[websocket] error: ' + error);
+    process.exit(1);
   });
 
   ws.on('message', function(data, flags) {
@@ -54,7 +90,7 @@ const newConnection = () => {
         client = message.content;
         break;
       case 'task':
-        handleTask(message.content);
+        handleTask(message.content, 'ws');
         break;
       default:
         console.log('[websocket] error: unexpected message type');
@@ -62,7 +98,7 @@ const newConnection = () => {
   });
 };
 
-const handleTask = (task) => {
+const handleTask = (task, from, reply) => {
   // var win = null;
   // if (windows.length === 0) {
   //   win = new BrowserWindow({
@@ -87,15 +123,23 @@ const handleTask = (task) => {
   var timer = setTimeout(function() {
     timer = null;
     win.destroy();
-    ws.send(JSON.stringify({
-      type: 'timeout',
-      content: {
-        id: task.id,
-        url: task.url,
-        client: client
-      }
-    }));
-  }, 60000);
+    switch (from) {
+      case 'ws':
+        // instead of breaking this connection, we send a timeout reply.
+        ws.send(JSON.stringify({
+          type: 'timeout',
+          content: {
+            id: task.id,
+            url: task.url,
+            client: client
+          }
+        }));
+        break;
+      case 'nats':
+        // timeout logic on server side
+        break;
+    }
+  }, 30000);
 
   win.webContents.on('dom-ready', function() {
     console.log('dom-ready');
@@ -110,7 +154,9 @@ const handleTask = (task) => {
       type: 'default',
       winId: win.id,
       taskId: task.id,
-      originalURL: task.url
+      from: from,
+      originalURL: task.url,
+      reply: reply
     });
   });
 
@@ -118,16 +164,24 @@ const handleTask = (task) => {
 };
 
 ipcMain.on('renderer:dom', function(event, result) {
-  ws.send(JSON.stringify({
-    type: 'task',
-    content: {
-      id: result.taskId,
-      originalURL: result.originalURL,
-      newURL: result.newURL,
-      data: result.body,
-      client: client
-    }
-  }));
+  var response = {
+    id: result.taskId,
+    originalURL: result.originalURL,
+    newURL: result.newURL,
+    data: result.document,
+    client: client
+  };
+  switch (result.from) {
+    case 'ws':
+      ws.send(JSON.stringify({
+        type: 'task',
+        content: response
+      }));
+      break;
+    case 'nats':
+      nats.publish(result.reply, response);
+      break;
+  }
 
   // var win;
   // var idx = working.findIndex((w) => w && w.id === result.winId);
@@ -142,5 +196,6 @@ ipcMain.on('renderer:dom', function(event, result) {
 });
 
 app.on('ready', function() {
-  newConnection();
+  newWebsocket();
+  newNATS();
 });
