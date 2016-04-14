@@ -1,7 +1,6 @@
 package crawler
 
 import (
-	"fmt"
 	"net/url"
 	"sync"
 	"time"
@@ -74,25 +73,19 @@ func (sd *scheduler) work() {
 		select {
 		// Input:
 		case u = <-sd.NewIn:
-			item, _, err := sd.schedURL(u, true)
-			if err != nil {
-				return // TODO
-			}
+			item, _ := sd.schedURL(u, URLTypeSeed, nil)
 			waiting = append(waiting, item)
 			continue
 		case resp := <-sd.ResIn:
 			sd.cw.store.IncNTime()
 			for _, link := range resp.links {
-				item, _, err := sd.schedURL(link.URL, true)
-				if err != nil {
-					return // TODO
+				item, done := sd.schedURL(link.URL, URLTypeNew, resp)
+				if !done {
+					waiting = append(waiting, item)
 				}
-				waiting = append(waiting, item)
 			}
-			item, done, err := sd.schedURL(resp.URL, false)
-			if err != nil {
-				return // TODO
-			} else if !done {
+			item, done := sd.schedURL(resp.URL, URLTypeResponse, resp)
+			if !done {
 				waiting = append(waiting, item)
 				continue
 			}
@@ -144,17 +137,13 @@ func (sd *scheduler) stop() {
 	})
 }
 
-func (sd *scheduler) schedURL(u *url.URL, isNew bool) (item *SchedItem, done bool, err error) {
-	uu, ok := sd.cw.store.Get(u)
-	if !ok {
-		err = fmt.Errorf("%s should be in store", u.String())
-		return
-	}
+func (sd *scheduler) schedURL(u *url.URL, typ int, r *Response) (item *SchedItem, done bool) {
+	uu, _ := sd.cw.store.Get(u)
 	minTime := uu.Visited.LastTime.Add(sd.cw.opt.MinDelay)
 	item = &SchedItem{
 		URL: u,
 	}
-	if item.Score, item.Next, done = sd.cw.ctrl.Schedule(uu); done {
+	if done, item.Next, item.Score = sd.cw.ctrl.Schedule(uu, typ, nil); done {
 		sd.cw.store.SetStatus(u, URLfinished)
 		return
 	}

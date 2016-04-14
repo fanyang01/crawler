@@ -3,7 +3,24 @@ package crawler
 import (
 	"net/url"
 	"sync"
+	"time"
 )
+
+const (
+	CacheDisallow = iota
+	CacheNeedValidate
+	CacheNormal
+)
+
+type CacheControl struct {
+	CacheType    int
+	Date         time.Time
+	Timestamp    time.Time
+	Age          time.Duration
+	MaxAge       time.Duration
+	ETag         string
+	LastModified time.Time
+}
 
 type cachePool struct {
 	size    int64

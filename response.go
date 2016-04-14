@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"golang.org/x/net/context"
 	"golang.org/x/text/encoding"
 )
 
@@ -26,17 +27,6 @@ const (
 	BodyStatusError
 )
 
-const (
-	CacheDisallow = iota
-	CacheNeedValidate
-	CacheNormal
-)
-
-const (
-	CLIENT_BUILTIN = iota
-	CLIENT_BROWSER
-)
-
 // Response contains a http response and some metadata.
 // Note the body of response may be read or not, depending on
 // the type of content and the size of content. Call ReadBody to
@@ -44,27 +34,16 @@ const (
 // directly but do NOT close it.
 type Response struct {
 	*http.Response
-	// RequestURL is the original url used to do request that finally
-	// produces this response.
-	URL        *url.URL
-	NewURL     *url.URL
-	ClientType int
+	CacheControl
+	Context context.Context
 
+	URL             *url.URL
+	NewURL          *url.URL
 	ContentLocation *url.URL
 	Content         []byte
 	ContentType     string
 	CertainType     bool
-
-	// Cache control
-	CacheType    int
-	Date         time.Time
-	Timestamp    time.Time
-	Age          time.Duration
-	MaxAge       time.Duration
-	ETag         string
-	LastModified time.Time
-
-	Refresh struct {
+	Refresh         struct {
 		Seconds int
 		URL     *url.URL
 	}

@@ -30,8 +30,10 @@ func (f *handler) find(r *Response, reader io.Reader, done chan<- struct{}) {
 	done <- struct{}{}
 }
 
+var _count int32
+
 func (f *handler) filter(resp *Response, link *Link) {
-	if f.cw.ctrl.Accept(link) {
+	if f.cw.ctrl.Accept(resp, link) {
 		// only handle new link
 		if f.cw.store.Exist(link.URL) {
 			return

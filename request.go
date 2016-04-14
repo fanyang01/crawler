@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"strings"
 
+	"golang.org/x/net/context"
+
 	"github.com/Sirupsen/logrus"
 )
 
@@ -26,7 +28,9 @@ func (cw *Crawler) newRequestMaker() *maker {
 }
 
 func (rm *maker) newRequest(u *url.URL) (req *Request, err error) {
-	req = &Request{}
+	req = &Request{
+		Context: context.Background(),
+	}
 	if req.Request, err = http.NewRequest("GET", u.String(), nil); err != nil {
 		return
 	}
@@ -43,16 +47,15 @@ func (rm *maker) cleanup() { close(rm.Out) }
 
 func (rm *maker) work() {
 	for u := range rm.In {
-		if req, err := rm.newRequest(u); err != nil {
+		req, err := rm.newRequest(u)
+		if err != nil {
 			logrus.Errorf("make request: %v", err)
 			continue
-		} else {
-			select {
-			case rm.Out <- req:
-			case <-rm.quit:
-				return
-			}
 		}
-
+		select {
+		case rm.Out <- req:
+		case <-rm.quit:
+			return
+		}
 	}
 }

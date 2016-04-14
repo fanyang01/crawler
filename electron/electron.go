@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/net/context"
+
 	"github.com/Sirupsen/logrus"
 	"github.com/fanyang01/crawler"
 	"github.com/gorilla/websocket"
@@ -19,10 +21,40 @@ import (
 	"github.com/nats-io/nats"
 )
 
+type ctxKey int
+
+const configKey ctxKey = 0
+
+type BrowserConfig struct {
+	// INJECT | MAIN_WAIT
+	Mode string
+	// In 'MAIN_WAIT' mode, this is the javascript code to fetch expected
+	// content from document after the window did finish load.
+	// The return value must be an object like '{content: ..., type: ...}'.
+	// The default code used to fetch conent is 'document.documentElement.outerHTML'.
+	FetchCode string
+	// In 'INJECT' mode, The injected javascript code should determine whether
+	// the document has finished load. If so, it should call a global
+	// function 'FINISH(content[, contentType])' to complete the request.
+	Injection string
+	Timeout   time.Duration
+}
+
+func WithConfig(ctx context.Context, conf *BrowserConfig) context.Context {
+	return context.WithValue(ctx, configKey, conf)
+}
+func ConfigFrom(ctx context.Context) *BrowserConfig {
+	conf, _ := ctx.Value(configKey).(*BrowserConfig)
+	return conf
+}
+func Prepare(req *crawler.Request, conf *BrowserConfig) {
+	req.Context = WithConfig(req.Context, conf)
+}
+
 type requestMsg struct {
 	TaskID    uint32      `json:"taskID"`
-	Timeout   int         `json:"timeout"` // in milliseconds
 	URL       string      `json:"url"`
+	Timeout   int         `json:"timeout,omitempty"` // in milliseconds
 	Mode      string      `json:"mode,omitempty"`
 	FetchCode string      `json:"fetchCode,omitempty"`
 	Injection string      `json:"injection,omitempty"`
@@ -40,7 +72,7 @@ func reqToMsg(req *crawler.Request) *requestMsg {
 		Headers: req.Header,
 		Proxy:   req.Proxy.String(),
 	}
-	config := req.BrowserConfig
+	config := ConfigFrom(req.Context)
 	if config != nil {
 		m.Mode = config.Mode
 		m.Timeout = int(config.Timeout / time.Millisecond)
@@ -92,10 +124,9 @@ func msgToResp(msg *responseMsg) *crawler.Response {
 		r.Header.Set("Content-Type", msg.ContentType)
 	}
 	return &crawler.Response{
-		Response:   r,
-		Body:       bytes.NewReader(msg.Content),
-		Content:    msg.Content,
-		ClientType: crawler.CLIENT_BROWSER,
+		Response: r,
+		Body:     bytes.NewReader(msg.Content),
+		Content:  msg.Content,
 	}
 }
 
@@ -144,11 +175,13 @@ func NewElectronConn(opt *nats.Options) (ec *ElectronConn, err error) {
 
 func (ec *ElectronConn) Do(req *crawler.Request) (resp *crawler.Response, err error) {
 	request := reqToMsg(req)
-	var response responseMsg
-	if err = ec.jsonConn.Request("job", request, &response, 20*time.Second); err != nil {
+	var msg responseMsg
+	if err = ec.jsonConn.Request("job", request, &msg, 20*time.Second); err != nil {
 		return
 	}
-	return msgToResp(&response), nil
+	resp = msgToResp(&msg)
+	resp.Context = req.Context
+	return
 }
 
 type ewJob struct {
@@ -386,6 +419,6 @@ LOOP:
 	case <-timeout:
 		return nil, errors.New("client timeout")
 	}
-	resp.URL = req.URL
+	resp.Context = req.Context
 	return
 }

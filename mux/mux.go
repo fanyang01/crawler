@@ -27,7 +27,6 @@ Search algorithm:
 package mux
 
 import (
-	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -128,6 +127,9 @@ const (
 	muxFREQ
 	muxDEPTH
 	muxLEN
+
+	reqSTATIC = iota
+	reqBROWSER
 )
 
 // Mux is a multiplexer.
@@ -206,13 +208,13 @@ func (mux *Mux) SetHostInterval(pattern string, d time.Duration) {
 
 // Dynamic tells crawler that a url corresponds to a dynamic page.
 func (mux *Mux) Dynamic(pattern string) {
-	mux.matcher[muxREQTYPE].Add(pattern, crawler.ReqDynamic)
+	mux.matcher[muxREQTYPE].Add(pattern, reqBROWSER)
 }
 
 // Static tells crawler that a url corresponds to a static page.
 // It's the default behavior.
 func (mux *Mux) Static(pattern string) {
-	mux.matcher[muxREQTYPE].Add(pattern, crawler.ReqStatic)
+	mux.matcher[muxREQTYPE].Add(pattern, reqSTATIC)
 }
 
 // AddPreparer registers p to set requests whose url matches pattern.
@@ -239,7 +241,11 @@ func (mux *Mux) AddHandleFunc(pattern string, f func(*crawler.Response)) {
 func (mux *Mux) Prepare(req *crawler.Request) {
 	url := req.URL.String()
 	if t, ok := mux.matcher[muxREQTYPE].Get(url); ok {
-		req.Type = t.(crawler.RequestType)
+		switch t {
+		case reqSTATIC:
+		case reqBROWSER:
+			// TODO
+		}
 	}
 	if f, ok := mux.matcher[muxPREPARE].Get(url); ok {
 		f.(Preparer).Prepare(req)
@@ -248,7 +254,7 @@ func (mux *Mux) Prepare(req *crawler.Request) {
 
 // Handle implements Controller.
 func (mux *Mux) Handle(resp *crawler.Response) []*crawler.Link {
-	url := resp.NewURL.String()
+	url := resp.URL.String()
 	if f, ok := mux.matcher[muxHANDLE].Get(url); ok {
 		f.(Handler).Handle(resp)
 	}
@@ -256,11 +262,11 @@ func (mux *Mux) Handle(resp *crawler.Response) []*crawler.Link {
 }
 
 // Follow implements Controller.
-func (mux *Mux) Follow(u *url.URL, depth int) bool {
-	if _, ok := mux.matcher[muxNOFOLLOW].Get(u.String()); ok {
+func (mux *Mux) Follow(r *crawler.Response, depth int) bool {
+	if _, ok := mux.matcher[muxNOFOLLOW].Get(r.URL.String()); ok {
 		return false
 	}
-	if max, ok := mux.matcher[muxDEPTH].Get(u.String()); ok {
+	if max, ok := mux.matcher[muxDEPTH].Get(r.URL.String()); ok {
 		if depth >= max.(int) {
 			return false
 		}
@@ -269,7 +275,7 @@ func (mux *Mux) Follow(u *url.URL, depth int) bool {
 }
 
 // Schedule implements Controller.
-func (mux *Mux) Schedule(u *crawler.URL) (score int, at time.Time, done bool) {
+func (mux *Mux) Schedule(u *crawler.URL, _ int, _ *crawler.Response) (done bool, at time.Time, score int) {
 	url := u.Loc.String()
 	if t, ok := mux.matcher[muxFREQ].Get(url); ok {
 		if u.Visited.Count >= t.(int) {
@@ -287,7 +293,7 @@ func (mux *Mux) Schedule(u *crawler.URL) (score int, at time.Time, done bool) {
 }
 
 // Accept implements Controller.
-func (mux *Mux) Accept(link *crawler.Link) bool {
+func (mux *Mux) Accept(_ *crawler.Response, link *crawler.Link) bool {
 	if ac, ok := mux.matcher[muxFILTER].Get(link.URL.String()); ok {
 		return ac.(bool)
 	}
