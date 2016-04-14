@@ -22,16 +22,29 @@ type Client interface {
 	Do(*Request) (*Response, error)
 }
 
+type BrowserConfig struct {
+	// INJECT | MAIN_WAIT
+	Mode string
+	// In 'MAIN_WAIT' mode, this is the javascript code to fetch expected
+	// content from document after the window did finish load.
+	// The return value must be an object like '{content: ..., type: ...}'.
+	// The default code used to fetch conent is 'document.documentElement.outerHTML'.
+	FetchCode string
+	// In 'INJECT' mode, The injected javascript code should determine whether
+	// the document has finished load. If so, it should call a global
+	// function 'FINISH(content[, contentType])' to complete the request.
+	Injection string
+	Timeout   time.Duration
+}
+
 // Request is a HTTP request to be made.
 type Request struct {
 	*http.Request
-	Proxy   *url.URL
-	Cookies []*http.Cookie
-	Type    RequestType
-
-	// Client is the client used to do this request. If nil,
-	// DefaultClient or DefaultAjaxClient is used, depending on Type.
-	Client Client
+	Proxy         *url.URL
+	Cookies       []*http.Cookie
+	Type          RequestType
+	BrowserConfig *BrowserConfig
+	Client        Client
 }
 
 // Link represents a link found by crawler.
@@ -40,10 +53,9 @@ type Link struct {
 	Text      []byte   // anchor text
 	Depth     int      // length of path to find it
 	Hyperlink bool     // is hyperlink?
-	follow    bool
 }
 
-// Controller controls the working process of crawler.
+// Controller controls the working progress of crawler.
 type Controller interface {
 	// Prepare sets options(client, headers, ...) for a http request
 	Prepare(*Request)

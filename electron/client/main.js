@@ -1,3 +1,5 @@
+"use strict";
+
 const path = require('path');
 const EventEmitter = require('events');
 const util = require('util');
@@ -17,10 +19,11 @@ util.inherits(Emitter, EventEmitter);
 
 const natsURL = process.env.NATS_URL;
 const websocketURL = process.env.WEBSOCKET_URL || 'ws://localhost:8162';
+const connMode = process.env.CONN_MODE || '';
 
 var ws = null;
 var nats = null;
-var client = null;
+var clientID = null;
 // windows = [],
 // working = [];
 
@@ -34,7 +37,8 @@ app.on('window-all-closed', function() {
 const newNATS = () => {
   const conn = new Emitter();
   conn.on('ok', function() {
-    nats.subscribe('job', { 'queue': 'job.workers' }, function(request, reply) {
+    nats.subscribe('job', { 'queue': 'job.workers' }, function(msg, reply) {
+      var request = JSON.parse(msg);
       handleTask(request, 'nats', reply);
     });
   });
@@ -52,7 +56,7 @@ const newNATS = () => {
   });
   nats.request('register', function(response) {
     console.log('[nats] registered successfully');
-    client = response;
+    clientID = response;
     conn.emit('ok');
   });
 };
@@ -67,7 +71,7 @@ const newWebsocket = () => {
   });
 
   ws.on('close', function() {
-    client = null;
+    clientID = null;
     console.log('[websocket] connection closed');
   });
 
@@ -77,7 +81,7 @@ const newWebsocket = () => {
   });
 
   ws.on('error', function(error) {
-    client = null;
+    clientID = null;
     console.log('[websocket] error: ' + error);
     process.exit(1);
   });
@@ -87,7 +91,7 @@ const newWebsocket = () => {
     console.log('[websocket] received message, type: ' + message.type);
     switch (message.type) {
       case 'init':
-        client = message.content;
+        clientID = message.content;
         break;
       case 'task':
         handleTask(message.content, 'ws');
@@ -114,7 +118,7 @@ const handleTask = (task, from, reply) => {
   //   win = windows.shift();
   // }
 
-  var win = new BrowserWindow({
+  const win = new BrowserWindow({
     webPreferences: {
       preload: path.join(__dirname, "preload.js")
     }
@@ -129,9 +133,9 @@ const handleTask = (task, from, reply) => {
         ws.send(JSON.stringify({
           type: 'timeout',
           content: {
-            id: task.id,
             url: task.url,
-            client: client
+            taskID: task.taskID,
+            clientID: clientID
           }
         }));
         break;
@@ -139,63 +143,76 @@ const handleTask = (task, from, reply) => {
         // timeout logic on server side
         break;
     }
-  }, 30000);
+  }, task.timeout || 20000);
 
-  win.webContents.on('dom-ready', function() {
-    console.log('dom-ready');
-  });
+  task.mode = task.mode || '';
+  switch(task.mode.toUpperCase()) {
+    case 'INJECT':
+      if(task.injection) {
+        win.webContents.send('injection', task.injection);
+        break;
+      }
+    case 'MAIN_WAIT':
+    default:
+      let eventName = `${task.event || 'did-finish-load'}`;
+      win.webContents.on(eventName, function() {
+        if (timer === null)
+          return;
+        clearTimeout(timer);
+        win.webContents.send('main-finish', task.fetchCode);
+      });
+      break;      
+  }
 
-  win.webContents.on('did-finish-load', function() {
-    if (timer === null)
+  let eventName = `win-${win.id}-renderer-finish`;
+  const finish = function(event, result) {
+    if(timer === null)
       return;
     clearTimeout(timer);
-    console.log('did-finish-load');
-    win.webContents.send('main:cmd', {
-      type: 'default',
-      winId: win.id,
-      taskId: task.id,
-      from: from,
+    var response = {
+      newURL: result.newURL,
+      content: result.content,
+      contentType: result.contentType,
       originalURL: task.url,
-      reply: reply
-    });
-  });
+      taskID: task.taskID,
+      clientID: clientID
+    };
+    switch (from) {
+      case 'ws':
+        ws.send(JSON.stringify({
+          type: 'task',
+          content: response
+        }));
+        break;
+      case 'nats':
+        nats.publish(reply, JSON.stringify(response));
+        break;
+    }
+
+    //   win.loadURL('about:blank');
+    //   working.splice(idx, 1);
+    //   windows.push(win);
+    ipcMain.removeListener(eventName, finish);
+    win.destroy();
+  };
+  ipcMain.on(eventName, finish);
 
   win.loadURL(task.url);
 };
 
-ipcMain.on('renderer:dom', function(event, result) {
-  var response = {
-    id: result.taskId,
-    originalURL: result.originalURL,
-    newURL: result.newURL,
-    data: result.document,
-    client: client
-  };
-  switch (result.from) {
-    case 'ws':
-      ws.send(JSON.stringify({
-        type: 'task',
-        content: response
-      }));
-      break;
-    case 'nats':
-      nats.publish(result.reply, response);
-      break;
-  }
-
-  // var win;
-  // var idx = working.findIndex((w) => w && w.id === result.winId);
-  // if(idx >= 0) {
-  //   win = working[idx];
-  //   win.loadURL('about:blank');
-  //   working.splice(idx, 1);
-  //   windows.push(win);
-  // }
-  var win = BrowserWindow.fromId(result.winId);
-  if (win) win.destroy();
-});
 
 app.on('ready', function() {
-  newWebsocket();
-  newNATS();
+  switch(connMode.toUpperCase()) {
+    case 'NATS':
+      newNATS();
+      break;
+    case 'WS':
+    case 'WEBSOCKET':
+      newWebsocket();
+      break;
+    default:
+      newNATS();
+      newWebsocket();
+      break;
+  }
 });

@@ -34,14 +34,7 @@ func (rm *maker) newRequest(u *url.URL) (req *Request, err error) {
 
 	req.Method = strings.ToUpper(req.Method)
 	if req.Client == nil {
-		switch req.Type {
-		case ReqDynamic:
-			req.Client = DefaultAjaxClient
-		case ReqStatic:
-			fallthrough
-		default:
-			req.Client = DefaultClient
-		}
+		req.Client = DefaultClient
 	}
 	return
 }

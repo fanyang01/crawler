@@ -32,6 +32,11 @@ const (
 	CacheNormal
 )
 
+const (
+	CLIENT_BUILTIN = iota
+	CLIENT_BROWSER
+)
+
 // Response contains a http response and some metadata.
 // Note the body of response may be read or not, depending on
 // the type of content and the size of content. Call ReadBody to
@@ -41,8 +46,9 @@ type Response struct {
 	*http.Response
 	// RequestURL is the original url used to do request that finally
 	// produces this response.
-	URL    *url.URL
-	NewURL *url.URL
+	URL        *url.URL
+	NewURL     *url.URL
+	ClientType int
 
 	ContentLocation *url.URL
 	Content         []byte
@@ -65,7 +71,6 @@ type Response struct {
 
 	bodyCloser io.ReadCloser
 	Body       io.Reader
-	// Body        io.Reader
 	BodyStatus int
 	BodyError  error
 

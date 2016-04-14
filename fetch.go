@@ -128,7 +128,7 @@ func (resp *Response) detectMIME() (sure bool) {
 			return true
 		}
 	}
-	resp.ContentType = string(CT_UNKOWN)
+	resp.ContentType = string(CT_UNKNOWN)
 	return false
 }
 

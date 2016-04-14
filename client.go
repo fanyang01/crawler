@@ -25,8 +25,6 @@ var (
 	DefaultHTTPClient *http.Client
 	// DefaultClient is the default client used to fetch static pages.
 	DefaultClient *StdClient
-	// DefaultAjaxClient is the default client used to fetch dynamic pages.
-	DefaultAjaxClient *ElectronWebsocket
 )
 
 func init() {
