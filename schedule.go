@@ -60,10 +60,12 @@ func (sd *scheduler) work() {
 		u, outURL *url.URL
 		waiting   = make([]*SchedItem, 0, LinkPerPage)
 		next      *SchedItem
+		outURLs   []*url.URL
 	)
 	for {
-		if outURL != nil {
+		if len(outURLs) != 0 {
 			output = sd.Out
+			outURL = outURLs[0]
 		}
 		if len(waiting) > 0 {
 			queueIn = sd.pqIn
@@ -107,7 +109,7 @@ func (sd *scheduler) work() {
 			})
 			continue
 		case item := <-sd.pqOut:
-			outURL = item.URL
+			outURLs = append(outURLs, item.URL)
 
 		// Output:
 		case queueIn <- next:
@@ -115,7 +117,9 @@ func (sd *scheduler) work() {
 				queueIn = nil
 			}
 		case output <- outURL:
-			output, outURL = nil, nil
+			if outURLs = outURLs[1:]; len(outURLs) == 0 {
+				output = nil
+			}
 
 		// Control:
 		case <-sd.done:
