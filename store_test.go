@@ -35,11 +35,12 @@ func testStore(t *testing.T, s Store) {
 	assert.Equal(*uu, *uuu)
 
 	uuu.VisitCount++
-	uuu.LastTime = time.Now()
+	uuu.LastTime = time.Now().UTC()
 	assert.NoError(s.Update(uuu))
 	uu, err = s.Get(u)
 	assert.NoError(err)
 	assert.Equal(*uuu, *uu)
+
 	uu.Status = URLerror
 	assert.NoError(s.Update(uuu))
 	uuu, err = s.Get(u)
