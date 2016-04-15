@@ -32,7 +32,7 @@ import (
 	"time"
 
 	"github.com/fanyang01/crawler"
-	"github.com/fanyang01/glob"
+	"github.com/fanyang01/radix"
 )
 
 const (
@@ -44,7 +44,7 @@ const (
 // Matcher is a url matcher.
 type Matcher struct {
 	exact map[string]interface{}
-	trie  *glob.Trie
+	trie  *radix.PatternTrie
 	regex []struct {
 		re *regexp.Regexp
 		v  interface{}
@@ -60,7 +60,7 @@ type skipMatcher struct {
 func NewMatcher() *Matcher {
 	return &Matcher{
 		exact: make(map[string]interface{}),
-		trie:  glob.NewTrie(),
+		trie:  radix.NewPatternTrie(),
 	}
 }
 
@@ -278,11 +278,11 @@ func (mux *Mux) Follow(r *crawler.Response, depth int) bool {
 func (mux *Mux) Schedule(u *crawler.URL, _ int, _ *crawler.Response) (done bool, at time.Time, score int) {
 	url := u.Loc.String()
 	if t, ok := mux.matcher[muxFREQ].Get(url); ok {
-		if u.Visited.Count >= t.(int) {
+		if u.VisitCount >= t.(int) {
 			done = true
 			return
 		}
-	} else if u.Visited.Count >= 1 {
+	} else if u.VisitCount >= 1 {
 		done = true
 		return
 	}

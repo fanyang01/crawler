@@ -92,9 +92,11 @@ func (cw *Crawler) addSeeds(seeds ...string) error {
 			return err
 		}
 		u.Fragment = ""
-		if cw.store.PutNX(&URL{
+		if ok, err := cw.store.PutNX(&URL{
 			Loc: *u,
-		}) {
+		}); err != nil {
+			return err
+		} else if ok {
 			cw.scheduler.NewIn <- u
 		}
 	}
@@ -108,9 +110,11 @@ func (cw *Crawler) Enqueue(urls ...string) error {
 		if err != nil {
 			return err
 		}
-		if cw.store.PutNX(&URL{
+		if ok, err := cw.store.PutNX(&URL{
 			Loc: *uu,
-		}) {
+		}); err != nil {
+			return err
+		} else if ok {
 			cw.scheduler.NewIn <- uu
 		}
 	}

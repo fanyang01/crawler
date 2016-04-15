@@ -23,7 +23,7 @@ func (c NopController) Schedule(_ *URL, _ int, _ *Response) (done bool, at time.
 type OnceController struct{ NopController }
 
 func (c OnceController) Schedule(u *URL, _ int, _ *Response) (done bool, at time.Time, score int) {
-	if u.Visited.Count > 0 {
+	if u.VisitCount > 0 {
 		return true, time.Time{}, 0
 	}
 	return false, time.Now(), 0

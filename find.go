@@ -11,7 +11,13 @@ import (
 const LinkPerPage = 32
 
 func (f *handler) find(r *Response, reader io.Reader, done chan<- struct{}) {
-	depth := f.cw.store.GetDepth(r.URL)
+	defer func() { done <- struct{}{} }()
+
+	depth, err := f.cw.store.GetDepth(r.URL)
+	if err != nil {
+		logrus.Error(err)
+		return
+	}
 	// Treat the new url as one found under the original url
 	original := r.URL.String()
 	if r.NewURL.String() != original {
@@ -27,21 +33,24 @@ func (f *handler) find(r *Response, reader io.Reader, done chan<- struct{}) {
 		})
 	}
 	f.findLink(r, depth, reader)
-	done <- struct{}{}
 }
-
-var _count int32
 
 func (f *handler) filter(resp *Response, link *Link) {
 	if f.cw.ctrl.Accept(resp, link) {
 		// only handle new link
-		if f.cw.store.Exist(link.URL) {
+		if ok, err := f.cw.store.Exist(link.URL); err != nil {
+			logrus.Error(err)
+			return
+		} else if ok {
 			return
 		}
-		if f.cw.store.PutNX(&URL{
+		if ok, err := f.cw.store.PutNX(&URL{
 			Loc:   *link.URL,
 			Depth: link.Depth,
-		}) {
+		}); err != nil {
+			logrus.Error(err)
+			return
+		} else if ok {
 			resp.links = append(resp.links, link)
 		}
 	}

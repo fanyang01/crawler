@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/Sirupsen/logrus"
 )
 
 const (
@@ -77,7 +79,7 @@ func (sd *scheduler) work() {
 			waiting = append(waiting, item)
 			continue
 		case resp := <-sd.ResIn:
-			sd.cw.store.IncNTime()
+			sd.cw.store.IncVisitCount()
 			for _, link := range resp.links {
 				item, done := sd.schedURL(link.URL, URLTypeNew, resp)
 				if !done {
@@ -90,10 +92,10 @@ func (sd *scheduler) work() {
 				continue
 			}
 		case u = <-sd.DoneIn:
-			sd.cw.store.SetStatus(u, URLfinished)
+			sd.cw.store.UpdateStatus(u, URLfinished)
 		case u = <-sd.ErrIn:
-			if cnt := sd.cw.store.IncErrCount(u); cnt >= sd.cw.opt.MaxRetry {
-				sd.cw.store.SetStatus(u, URLerror)
+			if cnt := sd.incErrCount(u); cnt >= sd.cw.opt.MaxRetry {
+				sd.cw.store.UpdateStatus(u, URLerror)
 				break
 			}
 			waiting = append(waiting, &SchedItem{
@@ -123,7 +125,10 @@ func (sd *scheduler) work() {
 			})
 			return
 		}
-		if sd.cw.store.AllFinished() {
+		if is, err := sd.cw.store.IsFinished(); err != nil {
+			logrus.Error(err)
+			return
+		} else if is {
 			sd.stop()
 			return
 		}
@@ -138,17 +143,38 @@ func (sd *scheduler) stop() {
 }
 
 func (sd *scheduler) schedURL(u *url.URL, typ int, r *Response) (item *SchedItem, done bool) {
-	uu, _ := sd.cw.store.Get(u)
-	minTime := uu.Visited.LastTime.Add(sd.cw.opt.MinDelay)
+	uu, err := sd.cw.store.Get(u)
+	if err != nil {
+		// TODO
+		return
+	}
+
+	minTime := uu.LastTime.Add(sd.cw.opt.MinDelay)
 	item = &SchedItem{
 		URL: u,
 	}
 	if done, item.Next, item.Score = sd.cw.ctrl.Schedule(uu, typ, nil); done {
-		sd.cw.store.SetStatus(u, URLfinished)
+		sd.cw.store.UpdateStatus(u, URLfinished)
 		return
 	}
 	if item.Next.Before(minTime) {
 		item.Next = minTime
 	}
+
+	switch typ {
+	case URLTypeResponse:
+		uu.VisitCount++
+		uu.LastTime = r.Timestamp
+		uu.LastMod = r.LastModified
+		sd.cw.store.Update(uu)
+	}
 	return
+}
+
+func (sd *scheduler) incErrCount(u *url.URL) int {
+	uu, _ := sd.cw.store.Get(u)
+	cnt := uu.ErrCount
+	uu.ErrCount++
+	sd.cw.store.Update(uu)
+	return cnt
 }

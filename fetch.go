@@ -79,7 +79,6 @@ func (fc *fetcher) work() {
 		resp.scanMeta(preview)
 		resp.pview = preview
 
-		fc.cw.store.UpdateVisitTime(resp.URL, resp.Date, resp.LastModified)
 		select {
 		case fc.Out <- resp:
 		case <-fc.quit:
