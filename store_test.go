@@ -10,12 +10,13 @@ import (
 )
 
 func testStore(t *testing.T, s Store) {
+	tm := time.Now().UTC()
 	assert := assert.New(t)
 	u, _ := url.Parse("http://localhost:6060")
 	uu := &URL{
 		Loc:      *u,
-		LastMod:  time.Now(),
-		LastTime: time.Now(),
+		LastMod:  tm,
+		LastTime: tm,
 	}
 	ok, err := s.PutNX(uu)
 	assert.NoError(err)
