@@ -148,6 +148,13 @@ func (sd *scheduler) schedURL(u *url.URL, typ int, r *Response) (item *SchedItem
 		// TODO
 		return
 	}
+	switch typ {
+	case URLTypeResponse:
+		uu.VisitCount++
+		uu.LastTime = r.Timestamp
+		uu.LastMod = r.LastModified
+		sd.cw.store.Update(uu)
+	}
 
 	minTime := uu.LastTime.Add(sd.cw.opt.MinDelay)
 	item = &SchedItem{
@@ -159,14 +166,6 @@ func (sd *scheduler) schedURL(u *url.URL, typ int, r *Response) (item *SchedItem
 	}
 	if item.Next.Before(minTime) {
 		item.Next = minTime
-	}
-
-	switch typ {
-	case URLTypeResponse:
-		uu.VisitCount++
-		uu.LastTime = r.Timestamp
-		uu.LastMod = r.LastModified
-		sd.cw.store.Update(uu)
 	}
 	return
 }

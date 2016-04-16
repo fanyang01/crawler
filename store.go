@@ -69,7 +69,8 @@ type Store interface {
 
 type PersistableStore interface {
 	Store
-	GetUnfinishedURL() <-chan *URL
+	// Recover will be called only when the crawler starts.
+	Recover() (u *url.URL, more bool)
 }
 
 type Encoder interface {
