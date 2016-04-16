@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"fmt"
 	"net/url"
 	"os"
 	"testing"
@@ -75,14 +76,128 @@ func testStore(t *testing.T, s Store) {
 
 func TestBolt(t *testing.T) {
 	tmpfile := "/tmp/bolt.test.db"
-	assert := assert.New(t)
-	bs, err := NewBoltStore(tmpfile, nil)
-	assert.NoError(err)
+	bs, err := NewBoltStore(tmpfile, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer os.Remove(tmpfile)
 	testStore(t, bs)
 }
 
+func TestLevel(t *testing.T) {
+	tmpdir := "/tmp/leveldb.test.d"
+	ls, err := NewLevelStore(tmpdir, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpdir)
+	testStore(t, ls)
+}
+
 func TestMemStore(t *testing.T) {
-	ms := newMemStore()
+	ms := NewMemStore()
 	testStore(t, ms)
+}
+
+func benchPut(b *testing.B, store Store, name string) {
+	parse := func(s string) *url.URL {
+		u, err := url.Parse(s)
+		if err != nil {
+			panic(err)
+		}
+		return u
+	}
+	start := time.Now()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		now := time.Now().UTC()
+		store.PutNX(&URL{
+			Loc:      *parse(fmt.Sprintf("http://example.com/foo/bar/%d", i)),
+			LastTime: now,
+			LastMod:  now,
+		})
+	}
+	d := time.Now().Sub(start)
+	d /= time.Duration(int64(b.N))
+	b.Log(name, "Put:", d)
+}
+
+func BenchmarkMemPut(b *testing.B) {
+	ms := NewMemStore()
+	benchPut(b, ms, "MemStore")
+}
+
+func BenchmarkBoltPut(b *testing.B) {
+	tmpfile := "/tmp/bolt.test.db"
+	bs, err := NewBoltStore(tmpfile, nil, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.Remove(tmpfile)
+	b.N = 2000
+	benchPut(b, bs, "BoltStore")
+}
+
+func BenchmarkLevelPut(b *testing.B) {
+	tmpdir := "/tmp/leveldb.test.d"
+	ls, err := NewLevelStore(tmpdir, nil, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(tmpdir)
+	b.N = 500
+	benchPut(b, ls, "LevelStore")
+}
+
+func benchGet(b *testing.B, store Store, name string) {
+	parse := func(s string) *url.URL {
+		u, err := url.Parse(s)
+		if err != nil {
+			panic(err)
+		}
+		return u
+	}
+	for i := 0; i < b.N; i++ {
+		now := time.Now().UTC()
+		store.PutNX(&URL{
+			Loc:      *parse(fmt.Sprintf("http://example.com/foo/bar/%d", i)),
+			LastTime: now,
+			LastMod:  now,
+		})
+	}
+	b.ResetTimer()
+	start := time.Now()
+	for i := 0; i < 2*b.N; i++ {
+		store.Get(parse(fmt.Sprintf("http://example.com/foo/bar/%d", i)))
+	}
+	d := time.Now().Sub(start) / 2
+	d /= time.Duration(int64(b.N))
+	b.Log(name, "Get:", d)
+}
+
+func BenchmarkMemGet(b *testing.B) {
+	ms := NewMemStore()
+	benchGet(b, ms, "MemStore")
+}
+
+func BenchmarkBoltGet(b *testing.B) {
+	tmpfile := "/tmp/bolt.test.db"
+	bs, err := NewBoltStore(tmpfile, nil, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.Remove(tmpfile)
+	b.N = 100
+	benchGet(b, bs, "BoltStore")
+}
+
+func BenchmarkLevelGet(b *testing.B) {
+	tmpdir := "/tmp/leveldb.test.d"
+	ls, err := NewLevelStore(tmpdir, nil, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(tmpdir)
+	b.N = 100
+	benchGet(b, ls, "LevelStore")
 }

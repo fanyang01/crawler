@@ -31,7 +31,7 @@ func NewCrawler(opt *Option, store Store, ctrl Controller) *Crawler {
 		opt = DefaultOption
 	}
 	if store == nil {
-		store = newMemStore()
+		store = NewMemStore()
 	}
 	if ctrl == nil {
 		ctrl = DefaultController

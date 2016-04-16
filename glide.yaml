@@ -2,7 +2,6 @@ package: github.com/fanyang01/crawler
 import:
 - package: github.com/PuerkitoBio/goquery
 - package: github.com/Sirupsen/logrus
-- package: github.com/fanyang01/glob
 - package: github.com/gorilla/websocket
 - package: github.com/temoto/robotstxt-go
 - package: golang.org/x/net

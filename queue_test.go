@@ -27,7 +27,7 @@ func mustParseInt(s string) int {
 
 func newTestCrawler() *Crawler {
 	opt := DefaultOption
-	store := newMemStore()
+	store := NewMemStore()
 	ctrl := DefaultController
 	cw := &Crawler{
 		opt:   opt,
