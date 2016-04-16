@@ -46,6 +46,7 @@ func TestAll(t *testing.T) {
 
 	cw := NewCrawler(nil, nil, ctl)
 	assert.Nil(cw.Crawl(ts.URL))
+	cw.Wait()
 	assert.Equal("bar", <-ctl.text)
 	vs := <-ctl.value
 	assert.Equal(1, len(vs))
@@ -56,5 +57,4 @@ func TestAll(t *testing.T) {
 	uu, _ := cw.store.Get(u)
 	assert.Equal(1, uu.VisitCount)
 	assert.True(uu.LastTime.After(time.Time{}))
-	cw.Wait()
 }
