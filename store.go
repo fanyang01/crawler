@@ -1,15 +1,17 @@
 package crawler
 
 import (
+	"database/sql"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/url"
 	"sync"
 	"time"
 
 	"github.com/boltdb/bolt"
-	"github.com/fanyang01/crawler/bktree"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 )
@@ -69,8 +71,8 @@ type Store interface {
 
 type PersistableStore interface {
 	Store
-	// Recover will be called only when the crawler starts.
-	Recover() (u *url.URL, more bool)
+	// Recover writes all unfinished URLs to w, seperated by '\n'.
+	Recover(w io.Writer) (n int, err error)
 }
 
 type Encoder interface {
@@ -91,8 +93,6 @@ type MemStore struct {
 	sync.RWMutex
 	m map[url.URL]*URL
 
-	bktree *bktree.Tree
-
 	URLs     int32
 	Finished int32
 	Ntimes   int32
@@ -101,8 +101,7 @@ type MemStore struct {
 
 func NewMemStore() *MemStore {
 	return &MemStore{
-		m:      make(map[url.URL]*URL),
-		bktree: bktree.New(),
+		m: make(map[url.URL]*URL),
 	}
 }
 
@@ -402,6 +401,28 @@ func (s *BoltStore) IsFinished() (is bool, err error) {
 	return
 }
 
+func (s *BoltStore) Recover(w io.Writer) (n int, err error) {
+	err = s.DB.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bkURL)
+		c := b.Cursor()
+		var u URL
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if err = s.encoder.Unmarshal(v, &u); err != nil {
+				return err
+			}
+			switch u.Status {
+			case URLprocessing:
+				if _, err = fmt.Fprintln(w, k); err != nil {
+					return err
+				}
+				n++
+			}
+		}
+		return nil
+	})
+	return
+}
+
 type LevelStore struct {
 	DB      *leveldb.DB
 	encoder Encoder
@@ -614,6 +635,224 @@ func (s *LevelStore) IsFinished() (is bool, err error) {
 		if finish := btoi64(v); finish >= urlcnt {
 			is = true
 		}
+	}
+	return
+}
+
+type SQLStore struct {
+	DB     *sql.DB
+	filter *BloomFilter
+}
+
+const (
+	urlSchema = `
+CREATE TABLE IF NOT EXISTS url (
+	scheme TEXT,
+	host TEXT,
+	path TEXT,
+	query TEXT,
+	depth INT,
+	status INT,
+	freq FLOAT64,
+	last_mod TIMESTAMP,
+	last_time TIMESTAMP,
+	visit_count INT,
+	err_count INT,
+	PRIMARY KEYS (scheme, host, path, query)
+)`
+	countSchema = `
+CREATE TABLE IF NOT EXISTS count (
+	url_count INT,
+	finish_count INT,
+	error_count INT,
+	visit_count INT
+)
+`
+)
+
+func NewSQLStore(driver, uri string) (s *SQLStore, err error) {
+	db, err := sql.Open(driver, uri)
+	if err != nil {
+		return
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return
+	}
+	s = &SQLStore{
+		DB:     db,
+		filter: NewBloomFilter(-1, 0.0001),
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback() // TODO
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	if _, err = tx.Exec(urlSchema); err != nil {
+		return
+	}
+	if _, err = tx.Exec(countSchema); err != nil {
+		return
+	}
+	var cnt int
+	if err = tx.QueryRow(
+		`SELECT count(*) FROM count`,
+	).Scan(&cnt); err != nil {
+		return
+	} else if cnt == 0 {
+		_, err = tx.Exec(
+			`INSERT INTO count VALUES(url_count, finish_count, error_count, visit_count)
+			(0, 0, 0, 0)`,
+		)
+	}
+	return
+}
+
+func (s *SQLStore) Exist(u *url.URL) (bool, error) {
+	return s.filter.Exist(u), nil
+}
+func (s *SQLStore) Get(u *url.URL) (uu *URL, err error) {
+	uu = &URL{}
+	err = s.DB.QueryRow(
+		`SELECT scheme, host, path, query, depth, status, freq, last_mod, last_time, visit_count, err_count
+    	FROM url
+    	WHERE scheme = $1 AND host = $2 AND path = $3 AND raw_query = $4`,
+		u.Scheme, u.Host, u.Path, u.RawQuery,
+	).Scan(
+		&uu.Loc.Scheme,
+		&uu.Loc.Host,
+		&uu.Loc.Path,
+		&uu.Loc.RawQuery,
+		&uu.Depth,
+		&uu.Status,
+		&uu.Freq,
+		&uu.LastMod,
+		&uu.LastTime,
+		&uu.VisitCount,
+		&uu.ErrCount,
+	)
+	return
+}
+
+func (s *SQLStore) GetDepth(u *url.URL) (depth int, err error) {
+	err = s.DB.QueryRow(
+		`SELECT depth FROM url
+    	WHERE scheme = $1 AND host = $2 AND path = $3 AND raw_query = $4`,
+		u.Scheme, u.Host, u.Path, u.RawQuery,
+	).Scan(&depth)
+	return
+}
+func (s *SQLStore) PutNX(u *URL) (ok bool, err error) {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback() // TODO: handle error
+		} else {
+			if err = tx.Commit(); err == nil {
+				s.filter.Add(&u.Loc)
+				ok = true
+			}
+		}
+	}()
+
+	if _, err = tx.Exec(`
+	INSERT INTO url VALUES(scheme, host, path, query, depth, status, freq, last_mod, last_time, visit_count, err_count)
+	($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		u.Loc.Scheme,
+		u.Loc.Host,
+		u.Loc.Path,
+		u.Loc.RawQuery,
+		u.Depth,
+		u.Status,
+		u.Freq,
+		u.LastMod,
+		u.LastTime,
+		u.VisitCount,
+		u.ErrCount,
+	); err == nil {
+		_, err = tx.Exec(
+			`UPDATE count SET url_count = url_count + 1`,
+		)
+	}
+	return
+}
+func (s *SQLStore) Update(u *URL) (err error) {
+	_, err = s.DB.Exec(`
+	UPDATE url SET err_count = $1, visit_count = $2, last_time = $3, last_mod = $4
+	WHERE scheme = $5 AND host = $6 AND path = $7 AND raw_query = $8`,
+		u.ErrCount,
+		u.VisitCount,
+		u.LastTime,
+		u.LastMod,
+
+		u.Loc.Scheme,
+		u.Loc.Host,
+		u.Loc.Path,
+		u.Loc.RawQuery,
+	)
+	return
+}
+func (s *SQLStore) UpdateStatus(u *url.URL, status int) (err error) {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback() // TODO: handle error
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	if _, err = tx.Exec(`
+	UPDATE url SET status = $1
+	WHERE scheme = $2 AND host = $3 AND path = $4 AND raw_query = $5`,
+		status,
+
+		u.Scheme,
+		u.Host,
+		u.Path,
+		u.RawQuery,
+	); err != nil {
+		return
+	}
+	switch status {
+	case URLfinished, URLerror:
+		_, err = tx.Exec(
+			`UPDATE count SET finish_count = finish_count + 1`,
+		)
+	}
+	return
+}
+
+func (s *SQLStore) IncVisitCount() (err error) {
+	_, err = s.DB.Exec(
+		`UPDATE count SET visit_count = visit_count + 1`,
+	)
+	return
+}
+func (s *SQLStore) IncErrorCount() (err error) {
+	_, err = s.DB.Exec(
+		`UPDATE count SET error_count = error_count + 1`,
+	)
+	return
+}
+func (s *SQLStore) IsFinished() (is bool, err error) {
+	var rest int
+	if err = s.DB.QueryRow(
+		`SELECT url_count - finish_count FROM count`,
+	).Scan(&rest); err != nil {
+		return
+	}
+	if rest <= 0 {
+		is = true
 	}
 	return
 }

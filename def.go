@@ -13,6 +13,7 @@ const (
 	URLTypeSeed = iota
 	URLTypeNew
 	URLTypeResponse
+	URLTypeRecover
 )
 
 // Link represents a link found by crawler.

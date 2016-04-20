@@ -1,9 +1,14 @@
 package crawler
 
 import (
+	"bufio"
 	"errors"
+	"io/ioutil"
 	"net/url"
+	"os"
 	"sync"
+
+	"github.com/Sirupsen/logrus"
 )
 
 var (
@@ -23,6 +28,8 @@ type Crawler struct {
 
 	quit chan struct{}
 	wg   sync.WaitGroup
+
+	tmpfile *os.File
 }
 
 // NewCrawler creates a new crawler.
@@ -63,44 +70,94 @@ func NewCrawler(opt *Option, store Store, ctrl Controller) *Crawler {
 }
 
 // Crawl starts the crawler using several seeds.
-func (cw *Crawler) Crawl(seeds ...string) error {
+func (cw *Crawler) Crawl(seeds ...string) (err error) {
 	cw.wg.Add(4)
 	start(cw.maker)
 	start(cw.fetcher)
 	start(cw.handler)
 	start(cw.scheduler)
 
-	err := cw.addSeeds(seeds...)
+	nr, err := cw.recover()
 	if err != nil {
 		cw.Stop()
-		return err
+		return
+	}
+
+	ns, err := cw.addSeeds(seeds...)
+	if err != nil {
+		cw.Stop()
+		return
+	}
+
+	if nr+ns <= 0 {
+		cw.Stop()
 	}
 	return nil
+}
+
+func (cw *Crawler) recover() (n int, err error) {
+	ps, ok := cw.store.(PersistableStore)
+	if !ok {
+		return
+	}
+	tmpfile, err := ioutil.TempFile("", "crawler")
+	if err != nil {
+		return
+	}
+	w := bufio.NewWriter(tmpfile)
+	if n, err = ps.Recover(w); err != nil {
+		return
+	}
+	w.Flush()
+	if _, err = tmpfile.Seek(0, 0); err != nil {
+		return
+	}
+	cw.tmpfile = tmpfile
+	go func() {
+		scanner := bufio.NewScanner(tmpfile)
+		for scanner.Scan() {
+			u, err := url.Parse(scanner.Text())
+			if err != nil {
+				logrus.Error(err)
+				continue
+			}
+			// TODO
+			cw.scheduler.RecoverIn <- u
+		}
+		if err := scanner.Err(); err != nil {
+			logrus.Error(err)
+		}
+		return
+	}()
+	return
 }
 
 func (cw *Crawler) Wait() {
 	cw.wg.Wait()
 }
 
-func (cw *Crawler) addSeeds(seeds ...string) error {
+func (cw *Crawler) addSeeds(seeds ...string) (n int, err error) {
 	if len(seeds) == 0 {
-		return errors.New("crawler: no seed provided")
+		return 0, errors.New("crawler: no seed provided")
 	}
 	for _, seed := range seeds {
-		u, err := url.Parse(seed)
-		if err != nil {
-			return err
+		var u *url.URL
+		var ok bool
+		if u, err = url.Parse(seed); err != nil {
+			return
 		}
 		u.Fragment = ""
-		if ok, err := cw.store.PutNX(&URL{
+
+		if ok, err = cw.store.PutNX(&URL{
 			Loc: *u,
 		}); err != nil {
-			return err
+			return
 		} else if ok {
 			cw.scheduler.NewIn <- u
+			n++
 		}
 	}
-	return nil
+	return
 }
 
 // Enqueue adds urls to queue.

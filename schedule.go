@@ -15,12 +15,13 @@ const (
 
 type scheduler struct {
 	workerConn
-	NewIn  chan *url.URL
-	DoneIn chan *url.URL
-	ErrIn  chan *url.URL
-	Out    chan *url.URL
-	ResIn  chan *Response
-	cw     *Crawler
+	NewIn     chan *url.URL
+	DoneIn    chan *url.URL
+	ErrIn     chan *url.URL
+	RecoverIn chan *url.URL
+	Out       chan *url.URL
+	ResIn     chan *Response
+	cw        *Crawler
 
 	prioQueue PQ
 	pqIn      chan<- *SchedItem
@@ -39,6 +40,7 @@ func (cw *Crawler) newScheduler() *scheduler {
 		NewIn:     make(chan *url.URL, nworker),
 		DoneIn:    make(chan *url.URL, nworker),
 		ErrIn:     make(chan *url.URL, nworker),
+		RecoverIn: make(chan *url.URL, nworker),
 		Out:       make(chan *url.URL, 4*nworker),
 		cw:        cw,
 		prioQueue: pq,
@@ -78,6 +80,12 @@ func (sd *scheduler) work() {
 			item, _ := sd.schedURL(u, URLTypeSeed, nil)
 			waiting = append(waiting, item)
 			continue
+		case u = <-sd.RecoverIn:
+			item, done := sd.schedURL(u, URLTypeRecover, nil)
+			if !done {
+				waiting = append(waiting, item)
+				continue
+			}
 		case resp := <-sd.ResIn:
 			sd.cw.store.IncVisitCount()
 			for _, link := range resp.links {
