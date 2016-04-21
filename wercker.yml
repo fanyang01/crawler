@@ -38,10 +38,11 @@ build:
     - script:
         name: go build
         code: |
-          go build -v ./...
+            go build -v ./...
 
     # Test the project
     - script:
         name: go test
         code: |
-          go test -v -race ./...
+            # export GODOC_SERVER_ADDR=https://golang.org
+            go test -v -race $(go list ./... | grep -v electron)

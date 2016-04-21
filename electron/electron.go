@@ -1,13 +1,13 @@
 package electron
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,7 +31,7 @@ type BrowserConfig struct {
 	// In 'MAIN_WAIT' mode, this is the javascript code to fetch expected
 	// content from document after the window did finish load.
 	// The return value must be an object like '{content: ..., type: ...}'.
-	// The default code used to fetch conent is 'document.documentElement.outerHTML'.
+	// The default code used to fetch content is 'document.documentElement.outerHTML'.
 	FetchCode string
 	// In 'INJECT' mode, The injected javascript code should determine whether
 	// the document has finished load. If so, it should call a global
@@ -70,7 +70,9 @@ func reqToMsg(req *crawler.Request) *requestMsg {
 	m := &requestMsg{
 		URL:     req.URL.String(),
 		Headers: req.Header,
-		Proxy:   req.Proxy.String(),
+	}
+	if req.Proxy != nil {
+		m.Proxy = req.Proxy.String()
 	}
 	config := ConfigFrom(req.Context)
 	if config != nil {
@@ -89,11 +91,14 @@ func reqToMsg(req *crawler.Request) *requestMsg {
 }
 
 type responseMsg struct {
-	TaskID      uint32      `json:"taskID" mapstructure:"taskID"`
-	NewURL      string      `json:"newURL" mapstructure:"newURL"`
-	OriginalURL string      `json:"originalURL" mapstructure:"originalURL"`
-	StatusCode  int         `json:"statusCode" mapstructure:"statusCode"`
-	Content     []byte      `json:"content" mapstructure:"content"`
+	TaskID        uint32 `json:"taskID" mapstructure:"taskID"`
+	NewURL        string `json:"newURL" mapstructure:"newURL"`
+	OriginalURL   string `json:"originalURL" mapstructure:"originalURL"`
+	StatusCode    int    `json:"statusCode" mapstructure:"statusCode"`
+	RequestMethod string `json:"requestMethod" mapstructure:"requestMethod"`
+	// Package json will try to decode this field as base64 encoding if its
+	// type is []byte.
+	Content     string      `json:"content" mapstructure:"content"`
 	ContentType string      `json:"contentType" mapstructure:"contentType"`
 	Headers     http.Header `json:"headers" mapstructure:"headers"`
 	Cookies     []struct {
@@ -104,30 +109,46 @@ type responseMsg struct {
 
 func msgToResp(msg *responseMsg) *crawler.Response {
 	r := &http.Response{
-		Status:     http.StatusText(msg.StatusCode),
 		StatusCode: msg.StatusCode,
 		Proto:      "HTTP/1.0",
 		ProtoMajor: 1,
 		ProtoMinor: 0,
 		Header:     msg.Headers,
 		Request: &http.Request{
-			Method: "GET",
+			Method: msg.RequestMethod,
 		},
 	}
-	if u, err := url.Parse(msg.OriginalURL); err == nil {
-		r.Request.URL = u
-	}
+	r.Status = fmt.Sprintf("%d %s",
+		msg.StatusCode, http.StatusText(msg.StatusCode),
+	)
 	if r.Header == nil {
 		r.Header = http.Header{}
+	}
+	for k, vv := range r.Header {
+		r.Header.Del(k)
+		k = http.CanonicalHeaderKey(k)
+		for _, v := range vv {
+			r.Header.Add(k, v)
+		}
 	}
 	if msg.ContentType != "" {
 		r.Header.Set("Content-Type", msg.ContentType)
 	}
-	return &crawler.Response{
+
+	resp := &crawler.Response{
 		Response: r,
-		Body:     bytes.NewReader(msg.Content),
-		Content:  msg.Content,
+		Body:     strings.NewReader(msg.Content),
+		// TODO: avoid allocation
+		Content: []byte(msg.Content),
 	}
+	if u, err := url.Parse(msg.OriginalURL); err == nil {
+		resp.URL = u
+	}
+	if u, err := url.Parse(msg.NewURL); err == nil {
+		resp.NewURL = u
+		resp.Request.URL = u
+	}
+	return resp
 }
 
 // ElectronConn connects to Electron instance(s) through NATS.
@@ -163,12 +184,12 @@ func NewElectronConn(opt *nats.Options) (ec *ElectronConn, err error) {
 	}
 	if _, err = nc.Subscribe("register", f); err != nil {
 		nc.Close()
-		return
+		return nil, fmt.Errorf("nats: %v", err)
 	}
 
 	if ec.jsonConn, err = nats.NewEncodedConn(nc, "json"); err != nil {
 		nc.Close()
-		return nil, err
+		return nil, fmt.Errorf("nats: %v", err)
 	}
 	return
 }
@@ -177,7 +198,7 @@ func (ec *ElectronConn) Do(req *crawler.Request) (resp *crawler.Response, err er
 	request := reqToMsg(req)
 	var msg responseMsg
 	if err = ec.jsonConn.Request("job", request, &msg, 20*time.Second); err != nil {
-		return
+		return nil, fmt.Errorf("nats: %v", err)
 	}
 	resp = msgToResp(&msg)
 	resp.Context = req.Context

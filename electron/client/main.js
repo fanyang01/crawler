@@ -17,7 +17,7 @@ function Emitter() {
 }
 util.inherits(Emitter, EventEmitter);
 
-const natsURL = process.env.NATS_URL;
+const natsURL = process.env.NATS_URL || NATS.DEFAULT_URI;
 const websocketURL = process.env.WEBSOCKET_URL || 'ws://localhost:8162';
 const connMode = process.env.CONN_MODE || '';
 
@@ -35,16 +35,17 @@ app.on('window-all-closed', function() {
 });
 
 const newNATS = () => {
-  const conn = new Emitter();
-  conn.on('ok', function() {
-    nats.subscribe('job', { 'queue': 'job.workers' }, function(msg, reply) {
-      var request = JSON.parse(msg);
-      handleTask(request, 'nats', reply);
-    });
-  });
+  // const conn = new Emitter();
+  // conn.on('ok', function() {
+  //   nats.subscribe('job', { 'queue': 'job.workers' }, function(msg, reply) {
+  //     var request = JSON.parse(msg);
+  //     handleTask(request, 'nats', reply);
+  //   });
+  // });
 
   nats = NATS.connect({
-    url: natsURL
+    url: natsURL,
+  json: true
   });
   nats.on('error', function(e) {
     console.log(`[nats] error [${nats.options.url}]: ${e}`);
@@ -54,10 +55,13 @@ const newNATS = () => {
     console.log('[nats] closed');
     process.exit(0);
   });
-  nats.request('register', function(response) {
-    console.log('[nats] registered successfully');
-    clientID = response;
-    conn.emit('ok');
+  // nats.request('register', null, {'max': 1}, function(response) {
+  //   console.log('[nats] registered successfully');
+  //   clientID = response;
+  //   conn.emit('ok');
+  // });
+  nats.subscribe('job', { 'queue': 'job.workers' }, function(request, reply) {
+    handleTask(request, 'nats', reply);
   });
 };
 
@@ -164,15 +168,58 @@ const handleTask = (task, from, reply) => {
       break;      
   }
 
+  var respDetail = {}, currentURL = task.url;
+
+  win.webContents.on('did-get-redirect-request', function(
+    event,
+    oldURL,
+    newURL,
+    isMainFrame,
+    httpResponseCode,
+    requestMethod,
+    referrer,
+    headers
+  ) {
+    currentURL = newURL;
+  });
+
+  win.webContents.on('did-get-response-details', function(
+    event,
+    status,
+    newURL,
+    originalURL,
+    httpResponseCode,
+    requestMethod,
+    referer,
+    headers,
+    resourceType
+  ) {
+    if(requestMethod.toUpperCase() !== "GET" || newURL !== currentURL) {
+      return;
+    }
+    respDetail.newURL = newURL;
+    respDetail.originalURL = originalURL;
+    respDetail.statusCode = httpResponseCode;
+    respDetail.requestMethod = requestMethod;
+    respDetail.referer = referer;
+    respDetail.headers = headers;
+    respDetail.contentType = resourceType;
+  });
+
   let eventName = `win-${win.id}-renderer-finish`;
   const finish = function(event, result) {
     if(timer === null)
       return;
     clearTimeout(timer);
     var response = {
+      statusCode: respDetail.statusCode,
+      requestMethod: respDetail.requestMethod,
+      headers: respDetail.headers,
+
       newURL: result.newURL,
       content: result.content,
       contentType: result.contentType,
+
       originalURL: task.url,
       taskID: task.taskID,
       clientID: clientID
@@ -185,7 +232,7 @@ const handleTask = (task, from, reply) => {
         }));
         break;
       case 'nats':
-        nats.publish(reply, JSON.stringify(response));
+        nats.publish(reply, response);
         break;
     }
 
@@ -208,10 +255,7 @@ app.on('ready', function() {
       break;
     case 'WS':
     case 'WEBSOCKET':
-      newWebsocket();
-      break;
-    default:
-      newNATS();
+  default:
       newWebsocket();
       break;
   }
