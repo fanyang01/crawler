@@ -113,7 +113,11 @@ func TestLevel(t *testing.T) {
 }
 
 func TestSQL(t *testing.T) {
-	ss, err := NewSQLStore("postgres", "user=postgres dbname=test sslmode=disable")
+	conn := "user=postgres dbname=test sslmode=disable"
+	if host := os.Getenv("POSTGRES_PORT_5432_TCP_ADDR"); host != "" {
+		conn += " host=" + host
+	}
+	ss, err := NewSQLStore("postgres", conn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,6 +180,19 @@ func BenchmarkLevelPut(b *testing.B) {
 	benchPut(b, ls, "LevelStore")
 }
 
+func BenchmarkSQLPut(b *testing.B) {
+	ss, err := NewSQLStore("postgres", "user=postgres dbname=test sslmode=disable")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer func() {
+		ss.DB.Exec(`DELETE FROM url`)
+		ss.DB.Exec(`DELETE FROM count`)
+		ss.DB.Close()
+	}()
+	benchPut(b, ss, "SQLStore")
+}
+
 func benchGet(b *testing.B, store Store, name string) {
 	parse := func(s string) *url.URL {
 		u, err := url.Parse(s)
@@ -227,4 +244,18 @@ func BenchmarkLevelGet(b *testing.B) {
 	defer os.RemoveAll(tmpdir)
 	b.N = 100
 	benchGet(b, ls, "LevelStore")
+}
+
+func BenchmarkSQLGet(b *testing.B) {
+	ss, err := NewSQLStore("postgres", "user=postgres dbname=test sslmode=disable")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer func() {
+		ss.DB.Exec(`DELETE FROM url`)
+		ss.DB.Exec(`DELETE FROM count`)
+		ss.DB.Close()
+	}()
+	b.N = 500
+	benchGet(b, ss, "SQLStore")
 }
