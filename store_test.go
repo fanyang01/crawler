@@ -7,10 +7,25 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 )
 
 func testStore(t *testing.T, s Store) {
+	equalTime := func(t1, t2 time.Time) bool {
+		return t1.Round(time.Microsecond).Equal(
+			t2.Round(time.Microsecond))
+	}
+	cmp := func(u, uu *URL) bool {
+		return u.Loc.String() == uu.Loc.String() &&
+			u.Depth == uu.Depth &&
+			u.Status == uu.Status &&
+			u.Freq == uu.Freq &&
+			equalTime(u.LastMod, uu.LastMod) &&
+			equalTime(u.LastTime, uu.LastTime) &&
+			u.VisitCount == uu.VisitCount &&
+			u.ErrCount == uu.ErrCount
+	}
 	tm := time.Now().UTC()
 	assert := assert.New(t)
 	u, _ := url.Parse("http://localhost:6060")
@@ -33,20 +48,23 @@ func testStore(t *testing.T, s Store) {
 
 	uuu, err := s.Get(u)
 	assert.NoError(err)
-	assert.Equal(*uu, *uuu)
+	// assert.Equal(*uu, *uuu)
+	assert.True(cmp(uu, uuu))
 
 	uuu.VisitCount++
 	uuu.LastTime = time.Now().UTC()
 	assert.NoError(s.Update(uuu))
 	uu, err = s.Get(u)
 	assert.NoError(err)
-	assert.Equal(*uuu, *uu)
+	// assert.Equal(*uuu, *uu)
+	assert.True(cmp(uu, uuu))
 
 	uu.Status = URLerror
 	assert.NoError(s.Update(uuu))
 	uuu, err = s.Get(u)
 	assert.NoError(err)
-	assert.NotEqual(*uu, *uuu)
+	// assert.NotEqual(*uu, *uuu)
+	assert.False(cmp(uu, uuu))
 
 	ok, err = s.IsFinished()
 	assert.NoError(err)
@@ -92,6 +110,15 @@ func TestLevel(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpdir)
 	testStore(t, ls)
+}
+
+func TestSQL(t *testing.T) {
+	ss, err := NewSQLStore("postgres", "user=postgres dbname=test sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ss.DB.Close()
+	testStore(t, ss)
 }
 
 func TestMemStore(t *testing.T) {

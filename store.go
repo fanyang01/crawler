@@ -653,12 +653,12 @@ CREATE TABLE IF NOT EXISTS url (
 	query TEXT,
 	depth INT,
 	status INT,
-	freq FLOAT64,
+	freq NUMERIC,
 	last_mod TIMESTAMP,
 	last_time TIMESTAMP,
 	visit_count INT,
 	err_count INT,
-	PRIMARY KEYS (scheme, host, path, query)
+	PRIMARY KEY (scheme, host, path, query)
 )`
 	countSchema = `
 CREATE TABLE IF NOT EXISTS count (
@@ -704,8 +704,8 @@ func NewSQLStore(driver, uri string) (s *SQLStore, err error) {
 		return
 	} else if cnt == 0 {
 		_, err = tx.Exec(
-			`INSERT INTO count VALUES(url_count, finish_count, error_count, visit_count)
-			(0, 0, 0, 0)`,
+			`INSERT INTO count(url_count, finish_count, error_count, visit_count)
+			 VALUES (0, 0, 0, 0)`,
 		)
 	}
 	return
@@ -719,7 +719,7 @@ func (s *SQLStore) Get(u *url.URL) (uu *URL, err error) {
 	err = s.DB.QueryRow(
 		`SELECT scheme, host, path, query, depth, status, freq, last_mod, last_time, visit_count, err_count
     	FROM url
-    	WHERE scheme = $1 AND host = $2 AND path = $3 AND raw_query = $4`,
+    	WHERE scheme = $1 AND host = $2 AND path = $3 AND query = $4`,
 		u.Scheme, u.Host, u.Path, u.RawQuery,
 	).Scan(
 		&uu.Loc.Scheme,
@@ -740,7 +740,7 @@ func (s *SQLStore) Get(u *url.URL) (uu *URL, err error) {
 func (s *SQLStore) GetDepth(u *url.URL) (depth int, err error) {
 	err = s.DB.QueryRow(
 		`SELECT depth FROM url
-    	WHERE scheme = $1 AND host = $2 AND path = $3 AND raw_query = $4`,
+    	WHERE scheme = $1 AND host = $2 AND path = $3 AND query = $4`,
 		u.Scheme, u.Host, u.Path, u.RawQuery,
 	).Scan(&depth)
 	return
@@ -750,20 +750,33 @@ func (s *SQLStore) PutNX(u *URL) (ok bool, err error) {
 	if err != nil {
 		return
 	}
+
+	put := false
 	defer func() {
 		if err != nil {
 			tx.Rollback() // TODO: handle error
 		} else {
-			if err = tx.Commit(); err == nil {
+			if err = tx.Commit(); err == nil && put {
 				s.filter.Add(&u.Loc)
 				ok = true
 			}
 		}
 	}()
 
+	var cnt int
+	if err = tx.QueryRow(`
+		SELECT count(*) FROM url
+    	WHERE scheme = $1 AND host = $2 AND path = $3 AND query = $4`,
+		u.Loc.Scheme, u.Loc.Host, u.Loc.Path, u.Loc.RawQuery,
+	).Scan(&cnt); err != nil {
+		return
+	} else if cnt > 0 {
+		return
+	}
+
 	if _, err = tx.Exec(`
-	INSERT INTO url VALUES(scheme, host, path, query, depth, status, freq, last_mod, last_time, visit_count, err_count)
-	($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+	INSERT INTO url(scheme, host, path, query, depth, status, freq, last_mod, last_time, visit_count, err_count)
+	 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		u.Loc.Scheme,
 		u.Loc.Host,
 		u.Loc.Path,
@@ -776,6 +789,7 @@ func (s *SQLStore) PutNX(u *URL) (ok bool, err error) {
 		u.VisitCount,
 		u.ErrCount,
 	); err == nil {
+		put = true
 		_, err = tx.Exec(
 			`UPDATE count SET url_count = url_count + 1`,
 		)
@@ -785,7 +799,7 @@ func (s *SQLStore) PutNX(u *URL) (ok bool, err error) {
 func (s *SQLStore) Update(u *URL) (err error) {
 	_, err = s.DB.Exec(`
 	UPDATE url SET err_count = $1, visit_count = $2, last_time = $3, last_mod = $4
-	WHERE scheme = $5 AND host = $6 AND path = $7 AND raw_query = $8`,
+	WHERE scheme = $5 AND host = $6 AND path = $7 AND query = $8`,
 		u.ErrCount,
 		u.VisitCount,
 		u.LastTime,
@@ -813,7 +827,7 @@ func (s *SQLStore) UpdateStatus(u *url.URL, status int) (err error) {
 
 	if _, err = tx.Exec(`
 	UPDATE url SET status = $1
-	WHERE scheme = $2 AND host = $3 AND path = $4 AND raw_query = $5`,
+	WHERE scheme = $2 AND host = $3 AND path = $4 AND query = $5`,
 		status,
 
 		u.Scheme,

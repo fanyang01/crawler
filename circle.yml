@@ -1,3 +1,7 @@
+database:
+  override:
+    - psql -c 'CREATE DATABASE test;' -U postgres
+
 test:
   pre:
     - go get github.com/mattn/goveralls
