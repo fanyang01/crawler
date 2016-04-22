@@ -45,4 +45,4 @@ build:
         name: go test
         code: |
             # export GODOC_SERVER_ADDR=https://golang.org
-            go test -v -race $(go list ./... | grep -v electron)
+            go test -v -race -cover ./...
