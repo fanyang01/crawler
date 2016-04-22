@@ -1,5 +1,5 @@
-hash: 82c607e99b8e40b9cb538dde7be68b2ac0d565a0966b4f5a65e3fdd2f1c313e0
-updated: 2016-04-22T18:29:27.32835963+08:00
+hash: 1f0414125780f40f4ea61c7c9b351a60109ae147aacc3fd50e38a5ade2e2b12a
+updated: 2016-04-22T19:22:29.663302388+08:00
 imports:
 - name: github.com/andybalholm/cascadia
   version: 3ad29d1ad1c4f2023e355603324348cf1f4b2d48
@@ -85,4 +85,8 @@ imports:
   - encoding/traditionalchinese
   - language
   - internal/tag
+- name: golang.org/x/time
+  version: a4bde12657593d5e90d0533a3e4fd95e635124cb
+  subpackages:
+  - rate
 devImports: []

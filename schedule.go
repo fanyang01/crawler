@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/fanyang01/crawler/queue"
 )
 
 const (
@@ -23,9 +24,9 @@ type scheduler struct {
 	ResIn     chan *Response
 	cw        *Crawler
 
-	prioQueue PQ
-	pqIn      chan<- *SchedItem
-	pqOut     <-chan *SchedItem
+	prioQueue queue.PQ
+	pqIn      chan<- *queue.Item
+	pqOut     <-chan *url.URL
 
 	retry time.Duration // duration between retry
 	once  sync.Once     // used for closing Out
@@ -34,7 +35,7 @@ type scheduler struct {
 
 func (cw *Crawler) newScheduler() *scheduler {
 	nworker := cw.opt.NWorker.Scheduler
-	pq := cw.NewMemQueue(PQueueLen)
+	pq := NewMemQueue(PQueueLen)
 	chIn, chOut := pq.Channel()
 	this := &scheduler{
 		NewIn:     make(chan *url.URL, nworker),
@@ -58,11 +59,11 @@ func (sd *scheduler) cleanup() { close(sd.Out) }
 
 func (sd *scheduler) work() {
 	var (
-		queueIn   chan<- *SchedItem
+		queueIn   chan<- *queue.Item
 		output    chan<- *url.URL
 		u, outURL *url.URL
-		waiting   = make([]*SchedItem, 0, LinkPerPage)
-		next      *SchedItem
+		waiting   = make([]*queue.Item, 0, LinkPerPage)
+		next      *queue.Item
 		outURLs   []*url.URL
 	)
 	for {
@@ -106,13 +107,13 @@ func (sd *scheduler) work() {
 				sd.cw.store.UpdateStatus(u, URLerror)
 				break
 			}
-			waiting = append(waiting, &SchedItem{
+			waiting = append(waiting, &queue.Item{
 				URL:  u,
 				Next: time.Now().Add(sd.retry),
 			})
 			continue
-		case item := <-sd.pqOut:
-			outURLs = append(outURLs, item.URL)
+		case u = <-sd.pqOut:
+			outURLs = append(outURLs, u)
 
 		// Output:
 		case queueIn <- next:
@@ -150,7 +151,7 @@ func (sd *scheduler) stop() {
 	})
 }
 
-func (sd *scheduler) schedURL(u *url.URL, typ int, r *Response) (item *SchedItem, done bool) {
+func (sd *scheduler) schedURL(u *url.URL, typ int, r *Response) (item *queue.Item, done bool) {
 	uu, err := sd.cw.store.Get(u)
 	if err != nil {
 		// TODO
@@ -165,7 +166,7 @@ func (sd *scheduler) schedURL(u *url.URL, typ int, r *Response) (item *SchedItem
 	}
 
 	minTime := uu.LastTime.Add(sd.cw.opt.MinDelay)
-	item = &SchedItem{
+	item = &queue.Item{
 		URL: u,
 	}
 	if done, item.Next, item.Score = sd.cw.ctrl.Schedule(uu, typ, nil); done {

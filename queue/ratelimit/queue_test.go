@@ -1,4 +1,4 @@
-package crawler
+package ratelimitq
 
 import (
 	"net/url"
@@ -26,20 +26,8 @@ func mustParseInt(s string) int {
 	return int(i)
 }
 
-func newTestCrawler() *Crawler {
-	opt := DefaultOption
-	store := NewMemStore()
-	ctrl := DefaultController
-	cw := &Crawler{
-		opt:   opt,
-		store: store,
-		ctrl:  ctrl,
-	}
-	return cw
-}
-
-func TestQueuePriority(t *testing.T) {
-	pq := NewMemQueue(100)
+func TestPriority(t *testing.T) {
+	pq := NewRateLimit(100, nil)
 	now := time.Now()
 	pq.Push(&queue.Item{
 		Score: 300,
@@ -65,8 +53,8 @@ func TestQueuePriority(t *testing.T) {
 	assert.Equal(t, "/100", u.Path)
 }
 
-func TestQueueTime(t *testing.T) {
-	wq := NewMemQueue(100)
+func TestTime(t *testing.T) {
+	wq := NewRateLimit(100, nil)
 	now := time.Now()
 	items := []*queue.Item{
 		{
@@ -87,6 +75,49 @@ func TestQueueTime(t *testing.T) {
 		"/25",
 		"/50",
 		"/75",
+		"/100",
+	}
+	for _, item := range items {
+		wq.Push(item)
+	}
+	for i := 0; i < len(items); i++ {
+		u := wq.Pop()
+		assert.Equal(t, exp[i], u.Path)
+	}
+}
+
+func TestRateLimit(t *testing.T) {
+	f := func(host string) time.Duration {
+		switch host {
+		case "a.example.com":
+			return 50 * time.Millisecond
+		case "b.example.com":
+			return 25 * time.Millisecond
+		default:
+			return 0
+		}
+	}
+	wq := NewRateLimit(100, f)
+	now := time.Now()
+	items := []*queue.Item{
+		{
+			Next: now.Add(25 * time.Millisecond),
+			URL:  mustParseURL("http://a.example.com/25"),
+		}, {
+			Next: now.Add(50 * time.Millisecond),
+			URL:  mustParseURL("http://a.example.com/50"),
+		}, {
+			Next: now.Add(60 * time.Millisecond),
+			URL:  mustParseURL("http://b.example.com/60"),
+		}, {
+			Next: now.Add(100 * time.Millisecond),
+			URL:  mustParseURL("http://b.example.com/100"),
+		},
+	}
+	exp := []string{
+		"/25",
+		"/60",
+		"/50",
 		"/100",
 	}
 	for _, item := range items {

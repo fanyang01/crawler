@@ -5,75 +5,16 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/fanyang01/crawler/queue"
 )
 
-// PQ is priority queue, using SchedItem.Next and SchedItem.Score as
-// compound priority. It can be operated in two modes: channel mode and
-// method mode, but only one mode can be used for a single instance.
-type PQ interface {
-	// Channel returns a pair of channel for push and pop operations.
-	Channel() (push chan<- *SchedItem, pop <-chan *SchedItem)
-	// Push inserts an item into queue.
-	Push(*SchedItem)
-	// Pop removes an item from queue.
-	Pop() *SchedItem
-	// Close closes queue.
-	Close()
-}
-
-type SchedItem struct {
-	URL   *url.URL
-	Next  time.Time
-	Score int
-}
-
-type primaryItem struct {
-	Host       string
-	Last, Next time.Time
-	secondary  *secondaryHeap
-}
-
-type primaryHeap struct {
-	M map[string]*secondaryEntry
-	S []*primaryItem
-}
-
-func (q *primaryHeap) Less(i, j int) bool { return q.S[i].Next.Before(q.S[j].Next) }
-func (q *primaryHeap) Top() *primaryItem  { return q.S[0] }
-func (q *primaryHeap) Len() int           { return len(q.S) }
-func (q *primaryHeap) Swap(i, j int) {
-	hi, hj := q.S[i].Host, q.S[j].Host
-	q.M[hi].idx, q.M[hj].idx = j, i
-	q.S[i], q.S[j] = q.S[j], q.S[i]
-}
-func (q *primaryHeap) Push(x interface{}) {
-	it := x.(*primaryItem)
-	h := &secondaryHeap{}
-	it.secondary = h
-	q.M[it.Host] = &secondaryEntry{
-		idx: len(q.S), secondary: h,
-	}
-	q.S = append(q.S, it)
-}
-func (q *primaryHeap) Pop() interface{} {
-	n := len(q.S)
-	it := q.S[n-1]
-	q.S = q.S[0 : n-1]
-	delete(q.M, it.Host)
-	return it
-}
-
-type secondaryEntry struct {
-	idx       int
-	secondary *secondaryHeap
-}
-
-type secondaryHeap struct {
-	S []*SchedItem
+type baseHeap struct {
+	S []*queue.Item
 }
 
 // Less compares compound priority of items.
-func (q *secondaryHeap) Less(i, j int) bool {
+func (q *baseHeap) Less(i, j int) bool {
 	if q.S[i].Next.Before(q.S[j].Next) {
 		return true
 	}
@@ -85,11 +26,11 @@ func (q *secondaryHeap) Less(i, j int) bool {
 	// ti = tj
 	return q.S[i].Score > q.S[j].Score
 }
-func (q *secondaryHeap) Top() *SchedItem    { return q.S[0] }
-func (q *secondaryHeap) Len() int           { return len(q.S) }
-func (q *secondaryHeap) Swap(i, j int)      { q.S[i], q.S[j] = q.S[j], q.S[i] }
-func (q *secondaryHeap) Push(x interface{}) { q.S = append(q.S, x.(*SchedItem)) }
-func (q *secondaryHeap) Pop() interface{} {
+func (q *baseHeap) Top() *queue.Item   { return q.S[0] }
+func (q *baseHeap) Len() int           { return len(q.S) }
+func (q *baseHeap) Swap(i, j int)      { q.S[i], q.S[j] = q.S[j], q.S[i] }
+func (q *baseHeap) Push(x interface{}) { q.S = append(q.S, x.(*queue.Item)) }
+func (q *baseHeap) Pop() interface{} {
 	n := len(q.S)
 	v := q.S[n-1]
 	q.S = q.S[0 : n-1]
@@ -97,117 +38,83 @@ func (q *secondaryHeap) Pop() interface{} {
 }
 
 type MemQueue struct {
-	primary           primaryHeap
-	maxLen            int
-	closed            bool
-	chIn, chOut       chan *SchedItem
-	popCond, pushCond *sync.Cond
-	timer             *time.Timer
-	quit              chan struct{}
-	cw                *Crawler
-	*sync.Mutex
+	mu       sync.Mutex
+	popCond  *sync.Cond
+	pushCond *sync.Cond
+	timer    *time.Timer
+
+	chIn   chan *queue.Item
+	chOut  chan *url.URL
+	closed bool
+
+	heap baseHeap
+	max  int
 }
 
-func (cw *Crawler) NewMemQueue(maxLen int) *MemQueue {
+func NewMemQueue(max int) *MemQueue {
 	q := &MemQueue{
-		primary: primaryHeap{
-			M: make(map[string]*secondaryEntry),
-		},
-		maxLen: maxLen,
-		Mutex:  new(sync.Mutex),
-		cw:     cw,
+		max: max,
 	}
-	q.popCond = sync.NewCond(q.Mutex)
-	q.pushCond = sync.NewCond(q.Mutex)
+	q.popCond = sync.NewCond(&q.mu)
+	q.pushCond = sync.NewCond(&q.mu)
 	return q
 }
 
-func (q *MemQueue) Channel() (push chan<- *SchedItem, pop <-chan *SchedItem) {
-	q.Lock()
-	defer q.Unlock()
+func (q *MemQueue) Channel() (push chan<- *queue.Item, pop <-chan *url.URL) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
 
 	if q.chIn != nil && q.chOut != nil {
 		return q.chIn, q.chOut
 	}
 
-	q.chIn = make(chan *SchedItem, 32)
+	q.chIn = make(chan *queue.Item, 32)
 	// Small output buffer size means that we pop an item only when it's requested.
-	q.chOut = make(chan *SchedItem, 1)
+	q.chOut = make(chan *url.URL, 1)
 	go func() {
-		for {
-			select {
-			case item := <-q.chIn:
-				q.Push(item)
-			case <-q.quit:
-				return
-			}
+		for item := range q.chIn {
+			q.Push(item)
 		}
 	}()
 	go func() {
 		for {
-			if item := q.Pop(); item != nil {
-				q.chOut <- item
+			if url := q.Pop(); url != nil {
+				q.chOut <- url
 				continue
 			}
+			// close(q.chOut)
 			return
 		}
 	}()
 	return q.chIn, q.chOut
 }
 
-func maxTime(a, b time.Time) time.Time {
-	if a.After(b) {
-		return a
-	}
-	return b
-}
+func (q *MemQueue) Push(item *queue.Item) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
 
-func (q *MemQueue) getSecondary(u *url.URL) *secondaryHeap {
-	host := u.Host
-	if v, ok := q.primary.M[host]; ok {
-		return v.secondary
-	}
-	heap.Push(&q.primary, &primaryItem{
-		Host: host,
-	})
-	return q.primary.M[host].secondary
-}
-
-func (q *MemQueue) updatePrimary(host string, d time.Duration) {
-	v := q.primary.M[host]
-	item := q.primary.S[v.idx]
-	item.Next = maxTime(item.Last.Add(d), v.secondary.Top().Next)
-	heap.Fix(&q.primary, v.idx)
-}
-
-func (q *MemQueue) Push(item *SchedItem) {
-	q.Lock()
-	defer q.Unlock()
-	for !q.closed && q.primary.Len() >= q.maxLen {
+	for !q.closed && q.heap.Len() >= q.max {
 		q.pushCond.Wait()
 	}
 	if q.closed {
 		return
 	}
 
-	host := item.URL.Host
-	h := q.getSecondary(item.URL)
-	heap.Push(h, item)
-	q.updatePrimary(host, q.cw.ctrl.Interval(host))
+	heap.Push(&q.heap, item)
 	q.popCond.Signal()
 }
 
 // Pop will block if heap is empty or none of items should be removed at now.
-func (q *MemQueue) Pop() *SchedItem {
-	q.Lock()
-	defer q.Unlock()
+func (q *MemQueue) Pop() *url.URL {
+	q.mu.Lock()
+	defer q.mu.Unlock()
 
 	var now time.Time
-	var pi *primaryItem
+	var item *queue.Item
 	wait := false
 
 WAIT:
-	for !q.closed && (q.primary.Len() == 0 || wait) {
+	for !q.closed && (q.heap.Len() == 0 || wait) {
 		q.popCond.Wait()
 		wait = false
 	}
@@ -215,45 +122,32 @@ WAIT:
 		return nil
 	}
 
-	pi = q.primary.Top()
+	item = q.heap.Top()
 	now = time.Now()
 
-	for pi.Next.Before(now) {
-		host := pi.Host
-		h := pi.secondary
-		si := h.Top()
-		interval := q.cw.ctrl.Interval(si.URL.Host)
-
-		if si.Next.Before(now) {
-			heap.Pop(h)
-			if h.Len() == 0 {
-				heap.Pop(&q.primary)
-			} else {
-				pi.Last = now
-				q.updatePrimary(host, interval)
-			}
-			q.pushCond.Signal()
-			return si
-		}
-		q.updatePrimary(host, interval)
-		pi = q.primary.Top()
+	if item.Next.Before(now) {
+		heap.Pop(&q.heap)
+		q.pushCond.Signal()
+		return item.URL
 	}
 
 	if q.timer != nil {
 		q.timer.Stop()
 	}
-	q.timer = time.AfterFunc(pi.Next.Sub(now), func() {
-		q.Lock()
+	q.timer = time.AfterFunc(item.Next.Sub(now), func() {
+		q.mu.Lock()
+		q.timer = nil
 		q.popCond.Signal()
-		q.Unlock()
+		q.mu.Unlock()
 	})
 	wait = true
 	goto WAIT
 }
 
 func (q *MemQueue) Close() {
-	q.Lock()
-	defer q.Unlock()
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
 	q.closed = true
 	q.popCond.Broadcast()
 	q.pushCond.Broadcast()
