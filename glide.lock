@@ -1,12 +1,22 @@
-hash: 8a32c0d3a88c81400d3fdc304086281f2c9daaf77e85c7e4d67ffa9008c356cf
-updated: 2016-04-13T00:17:40.726587721+08:00
+hash: 82c607e99b8e40b9cb538dde7be68b2ac0d565a0966b4f5a65e3fdd2f1c313e0
+updated: 2016-04-22T18:29:27.32835963+08:00
 imports:
 - name: github.com/andybalholm/cascadia
   version: 3ad29d1ad1c4f2023e355603324348cf1f4b2d48
-- name: github.com/fanyang01/glob
-  version: 8f080cc69b2f8cc44838425c0834b3096a41a4f1
+- name: github.com/boltdb/bolt
+  version: 144418e1475d8bf7abbdc48583500f1a20c62ea7
+- name: github.com/fanyang01/radix
+  version: e1747dd9eeac7d825ec35e8aa135f5413c2b2763
+- name: github.com/golang/snappy
+  version: 774a97396f7bfa4165e9dcf4bfa0747ea3edcc02
 - name: github.com/gorilla/websocket
-  version: e2e3d8414d0fbae04004f151979f4e27c6747fe7
+  version: 6b3d49710be714c8355967d41b95295d4928cf54
+- name: github.com/mailru/easyjson
+  version: b2fbb7de8243289ab7bb7224b7da9755ddf7a79d
+  subpackages:
+  - jlexer
+  - jwriter
+  - buffer
 - name: github.com/mfonda/simhash
   version: 79f94a1100d6da8bee6f6c253efc860a137a3186
 - name: github.com/mitchellh/mapstructure
@@ -20,26 +30,44 @@ imports:
 - name: github.com/PuerkitoBio/goquery
   version: 2e29ea41f0d13f4a303c75553f4eeadddc7a4c56
 - name: github.com/Sirupsen/logrus
-  version: 4b6ea7319e214d98c938f12692336f7ca9348d6b
+  version: 081307d9bc1364753142d5962fc1d795c742baaf
 - name: github.com/stretchr/testify
-  version: 0744955171b0b6e1871ff9d7366abc2b7a7fcec0
+  version: c5d7a69bf8a2c9c374798160849c071093e41dd1
   subpackages:
   - assert
+- name: github.com/syndtr/goleveldb
+  version: 93fc893f2dadb96ffde441c7546cc67ea290a3a8
+  subpackages:
+  - leveldb
+  - leveldb/opt
+  - leveldb/cache
+  - leveldb/comparer
+  - leveldb/errors
+  - leveldb/filter
+  - leveldb/iterator
+  - leveldb/journal
+  - leveldb/memdb
+  - leveldb/storage
+  - leveldb/table
+  - leveldb/util
 - name: github.com/temoto/robotstxt-go
   version: b8a039be43ce65409fe54b4bc09f2ae8a3925a54
+- name: github.com/tylertreat/BoomFilters
+  version: ae0b9585d4b87b2fe0b49ee09270abae7aaad179
 - name: golang.org/x/net
-  version: 589fda73dd0faec3dc59e7d7dab5b069e3fce0f9
+  version: 815d315ead425c4365077d904a2331ee9e179820
   subpackages:
   - html
   - proxy
   - html/charset
+  - context
   - html/atom
 - name: golang.org/x/sys
-  version: 9eef40adf05b951699605195b829612bd7b69952
+  version: f64b50fbea64174967a8882830d621a18ee1548e
   subpackages:
   - unix
 - name: golang.org/x/text
-  version: 5ee49cfe751141f8017047bab800d1f528ee3be1
+  version: 3100578f0f8093e37883ba48c9187fe51367ad05
   subpackages:
   - encoding
   - encoding/simplifiedchinese

@@ -1,4 +1,4 @@
-package crawler
+package bloom
 
 import (
 	"io"
@@ -15,34 +15,33 @@ type PBF interface {
 	WriteTo(io.Writer) (int64, error)
 }
 
-type BloomFilter struct {
-	Store
+type Filter struct {
 	filter PBF
 	host   map[string]struct{}
 	mu     sync.RWMutex
 }
 
-func NewBloomFilter(size int, rateFP float64) *BloomFilter {
+func NewFilter(size int, rateFP float64) *Filter {
 	var ft PBF
 	if size <= 0 {
 		ft = boom.NewDefaultScalableBloomFilter(rateFP)
 	} else {
 		ft = boom.NewPartitionedBloomFilter(uint(size), rateFP)
 	}
-	return &BloomFilter{
+	return &Filter{
 		filter: ft,
 		host:   make(map[string]struct{}),
 	}
 }
 
-func NewBloomFilterWith(filter PBF) *BloomFilter {
-	return &BloomFilter{
+func NewFilterWith(filter PBF) *Filter {
+	return &Filter{
 		filter: filter,
 		host:   make(map[string]struct{}),
 	}
 }
 
-func (b *BloomFilter) Add(u *url.URL) (exist bool) {
+func (b *Filter) Add(u *url.URL) (exist bool) {
 	host := u.Host
 	us := []byte(u.String())
 	b.mu.Lock()
@@ -53,7 +52,7 @@ func (b *BloomFilter) Add(u *url.URL) (exist bool) {
 	return ok && exist
 }
 
-func (b *BloomFilter) Exist(u *url.URL) bool {
+func (b *Filter) Exist(u *url.URL) bool {
 	host := u.Host
 	us := []byte(u.String())
 	b.mu.RLock()
@@ -63,13 +62,13 @@ func (b *BloomFilter) Exist(u *url.URL) bool {
 	return ok && exist
 }
 
-func (b *BloomFilter) ReadFrom(r io.Reader) (int64, error) {
+func (b *Filter) ReadFrom(r io.Reader) (int64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.filter.ReadFrom(r)
 }
 
-func (b *BloomFilter) WriteTo(w io.Writer) (int64, error) {
+func (b *Filter) WriteTo(w io.Writer) (int64, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.filter.WriteTo(w)

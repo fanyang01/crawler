@@ -2,6 +2,7 @@ package util
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -91,4 +92,15 @@ func DumpReader(r io.Reader, n int) (reader []io.Reader, done <-chan struct{}) {
 		}
 	}()
 	return reader, ch
+}
+
+func I64tob(i int64) []byte {
+	b := make([]byte, 8)
+	binary.PutVarint(b, i)
+	return b
+}
+
+func Btoi64(b []byte) int64 {
+	i, _ := binary.Varint(b)
+	return i
 }
