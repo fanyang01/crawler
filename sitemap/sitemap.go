@@ -1,3 +1,4 @@
+// Package sitemap provides method to unmarshal sitemaps in XML format.
 package sitemap
 
 import (

@@ -24,7 +24,7 @@ type scheduler struct {
 	ResIn     chan *Response
 	cw        *Crawler
 
-	prioQueue queue.PQ
+	prioQueue queue.WaitQueue
 	pqIn      chan<- *queue.Item
 	pqOut     <-chan *url.URL
 

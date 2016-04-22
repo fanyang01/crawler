@@ -1,3 +1,4 @@
+// Package ratelimit implements a rate limiter for crawler.
 package ratelimit
 
 import (

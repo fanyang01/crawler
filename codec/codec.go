@@ -1,3 +1,4 @@
+// Package codec provides codecs to do encoding and decoding.
 package codec
 
 import (
@@ -6,14 +7,17 @@ import (
 	"encoding/json"
 )
 
+// Codec defines the interface that a codec should implement.
 type Codec interface {
 	Marshal(interface{}) ([]byte, error)
 	Unmarshal([]byte, interface{}) error
 }
 
 var (
+	// JSON is a codec using the standard encoding/json package.
 	JSON = jsonCodec{}
-	Gob  = gobCodec{}
+	// Gob is a codec using the standard encoding/gob package.
+	Gob = gobCodec{}
 )
 
 type jsonCodec struct{}

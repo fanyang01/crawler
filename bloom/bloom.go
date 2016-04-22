@@ -1,3 +1,4 @@
+// Package bloom uses bloom filter to record URLs.
 package bloom
 
 import (

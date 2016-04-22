@@ -1,3 +1,4 @@
+// Package electron provides connections to Electron instances.
 package electron
 
 import (
