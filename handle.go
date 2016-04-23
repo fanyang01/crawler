@@ -9,7 +9,6 @@ import (
 	"golang.org/x/net/html/charset"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/Sirupsen/logrus"
 	"github.com/fanyang01/crawler/util"
 )
 
@@ -58,7 +57,7 @@ func (h *handler) handle(r *Response) {
 	if !certain && name == "windows-1252" {
 		label := h.cw.ctrl.Charset(r.URL)
 		if e, name = charset.Lookup(label); e == nil {
-			logrus.Warn("unsupported charset:", label)
+			log.Warn("unsupported charset:", label)
 		} else {
 			certain = true
 		}
@@ -70,7 +69,7 @@ func (h *handler) handle(r *Response) {
 
 	depth, err := h.cw.store.GetDepth(r.URL)
 	if err != nil {
-		logrus.Error(err)
+		log.Error(err)
 		return
 	}
 

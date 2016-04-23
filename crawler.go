@@ -11,15 +11,12 @@ import (
 	"github.com/Sirupsen/logrus"
 )
 
-var (
-	DefaultController = NopController{}
-)
-
 // Crawler crawls web pages.
 type Crawler struct {
 	ctrl  Controller
-	opt   *Option
 	store Store
+	opt   *Option
+	log   *logrus.Logger
 
 	maker     *maker
 	fetcher   *fetcher
@@ -32,21 +29,48 @@ type Crawler struct {
 	tmpfile *os.File
 }
 
+type Config struct {
+	Controller Controller
+	Store      Store
+	Logger     *logrus.Logger
+	Option     *Option
+}
+
+var (
+	DefaultController = NopController{}
+	defaultConfig     = &Config{}
+	log               *logrus.Logger
+)
+
+func initConfig(cfg *Config) *Config {
+	if cfg == nil {
+		cfg = defaultConfig
+	}
+	if cfg.Option == nil {
+		cfg.Option = DefaultOption
+	}
+	if cfg.Store == nil {
+		cfg.Store = NewMemStore()
+	}
+	if cfg.Controller == nil {
+		cfg.Controller = DefaultController
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = logrus.StandardLogger()
+	}
+	return cfg
+}
+
 // NewCrawler creates a new crawler.
-func NewCrawler(opt *Option, store Store, ctrl Controller) *Crawler {
-	if opt == nil {
-		opt = DefaultOption
-	}
-	if store == nil {
-		store = NewMemStore()
-	}
-	if ctrl == nil {
-		ctrl = DefaultController
-	}
+func NewCrawler(cfg *Config) *Crawler {
+	cfg = initConfig(cfg)
+	log = cfg.Logger
+
 	cw := &Crawler{
-		opt:   opt,
-		store: store,
-		ctrl:  ctrl,
+		opt:   cfg.Option,
+		store: cfg.Store,
+		ctrl:  cfg.Controller,
+		log:   cfg.Logger,
 		quit:  make(chan struct{}),
 	}
 
@@ -104,6 +128,8 @@ func (cw *Crawler) recover() (n int, err error) {
 	if err != nil {
 		return
 	}
+	cw.tmpfile = tmpfile
+
 	w := bufio.NewWriter(tmpfile)
 	if n, err = ps.Recover(w); err != nil {
 		return
@@ -112,20 +138,19 @@ func (cw *Crawler) recover() (n int, err error) {
 	if _, err = tmpfile.Seek(0, 0); err != nil {
 		return
 	}
-	cw.tmpfile = tmpfile
 	go func() {
 		scanner := bufio.NewScanner(tmpfile)
 		for scanner.Scan() {
 			u, err := url.Parse(scanner.Text())
 			if err != nil {
-				logrus.Error(err)
+				log.Error(err)
 				continue
 			}
 			// TODO
 			cw.scheduler.RecoverIn <- u
 		}
 		if err := scanner.Err(); err != nil {
-			logrus.Error(err)
+			log.Error(err)
 		}
 		return
 	}()
@@ -182,4 +207,8 @@ func (cw *Crawler) Enqueue(urls ...string) error {
 func (cw *Crawler) Stop() {
 	close(cw.quit)
 	cw.wg.Wait()
+
+	if cw.tmpfile != nil {
+		os.Remove(cw.tmpfile.Name())
+	}
 }

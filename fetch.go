@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/net/html"
-
 	"github.com/Sirupsen/logrus"
+
+	"golang.org/x/net/html"
 )
 
 var (
@@ -45,7 +45,7 @@ func (fc *fetcher) cleanup() { close(fc.Out) }
 
 func (fc *fetcher) work() {
 	for req := range fc.In {
-		ctx := logrus.WithFields(logrus.Fields{
+		ctx := log.WithFields(logrus.Fields{
 			"worker": "fetcher",
 			"URL":    req.URL.String(),
 		})

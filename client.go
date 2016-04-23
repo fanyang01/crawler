@@ -102,7 +102,7 @@ func (c *StdClient) Do(req *Request) (resp *Response, err error) {
 		c.Cache.Set(resp)
 	}
 
-	logrus.WithFields(logrus.Fields{
+	log.WithFields(logrus.Fields{
 		"func": "StdClient.Do",
 		"url":  req.URL.String(),
 	}).Infoln(req.Method + " " + resp.Status)

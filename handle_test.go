@@ -24,7 +24,7 @@ func (c *handleTestCtrl) Handle(r *Response) []*Link {
 
 func TestHandler(t *testing.T) {
 	ctrl := &handleTestCtrl{}
-	cw := NewCrawler(nil, nil, ctrl)
+	cw := NewCrawler(&Config{Controller: ctrl})
 	handler := cw.handler
 	rs := []*Response{
 		{

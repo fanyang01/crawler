@@ -39,16 +39,16 @@ func TestAll(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	ctl := &testController{
+	ctrl := &testController{
 		text:  make(chan string, 2),
 		value: make(chan []string, 2),
 	}
 
-	cw := NewCrawler(nil, nil, ctl)
+	cw := NewCrawler(&Config{Controller: ctrl})
 	assert.Nil(cw.Crawl(ts.URL))
 	cw.Wait()
-	assert.Equal("bar", <-ctl.text)
-	vs := <-ctl.value
+	assert.Equal("bar", <-ctrl.text)
+	vs := <-ctrl.value
 	assert.Equal(1, len(vs))
 	assert.Equal("value", vs[0])
 

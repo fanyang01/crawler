@@ -6,8 +6,6 @@ import (
 	"strings"
 
 	"golang.org/x/net/context"
-
-	"github.com/Sirupsen/logrus"
 )
 
 type maker struct {
@@ -49,7 +47,7 @@ func (rm *maker) work() {
 	for u := range rm.In {
 		req, err := rm.newRequest(u)
 		if err != nil {
-			logrus.Errorf("make request: %v", err)
+			log.Errorf("make request: %v", err)
 			continue
 		}
 		select {

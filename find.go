@@ -3,8 +3,6 @@ package crawler
 import (
 	"io"
 
-	"github.com/Sirupsen/logrus"
-
 	"golang.org/x/net/html"
 )
 
@@ -15,7 +13,7 @@ func (f *handler) find(r *Response, reader io.Reader, done chan<- struct{}) {
 
 	depth, err := f.cw.store.GetDepth(r.URL)
 	if err != nil {
-		logrus.Error(err)
+		log.Error(err)
 		return
 	}
 	// Treat the new url as one found under the original url
@@ -39,7 +37,7 @@ func (f *handler) filter(resp *Response, link *Link) {
 	if f.cw.ctrl.Accept(resp, link) {
 		// only handle new link
 		if ok, err := f.cw.store.Exist(link.URL); err != nil {
-			logrus.Error(err)
+			log.Error(err)
 			return
 		} else if ok {
 			return
@@ -48,7 +46,7 @@ func (f *handler) filter(resp *Response, link *Link) {
 			Loc:   *link.URL,
 			Depth: link.Depth,
 		}); err != nil {
-			logrus.Error(err)
+			log.Error(err)
 			return
 		} else if ok {
 			resp.links = append(resp.links, link)
@@ -68,7 +66,7 @@ LOOP:
 		switch tt {
 		case html.ErrorToken:
 			if z.Err() != io.EOF {
-				logrus.Errorf("find link: %v", z.Err())
+				log.Errorf("find link: %v", z.Err())
 			}
 			break LOOP
 		case html.StartTagToken:

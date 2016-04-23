@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/fanyang01/crawler/queue"
 )
 
@@ -135,7 +134,7 @@ func (sd *scheduler) work() {
 			return
 		}
 		if is, err := sd.cw.store.IsFinished(); err != nil {
-			logrus.Error(err)
+			log.Error(err)
 			return
 		} else if is {
 			sd.stop()
