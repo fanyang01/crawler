@@ -9,34 +9,6 @@ import (
 	"github.com/fanyang01/crawler/queue"
 )
 
-type baseHeap struct {
-	S []*queue.Item
-}
-
-// Less compares compound priority of items.
-func (q *baseHeap) Less(i, j int) bool {
-	if q.S[i].Next.Before(q.S[j].Next) {
-		return true
-	}
-	ti := q.S[i].Next.Round(time.Microsecond)
-	tj := q.S[j].Next.Round(time.Microsecond)
-	if ti.After(tj) {
-		return false
-	}
-	// ti = tj
-	return q.S[i].Score > q.S[j].Score
-}
-func (q *baseHeap) Top() *queue.Item   { return q.S[0] }
-func (q *baseHeap) Len() int           { return len(q.S) }
-func (q *baseHeap) Swap(i, j int)      { q.S[i], q.S[j] = q.S[j], q.S[i] }
-func (q *baseHeap) Push(x interface{}) { q.S = append(q.S, x.(*queue.Item)) }
-func (q *baseHeap) Pop() interface{} {
-	n := len(q.S)
-	v := q.S[n-1]
-	q.S = q.S[0 : n-1]
-	return v
-}
-
 type MemQueue struct {
 	mu       sync.Mutex
 	popCond  *sync.Cond
@@ -47,7 +19,7 @@ type MemQueue struct {
 	chOut  chan *url.URL
 	closed bool
 
-	heap baseHeap
+	heap queue.Heap
 	max  int
 }
 
