@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fanyang01/crawler/bktree"
-	"github.com/fanyang01/crawler/fingerprint"
+	"github.com/fanyang01/crawler/sim/bktree"
+	"github.com/fanyang01/crawler/sim/fingerprint"
 )
 
 type FreeList struct {
