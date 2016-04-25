@@ -1,3 +1,4 @@
+// Package ratelimitq provides a strict host-based rate limit queue.
 package ratelimitq
 
 import (
@@ -116,12 +117,12 @@ func NewRateLimit(maxHost int, limit func(host string) time.Duration) *RateLimit
 	return q
 }
 
-func (q *RateLimitQueue) Channel() (push chan<- *queue.Item, pop <-chan *url.URL) {
+func (q *RateLimitQueue) Channel() (chan<- *queue.Item, <-chan *url.URL, <-chan error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	if q.chIn != nil && q.chOut != nil {
-		return q.chIn, q.chOut
+		return q.chIn, q.chOut, nil
 	}
 
 	q.chIn = make(chan *queue.Item, 32)
@@ -134,15 +135,15 @@ func (q *RateLimitQueue) Channel() (push chan<- *queue.Item, pop <-chan *url.URL
 	}()
 	go func() {
 		for {
-			if url := q.Pop(); url != nil {
+			if url, _ := q.Pop(); url != nil {
 				q.chOut <- url
 				continue
 			}
-			// close(q.chOut)
+			close(q.chOut)
 			return
 		}
 	}()
-	return q.chIn, q.chOut
+	return q.chIn, q.chOut, nil
 }
 
 func maxTime(a, b time.Time) time.Time {
@@ -174,7 +175,7 @@ func (q *RateLimitQueue) updatePrimary(host string, d time.Duration) {
 	heap.Fix(&q.primary, v.idx)
 }
 
-func (q *RateLimitQueue) Push(item *queue.Item) {
+func (q *RateLimitQueue) Push(item *queue.Item) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -182,7 +183,7 @@ func (q *RateLimitQueue) Push(item *queue.Item) {
 		q.pushCond.Wait()
 	}
 	if q.closed {
-		return
+		return queue.ErrPushClosed
 	}
 
 	host := item.URL.Host
@@ -190,10 +191,12 @@ func (q *RateLimitQueue) Push(item *queue.Item) {
 	heap.Push(h, item)
 	q.updatePrimary(host, q.interval(host))
 	q.popCond.Signal()
+	return nil
 }
 
 // Pop will block if heap is empty or none of items should be removed at now.
-func (q *RateLimitQueue) Pop() *url.URL {
+// It will return nil without error if the queue is closed.
+func (q *RateLimitQueue) Pop() (u *url.URL, _ error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -207,7 +210,7 @@ WAIT:
 		wait = false
 	}
 	if q.closed {
-		return nil
+		return
 	}
 
 	pi = q.primary.Top()
@@ -226,8 +229,10 @@ WAIT:
 			pi.Last = now
 			q.updatePrimary(host, interval)
 		}
+		u = si.URL
+		si.Free()
 		q.pushCond.Signal()
-		return si.URL
+		return
 	}
 
 	if q.timer != nil {
@@ -242,11 +247,13 @@ WAIT:
 	goto WAIT
 }
 
-func (q *RateLimitQueue) Close() {
+func (q *RateLimitQueue) Close() error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	q.closed = true
 	q.popCond.Broadcast()
 	q.pushCond.Broadcast()
+	close(q.chIn)
+	return nil
 }

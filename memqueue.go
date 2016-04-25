@@ -9,20 +9,21 @@ import (
 	"github.com/fanyang01/crawler/queue"
 )
 
+// MemQueue represents a bounded blocking wait queue.
 type MemQueue struct {
 	mu       sync.Mutex
 	popCond  *sync.Cond
 	pushCond *sync.Cond
 	timer    *time.Timer
-
-	chIn   chan *queue.Item
-	chOut  chan *url.URL
-	closed bool
+	chIn     chan *queue.Item
+	chOut    chan *url.URL
+	closed   bool
 
 	heap queue.Heap
 	max  int
 }
 
+// NewMemQueue returns a new wait queue that holds at most max items.
 func NewMemQueue(max int) *MemQueue {
 	q := &MemQueue{
 		max: max,
@@ -32,14 +33,17 @@ func NewMemQueue(max int) *MemQueue {
 	return q
 }
 
-func (q *MemQueue) Channel() (push chan<- *queue.Item, pop <-chan *url.URL) {
+// Channel creates channels which are expected to be used in select statement.
+// The returned error channel is always nil.
+func (q *MemQueue) Channel() (push chan<- *queue.Item, pop <-chan *url.URL, err <-chan error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	if q.chIn != nil && q.chOut != nil {
-		return q.chIn, q.chOut
+	if q.chIn != nil {
+		return q.chIn, q.chOut, nil
 	}
 
+	err = nil // Memory queue will never get an error.
 	q.chIn = make(chan *queue.Item, 32)
 	// Small output buffer size means that we pop an item only when it's requested.
 	q.chOut = make(chan *url.URL, 1)
@@ -50,18 +54,20 @@ func (q *MemQueue) Channel() (push chan<- *queue.Item, pop <-chan *url.URL) {
 	}()
 	go func() {
 		for {
-			if url := q.Pop(); url != nil {
+			if url, _ := q.Pop(); url != nil {
 				q.chOut <- url
 				continue
 			}
-			// close(q.chOut)
+			close(q.chOut)
 			return
 		}
 	}()
-	return q.chIn, q.chOut
+	return q.chIn, q.chOut, nil
 }
 
-func (q *MemQueue) Push(item *queue.Item) {
+// Push will block until there is a room for the item. An error will be
+// reported if the queue is closed.
+func (q *MemQueue) Push(item *queue.Item) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -69,15 +75,17 @@ func (q *MemQueue) Push(item *queue.Item) {
 		q.pushCond.Wait()
 	}
 	if q.closed {
-		return
+		return queue.ErrPushClosed
 	}
 
 	heap.Push(&q.heap, item)
 	q.popCond.Signal()
+	return nil
 }
 
 // Pop will block if heap is empty or none of items should be removed at now.
-func (q *MemQueue) Pop() *url.URL {
+// It will return nil without error if the queue was closed.
+func (q *MemQueue) Pop() (u *url.URL, _ error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -91,7 +99,7 @@ WAIT:
 		wait = false
 	}
 	if q.closed {
-		return nil
+		return
 	}
 
 	item = q.heap.Top()
@@ -99,8 +107,10 @@ WAIT:
 
 	if item.Next.Before(now) {
 		heap.Pop(&q.heap)
+		u = item.URL
+		item.Free()
 		q.pushCond.Signal()
-		return item.URL
+		return
 	}
 
 	if q.timer != nil {
@@ -115,11 +125,12 @@ WAIT:
 	goto WAIT
 }
 
-func (q *MemQueue) Close() {
+func (q *MemQueue) Close() error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	q.closed = true
 	q.popCond.Broadcast()
 	q.pushCond.Broadcast()
+	return nil
 }

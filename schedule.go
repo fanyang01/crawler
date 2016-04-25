@@ -26,16 +26,16 @@ type scheduler struct {
 	prioQueue queue.WaitQueue
 	pqIn      chan<- *queue.Item
 	pqOut     <-chan *url.URL
+	pqErr     <-chan error
 
 	retry time.Duration // duration between retry
 	once  sync.Once     // used for closing Out
 	done  chan struct{}
 }
 
-func (cw *Crawler) newScheduler() *scheduler {
+func (cw *Crawler) newScheduler(wq queue.WaitQueue) *scheduler {
 	nworker := cw.opt.NWorker.Scheduler
-	pq := NewMemQueue(PQueueLen)
-	chIn, chOut := pq.Channel()
+	chIn, chOut, chErr := wq.Channel()
 	this := &scheduler{
 		NewIn:     make(chan *url.URL, nworker),
 		DoneIn:    make(chan *url.URL, nworker),
@@ -43,11 +43,14 @@ func (cw *Crawler) newScheduler() *scheduler {
 		RecoverIn: make(chan *url.URL, nworker),
 		Out:       make(chan *url.URL, 4*nworker),
 		cw:        cw,
-		prioQueue: pq,
+
+		prioQueue: wq,
 		pqIn:      chIn,
 		pqOut:     chOut,
-		retry:     cw.opt.RetryDuration,
-		done:      make(chan struct{}),
+		pqErr:     chErr,
+
+		retry: cw.opt.RetryDuration,
+		done:  make(chan struct{}),
 	}
 
 	cw.initWorker(this, nworker)
@@ -112,7 +115,9 @@ func (sd *scheduler) work() {
 			})
 			continue
 		case u = <-sd.pqOut:
-			outURLs = append(outURLs, u)
+			if u != nil {
+				outURLs = append(outURLs, u)
+			}
 
 		// Output:
 		case queueIn <- next:
@@ -125,6 +130,9 @@ func (sd *scheduler) work() {
 			}
 
 		// Control:
+		case err := <-sd.pqErr:
+			log.Errorf("scheduler: wait queue error: %v", err)
+			return
 		case <-sd.done:
 			return
 		case <-sd.quit:
@@ -134,7 +142,7 @@ func (sd *scheduler) work() {
 			return
 		}
 		if is, err := sd.cw.store.IsFinished(); err != nil {
-			log.Error(err)
+			log.Errorf("scheduler: %v", err)
 			return
 		} else if is {
 			sd.stop()

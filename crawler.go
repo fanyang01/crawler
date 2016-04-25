@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/fanyang01/crawler/queue"
 )
 
 // Crawler crawls web pages.
@@ -32,6 +33,7 @@ type Crawler struct {
 type Config struct {
 	Controller Controller
 	Store      Store
+	Queue      queue.WaitQueue
 	Logger     *logrus.Logger
 	Option     *Option
 }
@@ -51,6 +53,9 @@ func initConfig(cfg *Config) *Config {
 	}
 	if cfg.Store == nil {
 		cfg.Store = NewMemStore()
+	}
+	if cfg.Queue == nil {
+		cfg.Queue = NewMemQueue(64 << 10)
 	}
 	if cfg.Controller == nil {
 		cfg.Controller = DefaultController
@@ -78,7 +83,7 @@ func NewCrawler(cfg *Config) *Crawler {
 	cw.maker = cw.newRequestMaker()
 	cw.fetcher = cw.newFetcher()
 	cw.handler = cw.newRespHandler()
-	cw.scheduler = cw.newScheduler()
+	cw.scheduler = cw.newScheduler(cfg.Queue)
 
 	// normal flow
 	cw.maker.In = cw.scheduler.Out

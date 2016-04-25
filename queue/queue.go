@@ -2,10 +2,14 @@
 package queue
 
 import (
+	"errors"
 	"net/url"
 	"sync"
 	"time"
 )
+
+// ErrPushClosed is a general queue error.
+var ErrPushClosed = errors.New("queue: can not push on closed queue")
 
 // Item is the item in wait queue.
 type Item struct {
@@ -36,13 +40,13 @@ func (item *Item) Free() {
 // and method mode, but only one mode will be used for a single instance.
 type WaitQueue interface {
 	// Channel returns a pair of channel for push and pop operations.
-	Channel() (push chan<- *Item, pop <-chan *url.URL)
+	Channel() (push chan<- *Item, pop <-chan *url.URL, err <-chan error)
 	// Push adds an item to queue.
-	Push(*Item)
+	Push(*Item) error
 	// Pop removes an item from queue.
-	Pop() *url.URL
+	Pop() (*url.URL, error)
 	// Close closes queue.
-	Close()
+	Close() error
 }
 
 // Heap implements heap.Interface.

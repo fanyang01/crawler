@@ -45,11 +45,11 @@ func TestPriority(t *testing.T) {
 		Next:  now.Add(50 * time.Millisecond),
 	})
 	var u *url.URL
-	u = pq.Pop()
+	u, _ = pq.Pop()
 	assert.Equal(t, "/300", u.Path)
-	u = pq.Pop()
+	u, _ = pq.Pop()
 	assert.Equal(t, "/200", u.Path)
-	u = pq.Pop()
+	u, _ = pq.Pop()
 	assert.Equal(t, "/100", u.Path)
 }
 
@@ -81,7 +81,7 @@ func TestTime(t *testing.T) {
 		wq.Push(item)
 	}
 	for i := 0; i < len(items); i++ {
-		u := wq.Pop()
+		u, _ := wq.Pop()
 		assert.Equal(t, exp[i], u.Path)
 	}
 }
@@ -124,7 +124,7 @@ func TestRateLimit(t *testing.T) {
 		wq.Push(item)
 	}
 	for i := 0; i < len(items); i++ {
-		u := wq.Pop()
+		u, _ := wq.Pop()
 		assert.Equal(t, exp[i], u.Path)
 	}
 }

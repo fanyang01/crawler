@@ -52,14 +52,14 @@ type DiskQueue struct {
 	dbMinKey []byte
 	dbCount  int // includes bufCount
 	timer    *time.Timer
+	closed   bool
 
 	writeMu   sync.Mutex
 	writeCond *sync.Cond
+	writeErr  error
 	flush     chan struct{}
 	buf       *list.List
 	bufCount  int
-
-	chErr chan error
 
 	db   *bolt.DB
 	file string
@@ -106,7 +106,6 @@ func New(dbfile string, memQueueSize int) (q *DiskQueue, err error) {
 		dbMinKey: dbMinKey,
 		buf:      list.New(),
 		bufSize:  128,
-		chErr:    make(chan error, 1),
 	}
 	q.popCond = sync.NewCond(&q.mu)
 	q.writeCond = sync.NewCond(&q.writeMu)
@@ -123,6 +122,9 @@ func (q *DiskQueue) writeLoop() {
 		if waiting || q.bufCount == 0 {
 			waiting = false
 			q.writeCond.Wait()
+		}
+		if q.closed {
+			return
 		}
 		if q.flush == nil && q.bufCount <= q.bufSize {
 			waiting = true
@@ -148,10 +150,10 @@ func (q *DiskQueue) writeLoop() {
 			}
 			return nil
 		}); err != nil {
+			q.writeErr = err
 			if q.flush != nil {
 				close(q.flush)
 			}
-			q.chErr <- err
 			return
 		}
 		if q.flush != nil {
@@ -166,7 +168,7 @@ func (q *DiskQueue) nextID() string {
 	return fmt.Sprintf("%010d", id)
 }
 
-func (q *DiskQueue) Push(item *queue.Item) {
+func (q *DiskQueue) Push(item *queue.Item) (err error) {
 	el := &element{item: item, uid: q.nextID()}
 
 	q.mu.Lock()
@@ -175,14 +177,16 @@ func (q *DiskQueue) Push(item *queue.Item) {
 		q.mu.Unlock()
 	}()
 
-	if q.dbMinKey != nil && bytes.Compare(el.key(), q.dbMinKey) > 0 {
-		q.writeToBuffer(el)
+	if q.closed {
 		return
+	}
+	if q.dbMinKey != nil && bytes.Compare(el.key(), q.dbMinKey) > 0 {
+		return q.writeToBuffer(el)
 	}
 	// Now DB is empty, or each element in DB is greater than or equal to this element.
 	q.tree.Insert(el)
 	if q.tree.Len() <= q.limit { // Memory queue is not full.
-		return
+		return nil
 	}
 	// Now memory queue is full, i.e., q.tree.Len() == q.limit + 1.
 	// Write half of memory queue to DB.
@@ -202,13 +206,17 @@ func (q *DiskQueue) Push(item *queue.Item) {
 	if q.dbMinKey == nil || bytes.Compare(minKey, q.dbMinKey) < 0 {
 		q.dbMinKey = minKey
 	}
-	q.writeToBuffer(list)
-	return
+	return q.writeToBuffer(list)
 }
 
-func (q *DiskQueue) writeToBuffer(v interface{}) {
+func (q *DiskQueue) writeToBuffer(v interface{}) error {
 	var cnt int
 	q.writeMu.Lock()
+	defer q.writeMu.Unlock()
+
+	if q.writeErr != nil {
+		return q.writeErr
+	}
 	switch v := v.(type) {
 	case *element:
 		q.buf.PushBack(v)
@@ -219,17 +227,20 @@ func (q *DiskQueue) writeToBuffer(v interface{}) {
 	}
 	q.bufCount += cnt
 	q.writeCond.Signal()
-	q.writeMu.Unlock()
 
 	q.dbCount += cnt // protected by q.mu
+	return nil
 }
 
-func (q *DiskQueue) Pop() *url.URL {
+func (q *DiskQueue) Pop() (u *url.URL, err error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	waiting := false
 	for {
+		if q.closed {
+			return
+		}
 		if waiting || q.tree.Len()+q.dbCount <= 0 {
 			q.popCond.Wait()
 			waiting = false
@@ -243,9 +254,9 @@ func (q *DiskQueue) Pop() *url.URL {
 			)
 			if el.item.Next.Before(now) {
 				q.tree.Delete(node)
-				u := el.item.URL
+				u = el.item.URL
 				el.item.Free()
-				return u
+				return
 			}
 			q.newTimer(now, el.item.Next)
 			waiting = true
@@ -271,14 +282,17 @@ func (q *DiskQueue) Pop() *url.URL {
 		q.writeCond.Signal()
 		q.writeMu.Unlock()
 		if _, ok := <-ch; !ok {
-			return nil
+			q.writeMu.Lock()
+			err = q.writeErr
+			q.writeMu.Unlock()
+			return
 		}
 
 		// Fill half of the queue and ensure loading at least one item from DB.
 		if n = q.limit/2 + 1; n > q.dbCount {
 			n = q.dbCount
 		}
-		if err := q.db.Update(func(tx *bolt.Tx) error {
+		if err = q.db.Update(func(tx *bolt.Tx) error {
 			b := tx.Bucket([]byte(QueueBucket))
 			c := b.Cursor()
 			i := 0
@@ -305,8 +319,7 @@ func (q *DiskQueue) Pop() *url.URL {
 			return nil
 
 		}); err != nil {
-			log.Println(err)
-			return nil
+			return
 		}
 	}
 }

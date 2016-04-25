@@ -72,7 +72,7 @@ func testTime(t *testing.T, wq *DiskQueue) {
 		wq.Push(item)
 	}
 	for i := 0; i < len(items); i++ {
-		u := wq.Pop()
+		u, _ := wq.Pop()
 		assert.Equal(t, exp[i], u.Path)
 	}
 }
@@ -103,7 +103,7 @@ func TestOverflow(t *testing.T) {
 	assert := assert.New(t)
 	m := map[int]bool{}
 	for i := 0; i < 500; i++ {
-		u := wq.Pop()
+		u, _ := wq.Pop()
 		if i == 0 {
 			assert.True(time.Now().After(now.Add(1 * time.Second)))
 		}
