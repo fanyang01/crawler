@@ -93,10 +93,10 @@ func TestOverflow(t *testing.T) {
 	tmpfile, wq := newTestQueue(t, 100)
 	defer os.Remove(tmpfile)
 	now := time.Now()
-	for i := 0; i < 500; i++ {
+	for i := 0; i < 1000; i++ {
 		wq.Push(&queue.Item{
-			// assume all items can be pushed into queue in 2s.
-			Next: now.Add(2 * time.Second),
+			// assume all items can be pushed into queue in 1s.
+			Next: now.Add(1 * time.Second),
 			URL:  mustParseURL(fmt.Sprintf("http://example.com/%d", i)),
 		})
 	}
@@ -105,7 +105,7 @@ func TestOverflow(t *testing.T) {
 	for i := 0; i < 500; i++ {
 		u := wq.Pop()
 		if i == 0 {
-			assert.True(time.Now().After(now.Add(2 * time.Second)))
+			assert.True(time.Now().After(now.Add(1 * time.Second)))
 		}
 		id, _ := strconv.Atoi(strings.TrimPrefix(u.String(), "http://example.com/"))
 		assert.False(m[id])

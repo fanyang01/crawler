@@ -90,7 +90,7 @@ func New(dbfile string, memQueueSize int) (q *DiskQueue, err error) {
 		if err != nil {
 			return err
 		}
-		if dbCount = b.Stats().KeyN; dbCount != 0 {
+		if dbCount = b.Stats().KeyN; dbCount > 0 {
 			dbMinKey, _ = b.Cursor().First()
 		}
 		return nil
@@ -135,18 +135,19 @@ func (q *DiskQueue) writeLoop() {
 			continue
 		}
 		// Write all buffered elements to DB
-		err := q.db.Update(func(tx *bolt.Tx) error {
+		if err := q.db.Update(func(tx *bolt.Tx) error {
 			b := tx.Bucket(QueueBucket)
-			for le := q.buf.Front(); le != nil; le = le.Next() {
-				if cnt, err := q.writeOne(b, le.Value); err != nil {
+			var next *list.Element
+			for le := q.buf.Front(); le != nil; le = next {
+				next = le.Next()
+				v := q.buf.Remove(le).(*element)
+				if err := b.Put(v.key(), v.url()); err != nil {
 					return err
-				} else {
-					q.bufCount -= cnt
 				}
+				q.bufCount--
 			}
 			return nil
-		})
-		if err != nil {
+		}); err != nil {
 			if q.flush != nil {
 				close(q.flush)
 			}
@@ -158,25 +159,6 @@ func (q *DiskQueue) writeLoop() {
 			q.flush = nil
 		}
 	}
-}
-
-func (q *DiskQueue) writeOne(b *bolt.Bucket, v interface{}) (n int, err error) {
-	switch v := v.(type) {
-	case *list.List:
-		for le := v.Front(); le != nil; le = le.Next() {
-			elem := le.Value.(*element)
-			if err = b.Put(elem.key(), elem.url()); err != nil {
-				return
-			}
-			n++
-		}
-	case *element:
-		if err = b.Put(v.key(), v.url()); err != nil {
-			return
-		}
-		n = 1
-	}
-	return
 }
 
 func (q *DiskQueue) nextID() string {
@@ -194,7 +176,7 @@ func (q *DiskQueue) Push(item *queue.Item) {
 	}()
 
 	if q.dbMinKey != nil && bytes.Compare(el.key(), q.dbMinKey) > 0 {
-		q.writeToBuffer(el, 1)
+		q.writeToBuffer(el)
 		return
 	}
 	// Now DB is empty, or each element in DB is greater than or equal to this element.
@@ -220,16 +202,26 @@ func (q *DiskQueue) Push(item *queue.Item) {
 	if q.dbMinKey == nil || bytes.Compare(minKey, q.dbMinKey) < 0 {
 		q.dbMinKey = minKey
 	}
-	q.writeToBuffer(list, list.Len())
+	q.writeToBuffer(list)
 	return
 }
 
-func (q *DiskQueue) writeToBuffer(v interface{}, cnt int) {
-	q.dbCount += cnt // protected by q.mu
+func (q *DiskQueue) writeToBuffer(v interface{}) {
+	var cnt int
 	q.writeMu.Lock()
-	q.buf.PushBack(v)
+	switch v := v.(type) {
+	case *element:
+		q.buf.PushBack(v)
+		cnt = 1
+	case *list.List:
+		q.buf.PushBackList(v)
+		cnt = v.Len()
+	}
 	q.bufCount += cnt
+	q.writeCond.Signal()
 	q.writeMu.Unlock()
+
+	q.dbCount += cnt // protected by q.mu
 }
 
 func (q *DiskQueue) Pop() *url.URL {
@@ -313,6 +305,7 @@ func (q *DiskQueue) Pop() *url.URL {
 			return nil
 
 		}); err != nil {
+			log.Println(err)
 			return nil
 		}
 	}
