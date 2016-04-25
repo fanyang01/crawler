@@ -108,7 +108,6 @@ WAIT:
 	}
 	q.timer = time.AfterFunc(item.Next.Sub(now), func() {
 		q.mu.Lock()
-		q.timer = nil
 		q.popCond.Signal()
 		q.mu.Unlock()
 	})

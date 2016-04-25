@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"container/list"
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
 	"sync"
@@ -16,6 +17,8 @@ import (
 	"github.com/fanyang01/rbtree"
 )
 
+const KeyTimeFormat = "20060102T15:04:05.000"
+
 var (
 	QueueBucket = []byte("QUEUE")
 )
@@ -26,9 +29,9 @@ type element struct {
 }
 
 func (e *element) key() []byte {
-	// 2006-01-02T15:04:05Z07:00 0123456789
-	b := make([]byte, 0, 36)
-	b = append(b, e.item.Next.Format(time.RFC3339)...)
+	// 20060102T15:04:05.000 0123456789
+	b := make([]byte, 0, 32)
+	b = append(b, e.item.Next.UTC().Format(KeyTimeFormat)...)
 	b = append(b, ' ')
 	b = append(b, e.uid...)
 	return b
@@ -39,20 +42,27 @@ func (e *element) url() []byte {
 }
 
 type DiskQueue struct {
-	limit int    // > 0
-	genID uint32 // naive implementation
+	limit   int    // > 0
+	genID   uint32 // naive implementation
+	bufSize int
 
 	mu       sync.Mutex
 	popCond  *sync.Cond
 	tree     *rbtree.Tree
 	dbMinKey []byte
-	dbCount  int
-	writing  int
+	dbCount  int // includes bufCount
 	timer    *time.Timer
 
-	db      *bolt.DB
-	file    string
-	chWrite chan interface{}
+	writeMu   sync.Mutex
+	writeCond *sync.Cond
+	flush     chan struct{}
+	buf       *list.List
+	bufCount  int
+
+	chErr chan error
+
+	db   *bolt.DB
+	file string
 }
 
 func compare(x, y interface{}) int {
@@ -71,38 +81,102 @@ func New(dbfile string, memQueueSize int) (q *DiskQueue, err error) {
 	if err != nil {
 		return
 	}
-	q = &DiskQueue{
-		tree:    rbtree.New(compare),
-		limit:   memQueueSize,
-		db:      db,
-		file:    dbfile,
-		chWrite: make(chan interface{}, 128),
-	}
-	q.popCond = sync.NewCond(&q.mu)
-	return q, nil
-}
-
-// TODO: keep a buffer and write to disk only when buffer is full.
-func (q *DiskQueue) write(v interface{}) {
-	if err := q.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(QueueBucket)
-		switch v := v.(type) {
-		case *list.List:
-			for le := v.Front(); le != nil; le = le.Next() {
-				elem := le.Value.(*element)
-				if err := b.Put(elem.key(), elem.url()); err != nil {
-					return err
-				}
-			}
-		case *element:
-			if err := b.Put(v.key(), v.url()); err != nil {
-				return err
-			}
+	var (
+		dbCount  int
+		dbMinKey []byte
+	)
+	if err = db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(QueueBucket)
+		if err != nil {
+			return err
+		}
+		if dbCount = b.Stats().KeyN; dbCount != 0 {
+			dbMinKey, _ = b.Cursor().First()
 		}
 		return nil
 	}); err != nil {
-		return // TODO: handle error
+		return
 	}
+	q = &DiskQueue{
+		tree:     rbtree.New(compare),
+		limit:    memQueueSize,
+		db:       db,
+		file:     dbfile,
+		dbCount:  dbCount,
+		dbMinKey: dbMinKey,
+		buf:      list.New(),
+		bufSize:  128,
+		chErr:    make(chan error, 1),
+	}
+	q.popCond = sync.NewCond(&q.mu)
+	q.writeCond = sync.NewCond(&q.writeMu)
+	go q.writeLoop()
+	return q, nil
+}
+
+func (q *DiskQueue) writeLoop() {
+	q.writeMu.Lock()
+	defer q.writeMu.Unlock()
+
+	waiting := false
+	for {
+		if waiting || q.bufCount == 0 {
+			waiting = false
+			q.writeCond.Wait()
+		}
+		if q.flush == nil && q.bufCount <= q.bufSize {
+			waiting = true
+			continue
+		}
+		if q.flush != nil && q.bufCount <= 0 {
+			q.flush <- struct{}{}
+			q.flush = nil
+			waiting = true
+			continue
+		}
+		// Write all buffered elements to DB
+		err := q.db.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket(QueueBucket)
+			for le := q.buf.Front(); le != nil; le = le.Next() {
+				if cnt, err := q.writeOne(b, le.Value); err != nil {
+					return err
+				} else {
+					q.bufCount -= cnt
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			if q.flush != nil {
+				close(q.flush)
+			}
+			q.chErr <- err
+			return
+		}
+		if q.flush != nil {
+			q.flush <- struct{}{}
+			q.flush = nil
+		}
+	}
+}
+
+func (q *DiskQueue) writeOne(b *bolt.Bucket, v interface{}) (n int, err error) {
+	switch v := v.(type) {
+	case *list.List:
+		for le := v.Front(); le != nil; le = le.Next() {
+			elem := le.Value.(*element)
+			if err = b.Put(elem.key(), elem.url()); err != nil {
+				return
+			}
+			n++
+		}
+	case *element:
+		if err = b.Put(v.key(), v.url()); err != nil {
+			return
+		}
+		n = 1
+	}
+	return
 }
 
 func (q *DiskQueue) nextID() string {
@@ -120,8 +194,7 @@ func (q *DiskQueue) Push(item *queue.Item) {
 	}()
 
 	if q.dbMinKey != nil && bytes.Compare(el.key(), q.dbMinKey) > 0 {
-		q.write(el)
-		q.dbCount += 1
+		q.writeToBuffer(el, 1)
 		return
 	}
 	// Now DB is empty, or each element in DB is greater than or equal to this element.
@@ -147,9 +220,16 @@ func (q *DiskQueue) Push(item *queue.Item) {
 	if q.dbMinKey == nil || bytes.Compare(minKey, q.dbMinKey) < 0 {
 		q.dbMinKey = minKey
 	}
-	q.write(list)
-	q.dbCount += list.Len()
+	q.writeToBuffer(list, list.Len())
 	return
+}
+
+func (q *DiskQueue) writeToBuffer(v interface{}, cnt int) {
+	q.dbCount += cnt // protected by q.mu
+	q.writeMu.Lock()
+	q.buf.PushBack(v)
+	q.bufCount += cnt
+	q.writeMu.Unlock()
 }
 
 func (q *DiskQueue) Pop() *url.URL {
@@ -158,7 +238,7 @@ func (q *DiskQueue) Pop() *url.URL {
 
 	waiting := false
 	for {
-		if waiting || q.tree.Len()+q.writing+q.dbCount <= 0 {
+		if waiting || q.tree.Len()+q.dbCount <= 0 {
 			q.popCond.Wait()
 			waiting = false
 			continue
@@ -179,6 +259,7 @@ func (q *DiskQueue) Pop() *url.URL {
 			waiting = true
 			continue
 		}
+
 		// Now q.tree.Len() == 0 and q.dbMinKey != nil
 		var (
 			next = timeFromKey(q.dbMinKey)
@@ -190,11 +271,22 @@ func (q *DiskQueue) Pop() *url.URL {
 			waiting = true
 			continue
 		}
-		// Fill half of memory queue
-		if n = q.limit / 2; n > q.dbCount {
+
+		// Ask writing goroutine to write all buffered items.
+		ch := make(chan struct{}, 1)
+		q.writeMu.Lock()
+		q.flush = ch
+		q.writeCond.Signal()
+		q.writeMu.Unlock()
+		if _, ok := <-ch; !ok {
+			return nil
+		}
+
+		// Fill half of the queue and ensure loading at least one item from DB.
+		if n = q.limit/2 + 1; n > q.dbCount {
 			n = q.dbCount
 		}
-		if err := q.db.View(func(tx *bolt.Tx) error {
+		if err := q.db.Update(func(tx *bolt.Tx) error {
 			b := tx.Bucket([]byte(QueueBucket))
 			c := b.Cursor()
 			i := 0
@@ -206,7 +298,17 @@ func (q *DiskQueue) Pop() *url.URL {
 					item: item,
 					uid:  uidFromKey(k),
 				})
+				if err := b.Delete(k); err != nil {
+					log.Println(err)
+					return err
+				}
 				i++
+			}
+			// Update dbCount and dbMinKey
+			if q.dbCount = b.Stats().KeyN; q.dbCount <= 0 {
+				q.dbMinKey = nil
+			} else {
+				q.dbMinKey, _ = b.Cursor().First()
 			}
 			return nil
 
@@ -222,7 +324,6 @@ func (q *DiskQueue) newTimer(now, future time.Time) {
 	}
 	q.timer = time.AfterFunc(future.Sub(now), func() {
 		q.mu.Lock()
-		q.timer = nil
 		q.popCond.Signal()
 		q.mu.Unlock()
 	})
@@ -230,7 +331,7 @@ func (q *DiskQueue) newTimer(now, future time.Time) {
 
 func timeFromKey(k []byte) time.Time {
 	i := bytes.IndexByte(k, ' ')
-	t, _ := time.Parse(time.RFC3339, string(k[:i]))
+	t, _ := time.Parse(KeyTimeFormat, string(k[:i]))
 	return t
 }
 
