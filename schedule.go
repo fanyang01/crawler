@@ -57,8 +57,6 @@ func (cw *Crawler) newScheduler(wq queue.WaitQueue) *scheduler {
 	return this
 }
 
-func (sd *scheduler) cleanup() { close(sd.Out) }
-
 func (sd *scheduler) work() {
 	var (
 		queueIn   chan<- *queue.Item
@@ -109,15 +107,16 @@ func (sd *scheduler) work() {
 				sd.cw.store.UpdateStatus(u, URLerror)
 				break
 			}
-			waiting = append(waiting, &queue.Item{
-				URL:  u,
-				Next: time.Now().Add(sd.retry),
-			})
+			item := queue.NewItem()
+			item.URL = u
+			item.Next = time.Now().Add(sd.retry)
+			waiting = append(waiting, item)
 			continue
 		case u = <-sd.pqOut:
-			if u != nil {
-				outURLs = append(outURLs, u)
+			if u == nil { // queue has been closed
+				return
 			}
+			outURLs = append(outURLs, u)
 
 		// Output:
 		case queueIn <- next:
@@ -131,31 +130,36 @@ func (sd *scheduler) work() {
 
 		// Control:
 		case err := <-sd.pqErr:
-			log.Errorf("scheduler: wait queue error: %v", err)
+			if err != nil {
+				log.Errorf("scheduler: wait queue error: %v", err)
+			}
 			return
 		case <-sd.done:
 			return
 		case <-sd.quit:
-			sd.once.Do(func() {
-				sd.prioQueue.Close()
-			})
 			return
 		}
+
 		if is, err := sd.cw.store.IsFinished(); err != nil {
 			log.Errorf("scheduler: %v", err)
 			return
 		} else if is {
-			sd.stop()
+			sd.stop() // notify other goroutines to exit.
 			return
 		}
 	}
 }
 
+func (sd *scheduler) cleanup() {
+	close(sd.Out)
+	close(sd.pqIn)
+	if err := sd.prioQueue.Close(); err != nil {
+		log.Errorf("scheduler: close queue: %v", err)
+	}
+}
+
 func (sd *scheduler) stop() {
-	sd.once.Do(func() {
-		sd.prioQueue.Close()
-		close(sd.done)
-	})
+	sd.once.Do(func() { close(sd.done) })
 }
 
 func (sd *scheduler) schedURL(u *url.URL, typ int, r *Response) (item *queue.Item, done bool) {
@@ -173,9 +177,8 @@ func (sd *scheduler) schedURL(u *url.URL, typ int, r *Response) (item *queue.Ite
 	}
 
 	minTime := uu.LastTime.Add(sd.cw.opt.MinDelay)
-	item = &queue.Item{
-		URL: u,
-	}
+	item = queue.NewItem()
+	item.URL = u
 	if done, item.Next, item.Score = sd.cw.ctrl.Schedule(uu, typ, nil); done {
 		sd.cw.store.UpdateStatus(u, URLfinished)
 		return

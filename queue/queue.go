@@ -39,14 +39,96 @@ func (item *Item) Free() {
 // Item.Score as priority. It can be operated in two modes: channel mode
 // and method mode, but only one mode will be used for a single instance.
 type WaitQueue interface {
-	// Channel returns a pair of channel for push and pop operations.
-	Channel() (push chan<- *Item, pop <-chan *url.URL, err <-chan error)
+	// Channel returns three channels expected to be used in select
+	// statement. It's implementation's responsibility to close the in
+	// channel and error channel when Close method is called. Callers
+	// should be responsible for closing the out channel.
+	// Channel should be goroutine-safe.
+	Channel() (in chan<- *Item, out <-chan *url.URL, err <-chan error)
 	// Push adds an item to queue.
 	Push(*Item) error
 	// Pop removes an item from queue.
 	Pop() (*url.URL, error)
-	// Close closes queue.
+	// Close closes queue. Close will be called even an error has been
+	// returned in above operations.
 	Close() error
+}
+
+// Interface is a helper interface. WithChannel can generate a Channel
+// method for implementations.
+type Interface interface {
+	Push(*Item) error
+	Pop() (*url.URL, error)
+	Close() error
+}
+
+type channel struct {
+	Interface
+	quit chan struct{}
+	mu   sync.Mutex
+	in   chan *Item
+	out  chan *url.URL
+	err  chan error
+}
+
+// Channel implements WaitQueue.
+func (q *channel) Channel() (in chan<- *Item, out <-chan *url.URL, err <-chan error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if q.in != nil {
+		return q.in, q.out, q.err
+	}
+
+	q.in = make(chan *Item, 1024)
+	q.err = make(chan error, 1)
+	// Small output buffer size means that we pop an item only when it's requested.
+	q.out = make(chan *url.URL, 1)
+	go func() {
+		for item := range q.in {
+			if err := q.Push(item); err != nil {
+				q.sendErr(err)
+				return
+			}
+		}
+	}()
+	go func() {
+		for {
+			url, err := q.Pop()
+			if err != nil {
+				q.sendErr(err)
+				return
+			}
+			if url != nil {
+				q.out <- url
+				continue
+			}
+			return
+		}
+	}()
+	return q.in, q.out, nil
+}
+
+func (q *channel) sendErr(err error) {
+	select {
+	case q.err <- err:
+	case <-q.quit:
+	}
+}
+
+// Channel implements WaitQueue.
+func (q *channel) Close() error {
+	close(q.quit)
+	return q.Interface.Close()
+}
+
+// WithChannel provides a wrapper for those who don't implement a Channel
+// method.
+func WithChannel(q Interface) WaitQueue {
+	return &channel{
+		Interface: q,
+		quit:      make(chan struct{}),
+	}
 }
 
 // Heap implements heap.Interface.

@@ -27,7 +27,7 @@ func mustParseInt(s string) int {
 }
 
 func TestPriority(t *testing.T) {
-	pq := NewRateLimit(100, nil)
+	pq := newRateLimit(100, nil)
 	now := time.Now()
 	pq.Push(&queue.Item{
 		Score: 300,
@@ -54,7 +54,7 @@ func TestPriority(t *testing.T) {
 }
 
 func TestTime(t *testing.T) {
-	wq := NewRateLimit(100, nil)
+	wq := newRateLimit(100, nil)
 	now := time.Now()
 	items := []*queue.Item{
 		{
@@ -97,7 +97,7 @@ func TestRateLimit(t *testing.T) {
 			return 0
 		}
 	}
-	wq := NewRateLimit(100, f)
+	wq := newRateLimit(100, f)
 	now := time.Now()
 	items := []*queue.Item{
 		{

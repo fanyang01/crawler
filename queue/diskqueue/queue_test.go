@@ -37,7 +37,7 @@ func newTestQueue(t *testing.T, size int) (tmpfile string, q *DiskQueue) {
 	}
 	tmpfile = f.Name()
 	f.Close()
-	q, err = New(tmpfile, size)
+	q, err = newDiskQueue(tmpfile, DefaultBucket, size, 100)
 	if err != nil {
 		os.Remove(tmpfile)
 		t.Fatal(err)

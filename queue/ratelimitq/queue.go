@@ -88,10 +88,7 @@ type RateLimitQueue struct {
 	popCond  *sync.Cond
 	pushCond *sync.Cond
 	timer    *time.Timer
-
-	chOut  chan *url.URL
-	chIn   chan *queue.Item
-	closed bool
+	closed   bool
 
 	primary primaryHeap
 	maxHost int
@@ -100,7 +97,14 @@ type RateLimitQueue struct {
 	interval func(string) time.Duration
 }
 
-func NewRateLimit(maxHost int, limit func(host string) time.Duration) *RateLimitQueue {
+// New creates a rate limit wait queue.
+func New(maxHost int, limit func(host string) time.Duration) queue.WaitQueue {
+	return queue.WithChannel(
+		newRateLimit(maxHost, limit),
+	)
+}
+
+func newRateLimit(maxHost int, limit func(host string) time.Duration) *RateLimitQueue {
 	if limit == nil {
 		limit = func(string) time.Duration { return 0 }
 	}
@@ -115,35 +119,6 @@ func NewRateLimit(maxHost int, limit func(host string) time.Duration) *RateLimit
 	q.popCond = sync.NewCond(&q.mu)
 	q.pushCond = sync.NewCond(&q.mu)
 	return q
-}
-
-func (q *RateLimitQueue) Channel() (chan<- *queue.Item, <-chan *url.URL, <-chan error) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	if q.chIn != nil && q.chOut != nil {
-		return q.chIn, q.chOut, nil
-	}
-
-	q.chIn = make(chan *queue.Item, 32)
-	// Small output buffer size means that we pop an item only when it's requested.
-	q.chOut = make(chan *url.URL, 1)
-	go func() {
-		for item := range q.chIn {
-			q.Push(item)
-		}
-	}()
-	go func() {
-		for {
-			if url, _ := q.Pop(); url != nil {
-				q.chOut <- url
-				continue
-			}
-			close(q.chOut)
-			return
-		}
-	}()
-	return q.chIn, q.chOut, nil
 }
 
 func maxTime(a, b time.Time) time.Time {
@@ -254,6 +229,5 @@ func (q *RateLimitQueue) Close() error {
 	q.closed = true
 	q.popCond.Broadcast()
 	q.pushCond.Broadcast()
-	close(q.chIn)
 	return nil
 }
