@@ -27,7 +27,6 @@ type fetcher struct {
 	In     <-chan *Request
 	Out    chan *Response
 	ErrOut chan *url.URL
-	cache  *cachePool
 	cw     *Crawler
 }
 

@@ -101,10 +101,10 @@ func (sd *scheduler) work() {
 				continue
 			}
 		case u = <-sd.DoneIn:
-			sd.cw.store.UpdateStatus(u, URLfinished)
+			sd.cw.store.UpdateStatus(u, URLStatusFinished)
 		case u = <-sd.ErrIn:
 			if cnt := sd.incErrCount(u); cnt >= sd.cw.opt.MaxRetry {
-				sd.cw.store.UpdateStatus(u, URLerror)
+				sd.cw.store.UpdateStatus(u, URLStatusError)
 				break
 			}
 			item := queue.NewItem()
@@ -171,16 +171,15 @@ func (sd *scheduler) schedURL(u *url.URL, typ int, r *Response) (item *queue.Ite
 	switch typ {
 	case URLTypeResponse:
 		uu.VisitCount++
-		uu.LastTime = r.Timestamp
-		uu.LastMod = r.LastModified
+		uu.Last = r.Timestamp
 		sd.cw.store.Update(uu)
 	}
 
-	minTime := uu.LastTime.Add(sd.cw.opt.MinDelay)
+	minTime := uu.Last.Add(sd.cw.opt.MinDelay)
 	item = queue.NewItem()
 	item.URL = u
 	if done, item.Next, item.Score = sd.cw.ctrl.Schedule(uu, typ, nil); done {
-		sd.cw.store.UpdateStatus(u, URLfinished)
+		sd.cw.store.UpdateStatus(u, URLStatusFinished)
 		return
 	}
 	if item.Next.Before(minTime) {
@@ -191,8 +190,8 @@ func (sd *scheduler) schedURL(u *url.URL, typ int, r *Response) (item *queue.Ite
 
 func (sd *scheduler) incErrCount(u *url.URL) int {
 	uu, _ := sd.cw.store.Get(u)
-	cnt := uu.ErrCount
-	uu.ErrCount++
+	cnt := uu.ErrorCount
+	uu.ErrorCount++
 	sd.cw.store.Update(uu)
 	return cnt
 }

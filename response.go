@@ -10,12 +10,11 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/fanyang01/crawler/cache"
 	"golang.org/x/net/context"
 	"golang.org/x/text/encoding"
 )
@@ -34,11 +33,14 @@ const (
 // directly but do NOT close it.
 type Response struct {
 	*http.Response
-	CacheControl
 	Context context.Context
 
-	URL             *url.URL
-	NewURL          *url.URL
+	URL    *url.URL
+	NewURL *url.URL
+
+	Timestamp    time.Time
+	CacheControl *cache.Control
+
 	ContentLocation *url.URL
 	Content         []byte
 	ContentType     string
@@ -71,13 +73,13 @@ var (
 	respTemplate = Response{}
 )
 
-func newResponse() *Response {
+func NewResponse() *Response {
 	r := respFreeList.Get().(*Response)
-	*r = respTemplate
+	*r = respTemplate // TODO
 	return r
 }
 
-func (r *Response) free() {
+func (r *Response) Free() {
 	// Let GC collect child objects.
 	r.URL = nil
 	r.NewURL = nil
@@ -90,8 +92,9 @@ func (r *Response) free() {
 
 	if len(r.links) > LinkPerPage {
 		r.links = nil
+	} else {
+		r.links = r.links[:0]
 	}
-	r.links = r.links[:0]
 	respFreeList.Put(r)
 }
 
@@ -102,139 +105,6 @@ func (r *Response) length() int64 {
 		return i
 	}
 	return l
-}
-
-func (resp *Response) IsExpired() bool {
-	age := computeAge(resp.Date, resp.Timestamp, resp.Age)
-	if age > resp.MaxAge {
-		return true
-	}
-	return false
-}
-
-func (resp *Response) IsCacheable() bool {
-	switch resp.CacheType {
-	case CacheNeedValidate, CacheNormal:
-		return true
-	}
-	return false
-}
-
-// https://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html
-func (resp *Response) parseCache() {
-	var date time.Time
-	var err error
-	if t := resp.Header.Get("Date"); t != "" {
-		if date, err = time.Parse(http.TimeFormat, t); err != nil {
-			date = resp.Timestamp
-		}
-	}
-	resp.Date = date
-
-	var maxAge time.Duration
-	kv := map[string]string{}
-	if c := resp.Header.Get("Cache-Control"); c != "" {
-		kv = parseCacheControl(c)
-		var sec int64
-		if v, ok := kv["max-age"]; ok {
-			if i, err := strconv.ParseInt(v, 0, 32); err != nil {
-				sec = i
-			}
-		}
-		if v, ok := kv["s-maxage"]; ok {
-			if i, err := strconv.ParseInt(v, 0, 32); err == nil && i > sec {
-				sec = i
-			}
-		}
-		maxAge = time.Duration(sec) * time.Second
-		if maxAge == 0 {
-			if t := resp.Header.Get("Expires"); t != "" {
-				expire, err := time.Parse(http.TimeFormat, t)
-				if err == nil && !date.IsZero() {
-					maxAge = expire.Sub(date)
-				}
-			}
-		}
-	}
-	resp.MaxAge = maxAge
-
-	switch resp.StatusCode {
-	case 200, 203, 206, 300, 301:
-		// Do nothing
-	default:
-		resp.CacheType = CacheDisallow
-		return
-	}
-	exist := func(directive string) bool {
-		_, ok := kv[directive]
-		return ok
-	}
-	switch {
-	case exist("no-store"):
-		fallthrough
-	default:
-		resp.CacheType = CacheDisallow
-		return
-	case exist("must-revalidate") || exist("no-cache"):
-		resp.CacheType = CacheNeedValidate
-	case maxAge != 0:
-		resp.CacheType = CacheNormal
-	}
-
-	var age time.Duration
-	if a := resp.Header.Get("Age"); a != "" {
-		if seconds, err := strconv.ParseInt(a, 0, 32); err == nil {
-			age = time.Duration(seconds) * time.Second
-		}
-	}
-	resp.Age = computeAge(date, resp.Timestamp, age)
-
-	resp.ETag = resp.Header.Get("ETag")
-	if t := resp.Header.Get("Last-Modified"); t != "" {
-		resp.LastModified, _ = time.Parse(http.TimeFormat, t)
-	}
-}
-
-func max64(x, y time.Duration) time.Duration {
-	if x > y {
-		return x
-	}
-	return y
-}
-
-// Use a simplified calculation of rfc2616-sec13.
-func computeAge(date, resp time.Time, age time.Duration) time.Duration {
-	apparent := max64(0, resp.Sub(date))
-	recv := max64(apparent, age)
-	// assume delay = 0
-	// initial := recv + delay
-	resident := time.Now().Sub(resp)
-	return recv + resident
-}
-
-func parseCacheControl(s string) (kv map[string]string) {
-	kv = make(map[string]string)
-	parts := strings.Split(strings.TrimSpace(s), ",")
-	if len(parts) == 1 && parts[0] == "" {
-		return
-	}
-	for i := 0; i < len(parts); i++ {
-		parts[i] = strings.TrimSpace(parts[i])
-		if len(parts[i]) == 0 {
-			continue
-		}
-		name, val := parts[i], ""
-		if j := strings.Index(name, "="); j >= 0 {
-			val = strings.TrimLeft(name[j+1:], " \t\r\n\f")
-			name = strings.TrimRight(name[:j], " \t\r\n\f")
-			if len(val) > 0 {
-				kv[name] = val
-			}
-			continue
-		}
-		kv[name] = ""
-	}
-	return
 }
 
 type bodyReader struct {

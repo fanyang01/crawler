@@ -176,7 +176,7 @@ func (s *BoltStore) UpdateStatus(u *url.URL, status int) error {
 			return err
 		}
 		switch status {
-		case crawler.URLfinished, crawler.URLerror:
+		case crawler.URLStatusFinished, crawler.URLStatusError:
 			b = tx.Bucket(bkCount)
 			cnt := util.Btoi64(b.Get(keyFinishCount)) + 1
 			return b.Put(keyFinishCount, util.I64tob(cnt))
@@ -222,7 +222,7 @@ func (s *BoltStore) Recover(w io.Writer) (n int, err error) {
 				return err
 			}
 			switch u.Status {
-			case crawler.URLprocessing:
+			case crawler.URLStatusProcessing:
 				if _, err = fmt.Fprintln(w, k); err != nil {
 					return err
 				}

@@ -56,5 +56,5 @@ func TestAll(t *testing.T) {
 	assert.Nil(err)
 	uu, _ := cw.store.Get(u)
 	assert.Equal(1, uu.VisitCount)
-	assert.True(uu.LastTime.After(time.Time{}))
+	assert.True(uu.Last.After(time.Time{}))
 }

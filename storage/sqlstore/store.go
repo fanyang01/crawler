@@ -23,8 +23,7 @@ CREATE TABLE IF NOT EXISTS url (
 	depth INT,
 	status INT,
 	freq NUMERIC,
-	last_mod TIMESTAMP,
-	last_time TIMESTAMP,
+	last TIMESTAMP,
 	visit_count INT,
 	err_count INT,
 	PRIMARY KEY (scheme, host, path, query)
@@ -86,7 +85,7 @@ func (s *SQLStore) Exist(u *url.URL) (bool, error) {
 func (s *SQLStore) Get(u *url.URL) (uu *crawler.URL, err error) {
 	uu = &crawler.URL{}
 	err = s.DB.QueryRow(
-		`SELECT scheme, host, path, query, depth, status, freq, last_mod, last_time, visit_count, err_count
+		`SELECT scheme, host, path, query, depth, status, last, visit_count, err_count
     	FROM url
     	WHERE scheme = $1 AND host = $2 AND path = $3 AND query = $4`,
 		u.Scheme, u.Host, u.Path, u.RawQuery,
@@ -97,11 +96,9 @@ func (s *SQLStore) Get(u *url.URL) (uu *crawler.URL, err error) {
 		&uu.Loc.RawQuery,
 		&uu.Depth,
 		&uu.Status,
-		&uu.Freq,
-		&uu.LastMod,
-		&uu.LastTime,
+		&uu.Last,
 		&uu.VisitCount,
-		&uu.ErrCount,
+		&uu.ErrorCount,
 	)
 	return
 }
@@ -144,19 +141,17 @@ func (s *SQLStore) PutNX(u *crawler.URL) (ok bool, err error) {
 	}
 
 	if _, err = tx.Exec(`
-	INSERT INTO url(scheme, host, path, query, depth, status, freq, last_mod, last_time, visit_count, err_count)
-	 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+	INSERT INTO url(scheme, host, path, query, depth, status, last, visit_count, err_count)
+	 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		u.Loc.Scheme,
 		u.Loc.Host,
 		u.Loc.Path,
 		u.Loc.RawQuery,
 		u.Depth,
 		u.Status,
-		u.Freq,
-		u.LastMod,
-		u.LastTime,
+		u.Last,
 		u.VisitCount,
-		u.ErrCount,
+		u.ErrorCount,
 	); err == nil {
 		put = true
 		_, err = tx.Exec(
@@ -167,12 +162,11 @@ func (s *SQLStore) PutNX(u *crawler.URL) (ok bool, err error) {
 }
 func (s *SQLStore) Update(u *crawler.URL) (err error) {
 	_, err = s.DB.Exec(`
-	UPDATE url SET err_count = $1, visit_count = $2, last_time = $3, last_mod = $4
-	WHERE scheme = $5 AND host = $6 AND path = $7 AND query = $8`,
-		u.ErrCount,
+	UPDATE url SET err_count = $1, visit_count = $2, last = $3 
+	WHERE scheme = $4 AND host = $5 AND path = $6 AND query = $7`,
+		u.ErrorCount,
 		u.VisitCount,
-		u.LastTime,
-		u.LastMod,
+		u.Last,
 
 		u.Loc.Scheme,
 		u.Loc.Host,
@@ -207,7 +201,7 @@ func (s *SQLStore) UpdateStatus(u *url.URL, status int) (err error) {
 		return
 	}
 	switch status {
-	case crawler.URLfinished, crawler.URLerror:
+	case crawler.URLStatusFinished, crawler.URLStatusError:
 		_, err = tx.Exec(
 			`UPDATE count SET finish_count = finish_count + 1`,
 		)

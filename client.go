@@ -1,7 +1,9 @@
 package crawler
 
 import (
+	"bytes"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -9,6 +11,8 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+
+	"github.com/fanyang01/crawler/cache"
 )
 
 var (
@@ -43,7 +47,7 @@ func init() {
 // StdClient is used for static pages.
 type StdClient struct {
 	*http.Client
-	Cache *cachePool
+	Cache *cache.Pool
 }
 
 // ResponseStatusError represents unexpected response status.
@@ -58,49 +62,51 @@ func (e ResponseStatusError) Error() string {
 
 // Do implements Client.
 func (c *StdClient) Do(req *Request) (resp *Response, err error) {
-	var rr *Response
-	if req.Method == "GET" && c.Cache != nil {
-		var ok bool
-		if rr, ok = c.Cache.Get(req.URL); ok {
-			switch rr.CacheType {
-			case CacheNormal:
-				if !rr.IsExpired() {
-					return rr, nil
-				}
-				fallthrough
-			case CacheNeedValidate:
-				return c.revalidate(rr)
-			}
-		}
-	}
-
-	resp = newResponse()
 	defer func() {
-		if err != nil {
-			resp.free()
-			resp = nil
+		if err != nil && resp != nil {
+			resp.Free()
 		}
 	}()
 
-	var rp *http.Response
-	if rp, err = c.Client.Do(req.Request); err != nil {
+	var (
+		hr   *http.Response
+		cc   *cache.Control
+		body []byte
+		now  time.Time
+		ok   bool
+	)
+	if req.Method == "GET" && c.Cache != nil {
+		if hr, body, cc, ok = c.Cache.Get(req.URL); ok {
+			if cc.NeedValidate() {
+				if hr, cc, err = c.revalidate(req.URL, hr, body, cc); err != nil {
+					return
+				}
+			} else {
+				hr.Body = ioutil.NopCloser(bytes.NewReader(body))
+			}
+			now = time.Now()
+			goto INIT
+		}
+	}
+
+	if hr, err = c.Client.Do(req.Request); err != nil {
 		return
 	}
 	switch {
-	case 200 <= rp.StatusCode && rp.StatusCode < 300:
+	case 200 <= hr.StatusCode && hr.StatusCode < 300:
 		// Only status code 2xx is ok
 	default:
-		err = ResponseStatusError(rp.StatusCode)
-		rp.Body.Close()
+		err = ResponseStatusError(hr.StatusCode)
+		hr.Body.Close()
 		return
 	}
-	resp.init(req.URL, rp, time.Now())
-
-	// Date is used by store
-	resp.parseCache()
 	if c.Cache != nil {
-		c.Cache.Set(resp)
+		cc = cache.Parse(hr, now)
 	}
+	resp = NewResponse()
+
+INIT:
+	resp.init(req.URL, hr, now, cc)
 
 	log.WithFields(logrus.Fields{
 		"func": "StdClient.Do",
@@ -110,58 +116,46 @@ func (c *StdClient) Do(req *Request) (resp *Response, err error) {
 	return
 }
 
-func (c *StdClient) revalidate(r *Response) (resp *Response, err error) {
-	req, _ := http.NewRequest("GET", r.URL.String(), nil)
-	if r.ETag != "" {
-		req.Header.Add("If-None-Match", r.ETag)
-	}
-	var lm time.Time
-	if lm = r.LastModified; lm.IsZero() {
-		lm = r.Timestamp
-	}
-	req.Header.Add("If-Modified-Since", lm.Format(http.TimeFormat))
+func (c *StdClient) revalidate(u *url.URL, r *http.Response,
+	body []byte, cc *cache.Control) (rr *http.Response, rcc *cache.Control, err error) {
 
-	var rp *http.Response
-	if rp, err = c.Client.Do(req); err != nil {
-		return
+	req, _ := http.NewRequest("GET", u.String(), nil)
+	if cc.ETag != "" {
+		req.Header.Add("If-None-Match", cc.ETag)
 	}
-	now := time.Now()
-	addToCache := func(r *Response) {
-		if r.parseCache(); r.IsCacheable() && !r.IsExpired() {
-			c.Cache.Set(r)
-		} else {
-			c.Cache.Remove(r.URL)
-		}
+	var t time.Time
+	if t = cc.LastModified; t.IsZero() {
+		t = cc.Date
+	}
+	req.Header.Add("If-Modified-Since", t.Format(http.TimeFormat))
+
+	if rr, err = c.Client.Do(req); err != nil {
+		return
 	}
 
 	switch {
-	case rp.StatusCode == 304:
-		// TODO: only copy end-to-end headers
-		for k, vv := range rp.Header {
-			r.Header.Del(k)
-			for _, v := range vv {
-				r.Header.Set(k, v)
-			}
-		}
-		r.Timestamp = now
-		addToCache(r)
-	case 200 <= rp.StatusCode && rp.StatusCode < 300:
-		r.free()
-		r = newResponse()
-		r.init(req.URL, rp, now)
-		addToCache(r)
+	case rr.StatusCode == 304:
+		rr.Body.Close()
+		rr = cache.Construct(r, rr, body)
+		fallthrough
+	case 200 <= rr.StatusCode && rr.StatusCode < 300:
+		rcc = cache.Parse(rr, time.Now())
+		return
 	default:
-		rp.Body.Close()
-		err = ResponseStatusError(resp.StatusCode)
+		rr.Body.Close()
+		err = ResponseStatusError(rr.StatusCode)
 		return
 	}
-	return r, nil
 }
 
-func (resp *Response) init(u *url.URL, rp *http.Response, stamp time.Time) {
-	resp.URL = u
-	resp.NewURL = rp.Request.URL
-	resp.Timestamp = stamp
-	resp.Response = rp
-	resp.initBody()
+func (r *Response) init(u *url.URL, hr *http.Response,
+	t time.Time, cc *cache.Control) *Response {
+
+	r.URL = u
+	r.NewURL = hr.Request.URL
+	r.Timestamp = t
+	r.Response = hr
+	r.CacheControl = cc
+	r.initBody()
+	return r
 }

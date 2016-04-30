@@ -5,41 +5,7 @@ import (
 	"io"
 	"net/url"
 	"sync"
-	"time"
 )
-
-const (
-	// Status of a URL.
-	URLprocessing = iota
-	URLfinished
-	URLerror
-)
-
-// URL contains metadata of a url in crawler.
-type URL struct {
-	Loc    url.URL
-	Depth  int
-	Status int
-
-	// Can modified by Update
-	Freq       time.Duration
-	LastMod    time.Time
-	LastTime   time.Time
-	VisitCount int
-	ErrCount   int
-}
-
-func (u *URL) clone() *URL {
-	uu := *u
-	return &uu
-}
-
-func (uu *URL) Update(u *URL) {
-	uu.ErrCount = u.ErrCount
-	uu.VisitCount = u.VisitCount
-	uu.LastTime = u.LastTime
-	uu.LastMod = u.LastMod
-}
 
 // Store stores all URLs.
 type Store interface {
@@ -137,7 +103,7 @@ func (p *MemStore) UpdateStatus(u *url.URL, status int) error {
 	}
 	uu.Status = status
 	switch status {
-	case URLfinished, URLerror:
+	case URLStatusFinished, URLStatusError:
 		p.Finished++
 	}
 	return nil

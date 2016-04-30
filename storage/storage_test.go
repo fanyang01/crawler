@@ -34,19 +34,16 @@ func StoreTest(t *testing.T, s crawler.Store) {
 		return u.Loc.String() == uu.Loc.String() &&
 			u.Depth == uu.Depth &&
 			u.Status == uu.Status &&
-			u.Freq == uu.Freq &&
-			equalTime(u.LastMod, uu.LastMod) &&
-			equalTime(u.LastTime, uu.LastTime) &&
+			equalTime(u.Last, uu.Last) &&
 			u.VisitCount == uu.VisitCount &&
-			u.ErrCount == uu.ErrCount
+			u.ErrorCount == uu.ErrorCount
 	}
 	tm := time.Now().UTC()
 	assert := assert.New(t)
 	u, _ := url.Parse("http://localhost:6060")
 	uu := &crawler.URL{
-		Loc:      *u,
-		LastMod:  tm,
-		LastTime: tm,
+		Loc:  *u,
+		Last: tm,
 	}
 	ok, err := s.PutNX(uu)
 	assert.NoError(err)
@@ -66,14 +63,14 @@ func StoreTest(t *testing.T, s crawler.Store) {
 	assert.True(cmp(uu, uuu))
 
 	uuu.VisitCount++
-	uuu.LastTime = time.Now().UTC()
+	uuu.Last = time.Now().UTC()
 	assert.NoError(s.Update(uuu))
 	uu, err = s.Get(u)
 	assert.NoError(err)
 	// assert.Equal(*uuu, *uu)
 	assert.True(cmp(uu, uuu))
 
-	uu.Status = crawler.URLerror
+	uu.Status = crawler.URLStatusError
 	assert.NoError(s.Update(uuu))
 	uuu, err = s.Get(u)
 	assert.NoError(err)
@@ -84,7 +81,7 @@ func StoreTest(t *testing.T, s crawler.Store) {
 	assert.NoError(err)
 	assert.False(ok)
 
-	assert.NoError(s.UpdateStatus(u, crawler.URLfinished))
+	assert.NoError(s.UpdateStatus(u, crawler.URLStatusFinished))
 	ok, err = s.IsFinished()
 	assert.NoError(err)
 	assert.True(ok)
@@ -100,7 +97,7 @@ func StoreTest(t *testing.T, s crawler.Store) {
 	assert.NoError(err)
 	assert.False(ok)
 
-	assert.NoError(s.UpdateStatus(u, crawler.URLerror))
+	assert.NoError(s.UpdateStatus(u, crawler.URLStatusError))
 	ok, err = s.IsFinished()
 	assert.NoError(err)
 	assert.True(ok)
@@ -146,9 +143,8 @@ func benchPut(b *testing.B, store crawler.Store, name string) {
 	for i := 0; i < b.N; i++ {
 		now := time.Now().UTC()
 		store.PutNX(&crawler.URL{
-			Loc:      *mustParse(fmt.Sprintf("http://example.com/foo/bar/%d", i)),
-			LastTime: now,
-			LastMod:  now,
+			Loc:  *mustParse(fmt.Sprintf("http://example.com/foo/bar/%d", i)),
+			Last: now,
 		})
 	}
 	// d := time.Now().Sub(start)
@@ -222,9 +218,8 @@ func initGet() {
 		for i := 0; i < bench_get_size; i++ {
 			now := time.Now().UTC()
 			st.PutNX(&crawler.URL{
-				Loc:      *mustParse(fmt.Sprintf("http://example.com/foo/bar/%d", i)),
-				LastTime: now,
-				LastMod:  now,
+				Loc:  *mustParse(fmt.Sprintf("http://example.com/foo/bar/%d", i)),
+				Last: now,
 			})
 		}
 	}

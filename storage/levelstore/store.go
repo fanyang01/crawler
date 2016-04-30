@@ -175,7 +175,7 @@ func (s *LevelStore) UpdateStatus(u *url.URL, status int) (err error) {
 		commit = true
 		err = tx.Commit()
 		return
-	case crawler.URLfinished, crawler.URLerror:
+	case crawler.URLStatusFinished, crawler.URLStatusError:
 	}
 	if v, err = tx.Get(keyFinishCount, nil); err != nil {
 		return
