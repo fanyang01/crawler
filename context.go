@@ -10,8 +10,7 @@ import (
 type ctxKey int
 
 const (
-	ckPreview ctxKey = 1 + iota
-	ckLoaded
+	ckLoaded ctxKey = 1 + iota
 	ckDepth
 	ckVisitCount
 	ckErrorCount
@@ -32,10 +31,6 @@ func newContext(cw *Crawler, u *url.URL) *Context {
 		cw:  cw,
 		C:   context.Background(),
 	}
-}
-
-func (c *Context) preview() []byte {
-	return c.C.Value(ckPreview).([]byte)
 }
 
 func (c *Context) URL() *url.URL { return c.url }
@@ -84,9 +79,10 @@ func (c *Context) Value(k interface{}) interface{} {
 	return c.C.Value(k)
 }
 
+var emptyContext = Context{}
+
 func (c *Context) Reset() *Context {
-	c.url = nil
-	c.cw = nil
+	*c = emptyContext
 	c.C = context.Background()
 	return c
 }

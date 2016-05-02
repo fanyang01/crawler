@@ -39,7 +39,6 @@ type Response struct {
 	CacheControl *cache.Control
 
 	ContentLocation *url.URL
-	Content         []byte
 	ContentType     string
 	CertainType     bool
 	Refresh         struct {
@@ -65,30 +64,24 @@ var (
 	respFreeList = sync.Pool{
 		New: func() interface{} { return new(Response) },
 	}
-	respTemplate = Response{}
+	emptyResponse = Response{}
 )
 
 func NewResponse() *Response {
 	r := respFreeList.Get().(*Response)
-	*r = respTemplate // TODO
 	return r
 }
 
 func (r *Response) Free() {
-	// Let GC collect child objects.
-	r.URL = nil
-	r.NewURL = nil
-	r.ContentLocation = nil
-	r.Refresh.URL = nil
-
-	// TODO: reuse content buffer
-	r.Content = nil
-
-	if len(r.links) > LinkPerPage {
-		r.links = nil
+	links := r.links
+	if len(links) > LinkPerPage {
+		links = nil
 	} else {
-		r.links = r.links[:0]
+		links = links[:0]
 	}
+	// Let GC collect child objects.
+	*r = emptyResponse
+	r.links = links
 	respFreeList.Put(r)
 }
 
