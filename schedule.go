@@ -8,11 +8,6 @@ import (
 	"github.com/fanyang01/crawler/queue"
 )
 
-const (
-	PQueueLen     int = 4096
-	MaxRetryTimes     = 5
-)
-
 type scheduler struct {
 	workerConn
 	NewIn     chan *url.URL
@@ -28,9 +23,8 @@ type scheduler struct {
 	pqOut     <-chan *url.URL
 	pqErr     <-chan error
 
-	retry time.Duration // duration between retry
-	once  sync.Once     // used for closing Out
-	done  chan struct{}
+	once sync.Once // used for closing Out
+	done chan struct{}
 }
 
 func (cw *Crawler) newScheduler(wq queue.WaitQueue) *scheduler {
@@ -49,8 +43,7 @@ func (cw *Crawler) newScheduler(wq queue.WaitQueue) *scheduler {
 		pqOut:     chOut,
 		pqErr:     chErr,
 
-		retry: cw.opt.RetryDuration,
-		done:  make(chan struct{}),
+		done: make(chan struct{}),
 	}
 
 	cw.initWorker(this, nworker)
@@ -76,9 +69,9 @@ func (sd *scheduler) work() {
 			next = waiting[0]
 		}
 		var (
-			item *queue.Item
-			done bool
-			err  error
+			item     *queue.Item
+			done, ok bool
+			err      error
 		)
 		select {
 		// Input:
@@ -99,6 +92,14 @@ func (sd *scheduler) work() {
 			}
 		case resp := <-sd.ResIn:
 			sd.cw.store.IncVisitCount()
+			if resp.err != nil {
+				sd.cw.log.Error(err)
+				if item, ok = sd.retry(resp.URL); ok {
+					waiting = append(waiting, item)
+					continue
+				}
+				break
+			}
 			for _, link := range resp.links {
 				item, done, err = sd.schedURL(resp, link.URL, URLTypeNew)
 				if err != nil {
@@ -118,15 +119,10 @@ func (sd *scheduler) work() {
 		case u = <-sd.DoneIn:
 			sd.cw.store.UpdateStatus(u, URLStatusFinished)
 		case u = <-sd.ErrIn:
-			if cnt := sd.incErrCount(u); cnt >= sd.cw.opt.MaxRetry {
-				sd.cw.store.UpdateStatus(u, URLStatusError)
-				break
+			if item, ok = sd.retry(u); ok {
+				waiting = append(waiting, item)
+				continue
 			}
-			item := queue.NewItem()
-			item.URL = u
-			item.Next = time.Now().Add(sd.retry)
-			waiting = append(waiting, item)
-			continue
 		case u = <-sd.pqOut:
 			if u == nil { // queue has been closed
 				return
@@ -155,9 +151,9 @@ func (sd *scheduler) work() {
 			return
 		}
 
-		if done, err = sd.cw.store.IsFinished(); err != nil {
+		if ok, err = sd.cw.store.IsFinished(); err != nil {
 			goto ERROR
-		} else if done {
+		} else if ok {
 			sd.stop() // notify other goroutines to exit.
 			return
 		}
@@ -218,6 +214,17 @@ func (sd *scheduler) schedURL(r *Response, u *url.URL, typ int) (item *queue.Ite
 		item.Next = minTime
 	}
 	return
+}
+
+func (sd *scheduler) retry(u *url.URL) (*queue.Item, bool) {
+	if cnt := sd.incErrCount(u); cnt >= sd.cw.opt.MaxRetry {
+		sd.cw.store.UpdateStatus(u, URLStatusError)
+		return nil, false
+	}
+	item := queue.NewItem()
+	item.URL = u
+	item.Next = time.Now().Add(sd.cw.opt.RetryDuration)
+	return item, true
 }
 
 func (sd *scheduler) incErrCount(u *url.URL) int {

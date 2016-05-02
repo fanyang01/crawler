@@ -16,6 +16,7 @@ const (
 	ckVisitCount
 	ckErrorCount
 	ckLastVisit
+	ckError
 )
 
 type Context struct {
@@ -91,3 +92,4 @@ func (c *Context) Reset() *Context {
 }
 
 func (c *Context) Response() *Response { return c.response }
+func (c *Context) Error(err error)     { c.WithValue(ckError, err) }

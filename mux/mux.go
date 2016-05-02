@@ -27,6 +27,7 @@ Search algorithm:
 package mux
 
 import (
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -154,19 +155,19 @@ type (
 	}
 	// Handler handles the response.
 	Handler interface {
-		Handle(*crawler.Response)
+		Handle(*crawler.Response, chan<- *crawler.Link)
 	}
 	// PreparerFunc configures a request before it is actually made.
 	PreparerFunc func(*crawler.Request)
 	// HandlerFunc handles the response.
-	HandlerFunc func(*crawler.Response)
+	HandlerFunc func(*crawler.Response, chan<- *crawler.Link)
 )
 
 // Prepare implements Preparer.
 func (f PreparerFunc) Prepare(req *crawler.Request) { f(req) }
 
 // Handle implements Handler.
-func (f HandlerFunc) Handle(resp *crawler.Response) { f(resp) }
+func (f HandlerFunc) Handle(r *crawler.Response, ch chan<- *crawler.Link) { f(r, ch) }
 
 // Allow specifies that urls matching pattern should be processed.
 func (mux *Mux) Allow(pattern string) {
@@ -182,7 +183,7 @@ func (mux *Mux) Disallow(pattern string) {
 // DoNotFollow tells crawler not to follow links on pages whose url matches pattern.
 // The default behavior is to follow links.
 func (mux *Mux) DoNotFollow(pattern string) {
-	mux.matcher[muxNOFOLLOW].Add(pattern, false)
+	mux.matcher[muxNOFOLLOW].Add(pattern, true)
 }
 
 // SetScore sets score for urls matching pattern.
@@ -233,7 +234,7 @@ func (mux *Mux) AddHandler(pattern string, h Handler) {
 }
 
 // AddHandleFunc registers f to handle responses whose url matches pattern.
-func (mux *Mux) AddHandleFunc(pattern string, f func(*crawler.Response)) {
+func (mux *Mux) AddHandleFunc(pattern string, f func(*crawler.Response, chan<- *crawler.Link)) {
 	mux.AddHandler(pattern, HandlerFunc(f))
 }
 
@@ -253,16 +254,19 @@ func (mux *Mux) Prepare(req *crawler.Request) {
 }
 
 // Handle implements Controller.
-func (mux *Mux) Handle(resp *crawler.Response) []*crawler.Link {
-	url := resp.URL.String()
+func (mux *Mux) Handle(r *crawler.Response, ch chan<- *crawler.Link) {
+	url := r.URL.String()
 	if f, ok := mux.matcher[muxHANDLE].Get(url); ok {
-		f.(Handler).Handle(resp)
+		f.(Handler).Handle(r, ch)
+	} else {
+		depth, err := r.Context().Depth()
+		if err == nil && mux.follow(r, depth) {
+			crawler.ExtractHref(r.NewURL, r.Body, ch)
+		}
 	}
-	return nil
 }
 
-// Follow implements Controller.
-func (mux *Mux) Follow(r *crawler.Response, depth int) bool {
+func (mux *Mux) follow(r *crawler.Response, depth int) bool {
 	if _, ok := mux.matcher[muxNOFOLLOW].Get(r.URL.String()); ok {
 		return false
 	}
@@ -275,14 +279,14 @@ func (mux *Mux) Follow(r *crawler.Response, depth int) bool {
 }
 
 // Schedule implements Controller.
-func (mux *Mux) Schedule(u *crawler.URL, _ int, _ *crawler.Response) (done bool, at time.Time, score int) {
-	url := u.Loc.String()
+func (mux *Mux) Schedule(ctx *crawler.Context, u *url.URL) (done bool, at time.Time, score int) {
+	url := u.String()
 	if t, ok := mux.matcher[muxFREQ].Get(url); ok {
-		if u.VisitCount >= t.(int) {
+		if cnt, err := ctx.VisitCount(); err != nil || cnt >= t.(int) {
 			done = true
 			return
 		}
-	} else if u.VisitCount >= 1 {
+	} else if cnt, err := ctx.VisitCount(); err != nil || cnt >= 1 {
 		done = true
 		return
 	}
@@ -293,7 +297,7 @@ func (mux *Mux) Schedule(u *crawler.URL, _ int, _ *crawler.Response) (done bool,
 }
 
 // Accept implements Controller.
-func (mux *Mux) Accept(_ *crawler.Response, link *crawler.Link) bool {
+func (mux *Mux) Accept(_ *crawler.Context, link *crawler.Link) bool {
 	if ac, ok := mux.matcher[muxFILTER].Get(link.URL.String()); ok {
 		return ac.(bool)
 	}

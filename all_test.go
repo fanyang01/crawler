@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,13 +14,12 @@ import (
 
 type testController struct {
 	OnceController
-	text  chan string
-	value chan []string
+	content chan []byte
 }
 
 func (t testController) Handle(r *Response, _ chan<- *Link) {
-	t.text <- r.FindText("div.foo")
-	t.value <- r.FindAttr("div#hello", "key")
+	b, _ := ioutil.ReadAll(r.Body)
+	t.content <- b
 }
 
 func TestAll(t *testing.T) {
@@ -38,17 +38,15 @@ func TestAll(t *testing.T) {
 	defer ts.Close()
 
 	ctrl := &testController{
-		text:  make(chan string, 2),
-		value: make(chan []string, 2),
+		content: make(chan []byte, 2),
 	}
 
 	cw := NewCrawler(&Config{Controller: ctrl})
 	assert.Nil(cw.Crawl(ts.URL))
 	cw.Wait()
-	assert.Equal("bar", <-ctrl.text)
-	vs := <-ctrl.value
-	assert.Equal(1, len(vs))
-	assert.Equal("value", vs[0])
+	content := string(<-ctrl.content)
+	assert.Contains(content, "bar")
+	assert.Contains(content, "Hello, world!")
 
 	u, err := url.Parse(ts.URL)
 	assert.Nil(err)

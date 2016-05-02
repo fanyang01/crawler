@@ -18,8 +18,8 @@ const (
 type Link struct {
 	URL       *url.URL // parsed url
 	Text      []byte   // anchor text
-	Depth     int      // length of path to find it
-	Hyperlink bool     // is hyperlink?
+	depth     int      // length of path to find it
+	hyperlink bool     // is hyperlink?
 }
 
 // Client defines how requests are made.

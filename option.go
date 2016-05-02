@@ -31,7 +31,7 @@ var (
 		MaxCacheSize:  1024,
 		MaxHTML:       1 << 20, // iMB
 		MinDelay:      10 * time.Second,
-		RetryDuration: 20 * time.Second,
+		RetryDuration: 10 * time.Second,
 		MaxRetry:      4,
 		NWorker: struct {
 			Maker, Fetcher, Handler, Scheduler int

@@ -42,31 +42,31 @@ func (cw *Crawler) newFetcher() *fetcher {
 	return this
 }
 
-func (fc *fetcher) cleanup() { close(fc.Out) }
+func (f *fetcher) cleanup() { close(f.Out) }
 
-func (fc *fetcher) work() {
-	for req := range fc.In {
+func (f *fetcher) work() {
+	for req := range f.In {
 		var (
-			out    = fc.Out
+			out    = f.Out
 			errOut chan *url.URL
 		)
 		r, err := req.Client.Do(req)
 		if err != nil {
-			out, errOut = nil, fc.ErrOut
-			fc.cw.log.Errorf("client: %v", err)
+			out, errOut = nil, f.ErrOut
+			f.cw.log.Errorf("client: %v", err)
 		} else {
-			fc.initResponse(req, r)
+			f.initResponse(req, r)
 		}
 		select {
 		case out <- r:
 		case errOut <- req.URL:
-		case <-fc.quit:
+		case <-f.quit:
 			return
 		}
 	}
 }
 
-func (fc *fetcher) initResponse(req *Request, r *Response) {
+func (f *fetcher) initResponse(req *Request, r *Response) {
 	// Redirected response is treated as the response of original URL,
 	// because we need to ensure there is only one instance of a URL in the
 	// processing flow, but many URLs can redirect to the same location.
@@ -92,7 +92,7 @@ func (fc *fetcher) initResponse(req *Request, r *Response) {
 		r.ContentType = http.DetectContentType(preview)
 	}
 	r.scanHTMLMeta(preview)
-	r.convToUTF8(preview, fc.cw.ctrl.Charset)
+	r.convToUTF8(preview, f.cw.ctrl.Charset)
 }
 
 func (r *Response) convToUTF8(preview []byte, query func(*url.URL) string) {

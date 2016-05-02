@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/text/encoding"
 
 	"github.com/fanyang01/crawler/cache"
@@ -53,14 +52,12 @@ type Response struct {
 	BodyStatus int
 
 	Charset        string
-	Encoding       encoding.Encoding
 	CertainCharset bool
+	Encoding       encoding.Encoding
 
-	ctx *Context
-	err error
-	// content will be parsed into document only if neccessary.
-	document *goquery.Document
-	links    []*Link
+	ctx   *Context
+	err   error
+	links []*Link
 }
 
 var (
@@ -83,7 +80,6 @@ func (r *Response) Free() {
 	r.NewURL = nil
 	r.ContentLocation = nil
 	r.Refresh.URL = nil
-	r.document = nil
 
 	// TODO: reuse content buffer
 	r.Content = nil

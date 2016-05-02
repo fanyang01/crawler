@@ -2,25 +2,22 @@ package crawler
 
 import (
 	"io"
+	"net/url"
 
 	"golang.org/x/net/html"
 )
 
 const LinkPerPage = 32
 
-func (f *handler) findLink(resp *Response, depth int, reader io.Reader) {
+func ExtractHref(base *url.URL, reader io.Reader, ch chan<- *Link) error {
 	z := html.NewTokenizer(reader)
-	ch := make(chan *Link, LinkPerPage)
-	done := make(chan struct{})
-	// go f.consume(resp, ch, done)
-
 LOOP:
 	for {
 		tt := z.Next()
 		switch tt {
 		case html.ErrorToken:
-			if z.Err() != io.EOF {
-				log.Errorf("find link: %v", z.Err())
+			if err := z.Err(); err != io.EOF {
+				return err
 			}
 			break LOOP
 		case html.StartTagToken:
@@ -29,13 +26,10 @@ LOOP:
 				for {
 					key, val, more := z.TagAttr()
 					if string(key) == "href" {
-						if u, err := resp.NewURL.Parse(string(val)); err == nil {
+						if u, err := base.Parse(string(val)); err == nil {
 							u.Fragment = ""
 							ch <- &Link{
-								URL:       u,
-								Hyperlink: u.Host != resp.NewURL.Host,
-								Depth:     depth + 1,
-								// TODO: anchor text
+								URL: u,
 							}
 						}
 						break
@@ -47,6 +41,5 @@ LOOP:
 			}
 		}
 	}
-	close(ch)
-	<-done
+	return nil
 }
