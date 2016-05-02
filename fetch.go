@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/fanyang01/crawler/util"
 
 	"golang.org/x/net/html"
@@ -47,73 +46,78 @@ func (fc *fetcher) cleanup() { close(fc.Out) }
 
 func (fc *fetcher) work() {
 	for req := range fc.In {
-		ctx := log.WithFields(logrus.Fields{
-			"worker": "fetcher",
-			"URL":    req.URL.String(),
-		})
-
-		var r *Response
-		var err error
-		if r, err = req.Client.Do(req); err != nil {
-			ctx.Errorf("client: %v", err)
-			fc.ErrOut <- req.URL
-			continue
+		var (
+			out    = fc.Out
+			errOut chan *url.URL
+		)
+		r, err := req.Client.Do(req)
+		if err != nil {
+			out, errOut = nil, fc.ErrOut
+			fc.cw.log.Errorf("client: %v", err)
+		} else {
+			fc.initResponse(req, r)
 		}
-		// Redirected response is treated as the response of original
-		// URL, because we need to ensure there is only one instance of
-		// req.URL is in processing flow.
-		r.URL = req.URL
-		r.ctx = req.ctx
-		r.ctx.response = r
-		r.Timestamp = time.Now()
-		r.parseLocation()
-		r.detectMIME()
-
-		var preview []byte
-		if preview, err = r.preview(1024); err != nil {
-			r.err = fmt.Errorf("fetcher: preview: %v", err)
-			goto END
-		}
-		if !r.CertainType {
-			r.ContentType = http.DetectContentType(preview)
-		}
-		r.scanMeta(preview)
-
-		// Convert to UTF-8
-		if CT_HTML.match(r.ContentType) {
-			e, name, certain := charset.DetermineEncoding(
-				preview, r.ContentType,
-			)
-			// according to charset package source, default unknown charset is windows-1252.
-			if !certain && name == "windows-1252" {
-				label := fc.cw.ctrl.Charset(r.URL)
-				if e, name = charset.Lookup(label); e == nil {
-					fc.cw.log.Warnf("unsupported charset: %v", label)
-				} else {
-					certain = true
-				}
-			}
-			r.Charset, r.CertainCharset, r.Encoding = name, certain, e
-			if name != "" && e != nil {
-				r.Body, _ = util.NewUTF8Reader(name, r.Body)
-			}
-		}
-
-	END:
 		select {
-		case fc.Out <- r:
+		case out <- r:
+		case errOut <- req.URL:
 		case <-fc.quit:
 			return
 		}
 	}
 }
 
-func (resp *Response) parseLocation() {
-	var baseurl *url.URL
-	if baseurl = resp.Request.URL; baseurl == nil {
-		if baseurl, _ = resp.Location(); baseurl == nil {
-			baseurl = resp.URL
+func (fc *fetcher) initResponse(req *Request, r *Response) {
+	// Redirected response is treated as the response of original URL,
+	// because we need to ensure there is only one instance of a URL in the
+	// processing flow, but many URLs can redirect to the same location.
+	r.URL = req.URL
+	if r.NewURL == nil {
+		r.NewURL = r.URL
+	}
+	r.ctx = req.ctx
+	r.ctx.response = r
+	r.Timestamp = time.Now()
+	r.scanLocation()
+	r.detectContentType()
+
+	var (
+		preview []byte
+		err     error
+	)
+	if preview, err = r.preview(1024); err != nil {
+		r.err = fmt.Errorf("fetcher: preview: %v", err)
+		return
+	}
+	if !r.CertainType {
+		r.ContentType = http.DetectContentType(preview)
+	}
+	r.scanHTMLMeta(preview)
+	r.convToUTF8(preview, fc.cw.ctrl.Charset)
+}
+
+func (r *Response) convToUTF8(preview []byte, query func(*url.URL) string) {
+	// Convert to UTF-8
+	if CT_HTML.match(r.ContentType) {
+		e, name, certain := charset.DetermineEncoding(
+			preview, r.ContentType,
+		)
+		// according to charset package source, default unknown charset is windows-1252.
+		if !certain && name == "windows-1252" {
+			if e, name = charset.Lookup(query(r.URL)); e != nil {
+				certain = true
+			}
 		}
+		r.Charset, r.CertainCharset, r.Encoding = name, certain, e
+		if name != "" && e != nil {
+			r.Body, _ = util.NewUTF8Reader(name, r.Body)
+		}
+	}
+}
+
+func (resp *Response) scanLocation() {
+	var baseurl *url.URL
+	if baseurl = resp.NewURL; baseurl == nil {
+		baseurl = resp.URL
 	}
 	if loc := resp.Header.Get("Content-Location"); loc != "" {
 		resp.ContentLocation, _ = baseurl.Parse(loc)
@@ -123,13 +127,16 @@ func (resp *Response) parseLocation() {
 	}
 }
 
-func (resp *Response) detectMIME() (sure bool) {
+func (resp *Response) detectContentType() (sure bool) {
+	if resp.CertainType {
+		return true
+	}
 	defer func() { resp.CertainType = sure }()
+
 	if t := resp.Header.Get("Content-Type"); t != "" {
 		resp.ContentType = t
 		return true
 	}
-
 	if resp.NewURL != nil || resp.ContentLocation != nil {
 		var pth, ext string
 		if resp.NewURL != nil {
@@ -141,18 +148,20 @@ func (resp *Response) detectMIME() (sure bool) {
 			ext = path.Ext(pth)
 		}
 		if ext != "" {
-			resp.ContentType = mime.TypeByExtension(ext)
-			return true
+			if t := mime.TypeByExtension(ext); t != "" {
+				resp.ContentType = t
+				return true
+			}
 		} else if strings.HasSuffix(pth, "/") {
 			resp.ContentType = "text/html"
-			return true
+			return false
 		}
 	}
 	resp.ContentType = string(CT_UNKNOWN)
 	return false
 }
 
-func (resp *Response) scanMeta(content []byte) {
+func (r *Response) scanHTMLMeta(content []byte) {
 	if len(content) == 0 {
 		return
 	}
@@ -206,7 +215,8 @@ func (resp *Response) scanMeta(content []byte) {
 					content = string(val)
 				case "charset":
 					if s := bytes.TrimSpace(val); len(s) > 0 {
-						resp.Charset = string(s)
+						r.Charset = string(s)
+						r.CertainCharset = true
 					}
 				}
 			}
@@ -216,11 +226,15 @@ func (resp *Response) scanMeta(content []byte) {
 				continue
 			case pragmaContentType:
 				if content = strings.TrimSpace(content); content != "" {
-					resp.ContentType = fmtContentType(content)
+					// Override content type.
+					if !r.CertainType || contentCharset(r.ContentType) == "" {
+						r.ContentType = fmtContentType(content)
+						r.CertainType = true
+					}
 				}
 			case pragmaRefresh:
 				if content = strings.TrimSpace(content); content != "" {
-					resp.Refresh.Seconds, resp.Refresh.URL = parseRefresh(content, resp.NewURL)
+					r.Refresh.Seconds, r.Refresh.URL = parseRefresh(content, r.NewURL)
 				}
 			}
 		}
@@ -233,6 +247,14 @@ func fmtContentType(s string) string {
 		return s
 	}
 	return mime.FormatMediaType(m, p)
+}
+
+func contentCharset(s string) string {
+	_, p, err := mime.ParseMediaType(s)
+	if err != nil {
+		return s
+	}
+	return p["charset"]
 }
 
 func parseRefresh(s string, u *url.URL) (second int, uu *url.URL) {
