@@ -1,7 +1,6 @@
 package crawler
 
 import (
-	"bytes"
 	"fmt"
 	"io/ioutil"
 	"net/url"
@@ -16,10 +15,9 @@ type handleTestCtrl struct {
 	content [][]byte
 }
 
-func (c *handleTestCtrl) Handle(r *Response) []*Link {
+func (c *handleTestCtrl) Handle(r *Response, _ chan<- *Link) {
 	b, _ := ioutil.ReadAll(r.Body)
 	c.content = append(c.content, b)
-	return nil
 }
 
 func TestHandler(t *testing.T) {
@@ -29,15 +27,12 @@ func TestHandler(t *testing.T) {
 	rs := []*Response{
 		{
 			Body:        strings.NewReader("<html>你好，世界</html>"),
-			pview:       []byte("<html>你好，世界</html>"),
 			ContentType: "text/html",
 		}, {
 			Body:        strings.NewReader("<html>你好，世界</html>"),
-			pview:       []byte("<html>你好，世界</html>"),
 			ContentType: "text/html; charset=utf-8",
 		}, {
 			Body:        strings.NewReader("<html><body></body></html>"),
-			pview:       []byte("<html><body></body></html>"),
 			ContentType: "text/html; charset=gbk",
 		},
 	}
@@ -57,10 +52,11 @@ func TestHandler(t *testing.T) {
 	for i, r := range rs {
 		u, _ := url.Parse(fmt.Sprintf("/hello/%d", i))
 		r.URL = u
+		r.NewURL = u
+		r.ctx = newContext(cw, u)
 		cw.store.PutNX(&URL{Loc: *u})
 		handler.handle(r)
 
-		assert.True(t, bytes.Equal(r.pview, ctrl.content[i]))
 		assert.Equal(t, exp[i].Charset, r.Charset)
 		assert.Equal(t, exp[i].CertainCharset, r.CertainCharset)
 	}

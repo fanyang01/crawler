@@ -92,7 +92,6 @@ func NewCrawler(cfg *Config) *Crawler {
 	cw.scheduler.ResIn = cw.handler.Out
 
 	// additional flow
-	cw.handler.DoneOut = cw.scheduler.DoneIn
 	cw.fetcher.ErrOut = cw.scheduler.ErrIn
 
 	return cw

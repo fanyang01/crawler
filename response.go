@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/fanyang01/crawler/cache"
-	"golang.org/x/net/context"
 	"golang.org/x/text/encoding"
+
+	"github.com/fanyang01/crawler/cache"
 )
 
 const (
@@ -33,12 +33,10 @@ const (
 // directly but do NOT close it.
 type Response struct {
 	*http.Response
-	Context context.Context
+	URL       *url.URL
+	NewURL    *url.URL
+	Timestamp time.Time
 
-	URL    *url.URL
-	NewURL *url.URL
-
-	Timestamp    time.Time
 	CacheControl *cache.Control
 
 	ContentLocation *url.URL
@@ -53,15 +51,15 @@ type Response struct {
 	bodyCloser io.ReadCloser
 	Body       io.Reader
 	BodyStatus int
-	BodyError  error
 
 	Charset        string
 	Encoding       encoding.Encoding
 	CertainCharset bool
 
+	ctx *Context
+	err error
 	// content will be parsed into document only if neccessary.
 	document *goquery.Document
-	pview    []byte
 	links    []*Link
 }
 
@@ -98,14 +96,8 @@ func (r *Response) Free() {
 	respFreeList.Put(r)
 }
 
-func (r *Response) length() int64 {
-	l := int64(len(r.Content))
-	i := r.ContentLength
-	if i > l {
-		return i
-	}
-	return l
-}
+func (r *Response) Context() *Context { return r.ctx }
+func (r *Response) Err() error        { return r.err }
 
 type bodyReader struct {
 	err    error
@@ -165,8 +157,12 @@ func (rc *bodyReadCloser) Close() error {
 	return nil
 }
 
-func (resp *Response) initBody() {
-	body := resp.Response.Body
+// InitBody initializes Response.Body using given body, which is ensured
+// to be closed at some point. If body is nil, embedded Response.Body is used.
+func (resp *Response) InitBody(body io.ReadCloser) {
+	if body == nil {
+		body = resp.Response.Body
+	}
 	brc := &bodyReadCloser{
 		body: body,
 	}

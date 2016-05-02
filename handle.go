@@ -2,24 +2,18 @@ package crawler
 
 import (
 	"errors"
-	"io"
-	"io/ioutil"
-	"net/url"
-
-	"golang.org/x/net/html/charset"
+	"fmt"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/fanyang01/crawler/util"
 )
 
 var ErrNotHTML = errors.New("content type is not HTML")
 
 type handler struct {
 	workerConn
-	In      <-chan *Response
-	Out     chan *Response
-	DoneOut chan *url.URL
-	cw      *Crawler
+	In  <-chan *Response
+	Out chan *Response
+	cw  *Crawler
 }
 
 func (cw *Crawler) newRespHandler() *handler {
@@ -36,8 +30,12 @@ func (h *handler) cleanup() { close(h.Out) }
 
 func (h *handler) work() {
 	for r := range h.In {
-		h.handle(r)
-		r.bodyCloser.Close()
+		if r.err == nil {
+			if err := h.handle(r); err != nil {
+				r.err = fmt.Errorf("handler: %v")
+			}
+			r.bodyCloser.Close()
+		}
 		select {
 		case h.Out <- r:
 		case <-h.quit:
@@ -46,51 +44,66 @@ func (h *handler) work() {
 	}
 }
 
-func (h *handler) handle(r *Response) {
-	if !CT_HTML.match(r.ContentType) {
-		r.links = h.cw.ctrl.Handle(r)
-		return
+func (h *handler) handle(r *Response) error {
+	depth, err := r.ctx.Depth()
+	if err != nil {
+		return err
 	}
+	ch := make(chan *Link, LinkPerPage)
+	go func() {
+		h.cw.ctrl.Handle(r, ch)
+		close(ch)
+	}()
+	return h.handleLink(r, ch, depth)
+}
 
-	e, name, certain := charset.DetermineEncoding(r.pview, r.ContentType)
-	// according to charset package source, default unknown charset is windows-1252.
-	if !certain && name == "windows-1252" {
-		label := h.cw.ctrl.Charset(r.URL)
-		if e, name = charset.Lookup(label); e == nil {
-			log.Warn("unsupported charset:", label)
-		} else {
-			certain = true
+func (h *handler) handleLink(r *Response, ch <-chan *Link, depth int) error {
+	// Treat the new url as one found under the original url
+	original := r.URL.String()
+	if r.NewURL.String() != original {
+		if err := h.filter(r, &Link{
+			URL:   r.NewURL,
+			Depth: depth + 1,
+		}); err != nil {
+			return err
 		}
 	}
-	r.Charset, r.CertainCharset, r.Encoding = name, certain, e
-	if name != "" && e != nil {
-		r.Body, _ = util.NewUTF8Reader(name, r.Body)
+	if refresh := r.Refresh.URL; refresh != nil && refresh.String() != original {
+		if err := h.filter(r, &Link{
+			URL:   r.Refresh.URL,
+			Depth: depth + 1,
+		}); err != nil {
+			return err
+		}
 	}
-
-	depth, err := h.cw.store.GetDepth(r.URL)
-	if err != nil {
-		log.Error(err)
-		return
+	for link := range ch {
+		link.Depth = depth
+		if err := h.filter(r, link); err != nil {
+			return err
+		}
 	}
+	return nil
+}
 
-	if follow := h.cw.ctrl.Follow(r, depth); !follow {
-		r.links = h.cw.ctrl.Handle(r)
-		return
+func (h *handler) filter(r *Response, link *Link) error {
+	if !h.cw.ctrl.Accept(r.ctx, link) {
+		return nil
 	}
-
-	rs, chCopy := util.DumpReader(
-		io.LimitReader(r.Body, h.cw.opt.MaxHTML), 2,
-	)
-	r.Body = rs[0]
-	chFind := make(chan struct{}, 1)
-	go h.find(r, rs[1], chFind)
-
-	links := h.cw.ctrl.Handle(r)
-
-	io.Copy(ioutil.Discard, r.Body)
-	<-chCopy
-	<-chFind
-	r.links = append(r.links, links...)
+	if ok, err := h.cw.store.Exist(link.URL); err != nil {
+		return err
+	} else if ok {
+		return nil
+	}
+	// New link
+	if ok, err := h.cw.store.PutNX(&URL{
+		Loc:   *link.URL,
+		Depth: link.Depth,
+	}); err != nil {
+		return err
+	} else if ok {
+		r.links = append(r.links, link)
+	}
+	return nil
 }
 
 // Document parses content of response into HTML document if it has not been

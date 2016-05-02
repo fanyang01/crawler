@@ -4,15 +4,14 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-
-	"golang.org/x/net/context"
 )
 
 type maker struct {
 	workerConn
-	In  <-chan *url.URL
-	Out chan *Request
-	cw  *Crawler
+	In     <-chan *url.URL
+	ErrOut chan<- *url.URL
+	Out    chan *Request
+	cw     *Crawler
 }
 
 func (cw *Crawler) newRequestMaker() *maker {
@@ -25,14 +24,14 @@ func (cw *Crawler) newRequestMaker() *maker {
 	return this
 }
 
-func (rm *maker) newRequest(u *url.URL) (req *Request, err error) {
+func (m *maker) newRequest(u *url.URL) (req *Request, err error) {
 	req = &Request{
-		Context: context.Background(),
+		ctx: newContext(m.cw, u),
 	}
 	if req.Request, err = http.NewRequest("GET", u.String(), nil); err != nil {
 		return
 	}
-	rm.cw.ctrl.Prepare(req)
+	m.cw.ctrl.Prepare(req)
 
 	req.Method = strings.ToUpper(req.Method)
 	if req.Client == nil {
@@ -41,18 +40,25 @@ func (rm *maker) newRequest(u *url.URL) (req *Request, err error) {
 	return
 }
 
-func (rm *maker) cleanup() { close(rm.Out) }
+func (m *maker) cleanup() { close(m.Out) }
 
-func (rm *maker) work() {
-	for u := range rm.In {
-		req, err := rm.newRequest(u)
-		if err != nil {
-			log.Errorf("make request: %v", err)
-			continue
+func (m *maker) work() {
+	var (
+		out    chan<- *Request
+		errOut chan<- *url.URL
+		req    *Request
+		err    error
+	)
+	for u := range m.In {
+		out, errOut = m.Out, nil
+		if req, err = m.newRequest(u); err != nil {
+			out, errOut = nil, m.ErrOut
+			m.cw.log.Errorf("maker: %v", err)
 		}
 		select {
-		case rm.Out <- req:
-		case <-rm.quit:
+		case out <- req:
+		case errOut <- u:
+		case <-m.quit:
 			return
 		}
 	}

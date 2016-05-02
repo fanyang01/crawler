@@ -3,6 +3,7 @@ package crawler
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"mime"
 	"net/http"
 	"net/url"
@@ -12,8 +13,10 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/fanyang01/crawler/util"
 
 	"golang.org/x/net/html"
+	"golang.org/x/net/html/charset"
 )
 
 var (
@@ -49,37 +52,56 @@ func (fc *fetcher) work() {
 			"URL":    req.URL.String(),
 		})
 
-		var resp *Response
+		var r *Response
 		var err error
-		if resp, err = req.Client.Do(req); err != nil {
-			ctx.Error("client:", err)
+		if r, err = req.Client.Do(req); err != nil {
+			ctx.Errorf("client: %v", err)
 			fc.ErrOut <- req.URL
 			continue
 		}
 		// Redirected response is treated as the response of original
 		// URL, because we need to ensure there is only one instance of
 		// req.URL is in processing flow.
-		resp.URL = req.URL
-		if resp.Timestamp.IsZero() {
-			resp.Timestamp = time.Now()
-		}
-		resp.parseLocation()
-		resp.detectMIME()
+		r.URL = req.URL
+		r.ctx = req.ctx
+		r.ctx.response = r
+		r.Timestamp = time.Now()
+		r.parseLocation()
+		r.detectMIME()
 
 		var preview []byte
-		if preview, err = resp.preview(1024); err != nil {
-			ctx.Error("preview:", err)
-			fc.ErrOut <- req.URL
-			continue
+		if preview, err = r.preview(1024); err != nil {
+			r.err = fmt.Errorf("fetcher: preview: %v", err)
+			goto END
 		}
-		if !resp.CertainType {
-			resp.ContentType = http.DetectContentType(preview)
+		if !r.CertainType {
+			r.ContentType = http.DetectContentType(preview)
 		}
-		resp.scanMeta(preview)
-		resp.pview = preview
+		r.scanMeta(preview)
 
+		// Convert to UTF-8
+		if CT_HTML.match(r.ContentType) {
+			e, name, certain := charset.DetermineEncoding(
+				preview, r.ContentType,
+			)
+			// according to charset package source, default unknown charset is windows-1252.
+			if !certain && name == "windows-1252" {
+				label := fc.cw.ctrl.Charset(r.URL)
+				if e, name = charset.Lookup(label); e == nil {
+					fc.cw.log.Warnf("unsupported charset: %v", label)
+				} else {
+					certain = true
+				}
+			}
+			r.Charset, r.CertainCharset, r.Encoding = name, certain, e
+			if name != "" && e != nil {
+				r.Body, _ = util.NewUTF8Reader(name, r.Body)
+			}
+		}
+
+	END:
 		select {
-		case fc.Out <- resp:
+		case fc.Out <- r:
 		case <-fc.quit:
 			return
 		}

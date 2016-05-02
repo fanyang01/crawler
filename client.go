@@ -156,6 +156,6 @@ func (r *Response) init(u *url.URL, hr *http.Response,
 	r.Timestamp = t
 	r.Response = hr
 	r.CacheControl = cc
-	r.initBody()
+	r.InitBody(hr.Body)
 	return r
 }

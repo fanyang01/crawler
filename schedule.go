@@ -75,28 +75,43 @@ func (sd *scheduler) work() {
 			queueIn = sd.pqIn
 			next = waiting[0]
 		}
+		var (
+			item *queue.Item
+			done bool
+			err  error
+		)
 		select {
 		// Input:
 		case u = <-sd.NewIn:
-			item, _ := sd.schedURL(u, URLTypeSeed, nil)
+			item, _, err = sd.schedURL(nil, u, URLTypeSeed)
+			if err != nil {
+				goto ERROR
+			}
 			waiting = append(waiting, item)
 			continue
 		case u = <-sd.RecoverIn:
-			item, done := sd.schedURL(u, URLTypeRecover, nil)
-			if !done {
+			item, done, err = sd.schedURL(nil, u, URLTypeRecover)
+			if err != nil {
+				goto ERROR
+			} else if !done {
 				waiting = append(waiting, item)
 				continue
 			}
 		case resp := <-sd.ResIn:
 			sd.cw.store.IncVisitCount()
 			for _, link := range resp.links {
-				item, done := sd.schedURL(link.URL, URLTypeNew, resp)
-				if !done {
+				item, done, err = sd.schedURL(resp, link.URL, URLTypeNew)
+				if err != nil {
+					goto ERROR
+				} else if !done {
 					waiting = append(waiting, item)
 				}
 			}
-			item, done := sd.schedURL(resp.URL, URLTypeResponse, resp)
-			if !done {
+			item, done, err = sd.schedURL(resp, resp.URL, URLTypeResponse)
+			resp.Free()
+			if err != nil {
+				goto ERROR
+			} else if !done {
 				waiting = append(waiting, item)
 				continue
 			}
@@ -129,9 +144,9 @@ func (sd *scheduler) work() {
 			}
 
 		// Control:
-		case err := <-sd.pqErr:
+		case err = <-sd.pqErr:
 			if err != nil {
-				log.Errorf("scheduler: wait queue error: %v", err)
+				goto ERROR
 			}
 			return
 		case <-sd.done:
@@ -140,13 +155,18 @@ func (sd *scheduler) work() {
 			return
 		}
 
-		if is, err := sd.cw.store.IsFinished(); err != nil {
-			log.Errorf("scheduler: %v", err)
-			return
-		} else if is {
+		if done, err = sd.cw.store.IsFinished(); err != nil {
+			goto ERROR
+		} else if done {
 			sd.stop() // notify other goroutines to exit.
 			return
 		}
+		continue
+
+	ERROR:
+		sd.cw.log.Errorf("scheduler: %v", err)
+		sd.stop()
+		return
 	}
 }
 
@@ -154,7 +174,7 @@ func (sd *scheduler) cleanup() {
 	close(sd.Out)
 	close(sd.pqIn)
 	if err := sd.prioQueue.Close(); err != nil {
-		log.Errorf("scheduler: close queue: %v", err)
+		sd.cw.log.Errorf("scheduler: close queue: %v", err)
 	}
 }
 
@@ -162,23 +182,35 @@ func (sd *scheduler) stop() {
 	sd.once.Do(func() { close(sd.done) })
 }
 
-func (sd *scheduler) schedURL(u *url.URL, typ int, r *Response) (item *queue.Item, done bool) {
+func (sd *scheduler) schedURL(r *Response, u *url.URL, typ int) (item *queue.Item, done bool, err error) {
 	uu, err := sd.cw.store.Get(u)
 	if err != nil {
 		// TODO
 		return
 	}
+	var ctx *Context
 	switch typ {
 	case URLTypeResponse:
 		uu.VisitCount++
 		uu.Last = r.Timestamp
-		sd.cw.store.Update(uu)
+		if err = sd.cw.store.Update(uu); err != nil {
+			return
+		}
+		ctx = r.Context()
+	case URLTypeNew:
+		ctx = newContext(sd.cw, u)
+		ctx.response = r
+	default:
+		ctx = newContext(sd.cw, u)
 	}
+	ctx.fromURL(uu)
 
 	minTime := uu.Last.Add(sd.cw.opt.MinDelay)
 	item = queue.NewItem()
 	item.URL = u
-	if done, item.Next, item.Score = sd.cw.ctrl.Schedule(uu, typ, nil); done {
+	done, item.Next, item.Score = sd.cw.ctrl.Schedule(ctx, u)
+	ctx.response = nil
+	if done {
 		sd.cw.store.UpdateStatus(u, URLStatusFinished)
 		return
 	}

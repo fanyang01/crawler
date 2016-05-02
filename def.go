@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"net/url"
 	"time"
-
-	"golang.org/x/net/context"
 )
 
 const (
@@ -35,7 +33,11 @@ type Request struct {
 	Proxy   *url.URL
 	Cookies []*http.Cookie
 	Client  Client
-	Context context.Context
+	ctx     *Context
+}
+
+func (r *Request) Context() *Context {
+	return r.ctx
 }
 
 // Controller controls the working progress of crawler.
@@ -49,25 +51,21 @@ type Controller interface {
 	// non-standard links from a response and return them. Note that it
 	// doesn't need to handle standard links(<a href="..."></a>) in html
 	// document because the crawler will do this.
-	Handle(r *Response) []*Link
-
-	// Follow determines whether the crawler should follow links in an HTML
-	// document.
-	Follow(r *Response, depth int) bool
+	Handle(r *Response, ch chan<- *Link)
 
 	// Schedule gives a score between 0 and 1024 for a URL, Higher score
 	// means higher priority in queue. Schedule also specifies the next
 	// time that this URL should be crawled at, but the crawling interval
 	// will be respected at first. If this URL is expected to be not
 	// crawled any more, return true for done.
-	Schedule(u *URL, typ int, r *Response) (done bool, at time.Time, score int)
-
-	// Interval gives the crawling interval of a site that the crawler should respect.
-	Interval(host string) time.Duration
+	Schedule(ctx *Context, u *url.URL) (done bool, at time.Time, score int)
 
 	// Accept determines whether a URL should be processed. It acts as a
 	// blacklist that preventing some unneccesary URLs to be processed.
-	Accept(r *Response, link *Link) bool
+	Accept(ctx *Context, link *Link) bool
+
+	// Interval gives the crawling interval of a site that the crawler should respect.
+	Interval(host string) time.Duration
 
 	// Charset determines the charset used by a HTML document.  It will be
 	// called only when the crawler cannot determine the exact charset.

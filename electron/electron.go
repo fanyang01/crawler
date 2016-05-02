@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -49,7 +50,7 @@ func ConfigFrom(ctx context.Context) *BrowserConfig {
 	return conf
 }
 func Prepare(req *crawler.Request, conf *BrowserConfig) {
-	req.Context = WithConfig(req.Context, conf)
+	req.Context().C = WithConfig(req.Context().C, conf)
 }
 
 type requestMsg struct {
@@ -75,7 +76,7 @@ func reqToMsg(req *crawler.Request) *requestMsg {
 	if req.Proxy != nil {
 		m.Proxy = req.Proxy.String()
 	}
-	config := ConfigFrom(req.Context)
+	config := ConfigFrom(req.Context().C)
 	if config != nil {
 		m.Mode = config.Mode
 		m.Timeout = int(config.Timeout / time.Millisecond)
@@ -118,6 +119,7 @@ func msgToResp(msg *responseMsg) *crawler.Response {
 		Request: &http.Request{
 			Method: msg.RequestMethod,
 		},
+		Body: ioutil.NopCloser(strings.NewReader(msg.Content)),
 	}
 	r.Status = fmt.Sprintf("%d %s",
 		msg.StatusCode, http.StatusText(msg.StatusCode),
@@ -138,10 +140,8 @@ func msgToResp(msg *responseMsg) *crawler.Response {
 
 	resp := &crawler.Response{
 		Response: r,
-		Body:     strings.NewReader(msg.Content),
-		// TODO: avoid allocation
-		Content: []byte(msg.Content),
 	}
+	resp.InitBody(r.Body)
 	if u, err := url.Parse(msg.OriginalURL); err == nil {
 		resp.URL = u
 	}
@@ -202,7 +202,6 @@ func (ec *ElectronConn) Do(req *crawler.Request) (resp *crawler.Response, err er
 		return nil, fmt.Errorf("nats: %v", err)
 	}
 	resp = msgToResp(&msg)
-	resp.Context = req.Context
 	return
 }
 
@@ -441,6 +440,5 @@ LOOP:
 	case <-timeout:
 		return nil, errors.New("client timeout")
 	}
-	resp.Context = req.Context
 	return
 }
