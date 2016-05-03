@@ -1,6 +1,13 @@
 package crawler
 
-import "fmt"
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"net/url"
+
+	"golang.org/x/net/html"
+)
 
 type handler struct {
 	workerConn
@@ -15,7 +22,7 @@ func (cw *Crawler) newRespHandler() *handler {
 		Out: make(chan *Response, nworker),
 		cw:  cw,
 	}
-	cw.initWorker(this, nworker)
+	cw.initWorker("handler", this, nworker)
 	return this
 }
 
@@ -98,6 +105,57 @@ func (h *handler) filter(r *Response, link *Link) error {
 		return err
 	} else if ok {
 		r.links = append(r.links, link)
+	}
+	return nil
+}
+
+func ExtractHref(base *url.URL, reader io.Reader, ch chan<- *Link) error {
+	z := html.NewTokenizer(reader)
+LOOP:
+	for {
+		tt := z.Next()
+		switch tt {
+		case html.ErrorToken:
+			if err := z.Err(); err != io.EOF {
+				return err
+			}
+			break LOOP
+		case html.StartTagToken:
+			tn, hasAttr := z.TagName()
+			if hasAttr && len(tn) == 1 && tn[0] == 'a' {
+				for {
+					key, val, more := z.TagAttr()
+					if bytes.Equal(key, []byte("href")) {
+						if u, err := base.Parse(string(val)); err == nil {
+							u.Fragment = ""
+							ch <- &Link{
+								URL: u,
+							}
+						}
+						break
+					}
+					if !more {
+						break
+					}
+				}
+			}
+		case html.SelfClosingTagToken:
+			tn, hasAttr := z.TagName()
+			if hasAttr && len(tn) == 4 && bytes.Equal(tn, []byte("base")) {
+				for {
+					key, val, more := z.TagAttr()
+					if bytes.Equal(key, []byte("href")) {
+						if u, err := base.Parse(string(val)); err == nil {
+							base = u
+						}
+						break
+					}
+					if !more {
+						break
+					}
+				}
+			}
+		}
 	}
 	return nil
 }

@@ -1,23 +1,21 @@
 package crawler
 
 import (
-	"bufio"
 	"errors"
-	"io/ioutil"
 	"net/url"
 	"os"
 	"sync"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/fanyang01/crawler/queue"
+	"github.com/inconshreveable/log15"
 )
 
 // Crawler crawls web pages.
 type Crawler struct {
-	ctrl  Controller
-	store Store
-	opt   *Option
-	log   *logrus.Logger
+	ctrl   Controller
+	store  Store
+	opt    *Option
+	logger log15.Logger
 
 	maker     *maker
 	fetcher   *fetcher
@@ -34,14 +32,13 @@ type Config struct {
 	Controller Controller
 	Store      Store
 	Queue      queue.WaitQueue
-	Logger     *logrus.Logger
+	Logger     log15.Logger
 	Option     *Option
 }
 
 var (
 	DefaultController = NopController{}
 	defaultConfig     = &Config{}
-	log               *logrus.Logger
 )
 
 func initConfig(cfg *Config) *Config {
@@ -61,7 +58,8 @@ func initConfig(cfg *Config) *Config {
 		cfg.Controller = DefaultController
 	}
 	if cfg.Logger == nil {
-		cfg.Logger = logrus.StandardLogger()
+		cfg.Logger = log15.New()
+		cfg.Logger.SetHandler(log15.DiscardHandler())
 	}
 	return cfg
 }
@@ -69,14 +67,12 @@ func initConfig(cfg *Config) *Config {
 // NewCrawler creates a new crawler.
 func NewCrawler(cfg *Config) *Crawler {
 	cfg = initConfig(cfg)
-	log = cfg.Logger
-
 	cw := &Crawler{
-		opt:   cfg.Option,
-		store: cfg.Store,
-		ctrl:  cfg.Controller,
-		log:   cfg.Logger,
-		quit:  make(chan struct{}),
+		opt:    cfg.Option,
+		store:  cfg.Store,
+		ctrl:   cfg.Controller,
+		logger: cfg.Logger,
+		quit:   make(chan struct{}),
 	}
 
 	// connect each part
@@ -107,12 +103,14 @@ func (cw *Crawler) Crawl(seeds ...string) (err error) {
 
 	nr, err := cw.recover()
 	if err != nil {
+		cw.logger.Error("failed to recover from persistent storage", "err", err)
 		cw.Stop()
 		return
 	}
 
 	ns, err := cw.addSeeds(seeds...)
 	if err != nil {
+		cw.logger.Error("add seeds", "err", err)
 		cw.Stop()
 		return
 	}
@@ -128,37 +126,21 @@ func (cw *Crawler) recover() (n int, err error) {
 	if !ok {
 		return
 	}
-	tmpfile, err := ioutil.TempFile("", "crawler")
-	if err != nil {
-		return
-	}
-	cw.tmpfile = tmpfile
-
-	w := bufio.NewWriter(tmpfile)
-	if n, err = ps.Recover(w); err != nil {
-		return
-	}
-	w.Flush()
-	if _, err = tmpfile.Seek(0, 0); err != nil {
-		return
-	}
+	var (
+		ch    = make(chan *url.URL, 1024)
+		chErr = make(chan error, 1)
+		cnt   int
+	)
 	go func() {
-		scanner := bufio.NewScanner(tmpfile)
-		for scanner.Scan() {
-			u, err := url.Parse(scanner.Text())
-			if err != nil {
-				log.Error(err)
-				continue
-			}
-			// TODO
-			cw.scheduler.RecoverIn <- u
-		}
-		if err := scanner.Err(); err != nil {
-			log.Error(err)
-		}
-		return
+		err := ps.Recover(ch)
+		close(ch)
+		chErr <- err
 	}()
-	return
+	for u := range ch {
+		cw.scheduler.RecoverIn <- u
+		cnt++
+	}
+	return cnt, <-chErr
 }
 
 func (cw *Crawler) Wait() {
@@ -216,3 +198,5 @@ func (cw *Crawler) Stop() {
 		os.Remove(cw.tmpfile.Name())
 	}
 }
+
+func (cw *Crawler) Logger() log15.Logger { return cw.logger }

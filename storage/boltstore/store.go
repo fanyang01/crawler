@@ -2,8 +2,6 @@ package boltstore
 
 import (
 	"errors"
-	"fmt"
-	"io"
 	"net/url"
 
 	"github.com/boltdb/bolt"
@@ -212,24 +210,20 @@ func (s *BoltStore) IsFinished() (is bool, err error) {
 	return
 }
 
-func (s *BoltStore) Recover(w io.Writer) (n int, err error) {
-	err = s.DB.View(func(tx *bolt.Tx) error {
+func (s *BoltStore) Recover(ch chan<- *url.URL) error {
+	return s.DB.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bkURL)
 		c := b.Cursor()
 		var u crawler.URL
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if err = s.codec.Unmarshal(v, &u); err != nil {
+			if err := s.codec.Unmarshal(v, &u); err != nil {
 				return err
 			}
 			switch u.Status {
 			case crawler.URLStatusProcessing:
-				if _, err = fmt.Fprintln(w, k); err != nil {
-					return err
-				}
-				n++
+				ch <- &u.Loc
 			}
 		}
 		return nil
 	})
-	return
 }

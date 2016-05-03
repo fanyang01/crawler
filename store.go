@@ -2,7 +2,6 @@ package crawler
 
 import (
 	"errors"
-	"io"
 	"net/url"
 	"sync"
 )
@@ -23,8 +22,8 @@ type Store interface {
 
 type PersistableStore interface {
 	Store
-	// Recover writes all unfinished URLs to w, seperated by '\n'.
-	Recover(w io.Writer) (n int, err error)
+	// Recover send all unfinished URLs to ch.
+	Recover(ch chan<- *url.URL) error
 }
 
 type MemStore struct {

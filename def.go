@@ -22,6 +22,9 @@ type Link struct {
 	hyperlink bool     // is hyperlink?
 }
 
+// LinkPerPage is the rouge number of links in a HTML document.
+const LinkPerPage = 32
+
 // Client defines how requests are made.
 type Client interface {
 	Do(*Request) (*Response, error)

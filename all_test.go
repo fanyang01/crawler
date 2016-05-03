@@ -13,7 +13,7 @@ import (
 )
 
 type testController struct {
-	OnceController
+	NopController
 	content chan []byte
 }
 

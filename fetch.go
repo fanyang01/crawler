@@ -38,7 +38,7 @@ func (cw *Crawler) newFetcher() *fetcher {
 		Out: make(chan *Response, nworker),
 		cw:  cw,
 	}
-	cw.initWorker(this, nworker)
+	cw.initWorker("fetcher", this, nworker)
 	return this
 }
 
@@ -50,12 +50,14 @@ func (f *fetcher) work() {
 			out    = f.Out
 			errOut chan *url.URL
 		)
+		logger := f.logger.New("url", req.URL)
 		r, err := req.Client.Do(req)
 		if err != nil {
 			out, errOut = nil, f.ErrOut
-			f.cw.log.Errorf("client: %v", err)
+			logger.Error("client failed to do request", "err", err)
 		} else {
 			f.initResponse(req, r)
+			logger.Info(r.Status)
 		}
 		select {
 		case out <- r:

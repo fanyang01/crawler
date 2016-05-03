@@ -46,7 +46,7 @@ func (cw *Crawler) newScheduler(wq queue.WaitQueue) *scheduler {
 		done: make(chan struct{}),
 	}
 
-	cw.initWorker(this, nworker)
+	cw.initWorker("scheduler", this, nworker)
 	return this
 }
 
@@ -93,7 +93,7 @@ func (sd *scheduler) work() {
 		case resp := <-sd.ResIn:
 			sd.cw.store.IncVisitCount()
 			if resp.err != nil {
-				sd.cw.log.Error(err)
+				sd.logger.Error("response error", "err", err)
 				if item, ok = sd.retry(resp.URL); ok {
 					waiting = append(waiting, item)
 					continue
@@ -160,7 +160,7 @@ func (sd *scheduler) work() {
 		continue
 
 	ERROR:
-		sd.cw.log.Errorf("scheduler: %v", err)
+		sd.logger.Error("scheduler error", "err", err)
 		sd.stop()
 		return
 	}
@@ -170,7 +170,7 @@ func (sd *scheduler) cleanup() {
 	close(sd.Out)
 	close(sd.pqIn)
 	if err := sd.prioQueue.Close(); err != nil {
-		sd.cw.log.Errorf("scheduler: close queue: %v", err)
+		sd.logger.Error("close wait queue", "err", err)
 	}
 }
 

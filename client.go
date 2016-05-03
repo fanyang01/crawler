@@ -10,8 +10,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/Sirupsen/logrus"
-
 	"github.com/fanyang01/crawler/cache"
 )
 
@@ -107,12 +105,6 @@ func (c *StdClient) Do(req *Request) (resp *Response, err error) {
 
 INIT:
 	resp.init(req.URL, hr, now, cc)
-
-	log.WithFields(logrus.Fields{
-		"func": "StdClient.Do",
-		"url":  req.URL.String(),
-	}).Infoln(req.Method + " " + resp.Status)
-
 	return
 }
 

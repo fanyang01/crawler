@@ -20,7 +20,7 @@ func (cw *Crawler) newRequestMaker() *maker {
 		Out: make(chan *Request, nworker),
 		cw:  cw,
 	}
-	cw.initWorker(this, nworker)
+	cw.initWorker("maker", this, nworker)
 	return this
 }
 
@@ -53,7 +53,7 @@ func (m *maker) work() {
 		out, errOut = m.Out, nil
 		if req, err = m.newRequest(u); err != nil {
 			out, errOut = nil, m.ErrOut
-			m.cw.log.Errorf("maker: %v", err)
+			m.logger.Error("make request", "err", err)
 		}
 		select {
 		case out <- req:

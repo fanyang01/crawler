@@ -1,9 +1,14 @@
 package crawler
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/inconshreveable/log15"
+)
 
 type workerConn struct {
 	nworker int
+	logger  log15.Logger
 	wg      *sync.WaitGroup // managed by crawler
 	quit    chan struct{}
 }
@@ -16,10 +21,11 @@ type worker interface {
 	cleanup()
 }
 
-func (cw *Crawler) initWorker(w worker, nworker int) {
+func (cw *Crawler) initWorker(name string, w worker, nworker int) {
 	w.conn().nworker = nworker
 	w.conn().wg = &cw.wg
 	w.conn().quit = cw.quit
+	w.conn().logger = cw.logger.New("worker", name)
 }
 
 func start(w worker) {
