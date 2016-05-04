@@ -50,7 +50,8 @@ func TestAll(t *testing.T) {
 
 	u, err := url.Parse(ts.URL)
 	assert.Nil(err)
-	uu, _ := cw.store.Get(u)
+	uu, err := cw.store.Get(u)
+	assert.NoError(err)
 	assert.Equal(1, uu.VisitCount)
 	assert.True(uu.Last.After(time.Time{}))
 }

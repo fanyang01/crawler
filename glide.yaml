@@ -17,3 +17,4 @@ import:
   subpackages:
   - rate
 - package: github.com/inconshreveable/log15
+- package: github.com/PuerkitoBio/purell

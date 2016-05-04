@@ -3,10 +3,8 @@ package crawler
 import (
 	"errors"
 	"net/url"
-	"os"
 	"sync"
 
-	"github.com/fanyang01/crawler/queue"
 	"github.com/inconshreveable/log15"
 )
 
@@ -22,57 +20,22 @@ type Crawler struct {
 	handler   *handler
 	scheduler *scheduler
 
+	normalize func(*url.URL) error
+
 	quit chan struct{}
 	wg   sync.WaitGroup
-
-	tmpfile *os.File
-}
-
-type Config struct {
-	Controller Controller
-	Store      Store
-	Queue      queue.WaitQueue
-	Logger     log15.Logger
-	Option     *Option
-}
-
-var (
-	DefaultController = NopController{}
-	defaultConfig     = &Config{}
-)
-
-func initConfig(cfg *Config) *Config {
-	if cfg == nil {
-		cfg = defaultConfig
-	}
-	if cfg.Option == nil {
-		cfg.Option = DefaultOption
-	}
-	if cfg.Store == nil {
-		cfg.Store = NewMemStore()
-	}
-	if cfg.Queue == nil {
-		cfg.Queue = NewMemQueue(64 << 10)
-	}
-	if cfg.Controller == nil {
-		cfg.Controller = DefaultController
-	}
-	if cfg.Logger == nil {
-		cfg.Logger = log15.New()
-		cfg.Logger.SetHandler(log15.DiscardHandler())
-	}
-	return cfg
 }
 
 // NewCrawler creates a new crawler.
 func NewCrawler(cfg *Config) *Crawler {
 	cfg = initConfig(cfg)
 	cw := &Crawler{
-		opt:    cfg.Option,
-		store:  cfg.Store,
-		ctrl:   cfg.Controller,
-		logger: cfg.Logger,
-		quit:   make(chan struct{}),
+		opt:       cfg.Option,
+		store:     cfg.Store,
+		ctrl:      cfg.Controller,
+		logger:    cfg.Logger,
+		normalize: cfg.NormalizeURL,
+		quit:      make(chan struct{}),
 	}
 
 	// connect each part
@@ -154,11 +117,9 @@ func (cw *Crawler) addSeeds(seeds ...string) (n int, err error) {
 	for _, seed := range seeds {
 		var u *url.URL
 		var ok bool
-		if u, err = url.Parse(seed); err != nil {
+		if u, err = ParseURL(seed, cw.normalize); err != nil {
 			return
 		}
-		u.Fragment = ""
-
 		if ok, err = cw.store.PutNX(&URL{
 			Loc: *u,
 		}); err != nil {
@@ -174,7 +135,7 @@ func (cw *Crawler) addSeeds(seeds ...string) (n int, err error) {
 // Enqueue adds urls to queue.
 func (cw *Crawler) Enqueue(urls ...string) error {
 	for _, u := range urls {
-		uu, err := url.Parse(u)
+		uu, err := ParseURL(u, cw.normalize)
 		if err != nil {
 			return err
 		}
@@ -193,10 +154,6 @@ func (cw *Crawler) Enqueue(urls ...string) error {
 func (cw *Crawler) Stop() {
 	close(cw.quit)
 	cw.wg.Wait()
-
-	if cw.tmpfile != nil {
-		os.Remove(cw.tmpfile.Name())
-	}
 }
 
 func (cw *Crawler) Logger() log15.Logger { return cw.logger }

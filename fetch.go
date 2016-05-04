@@ -56,8 +56,11 @@ func (f *fetcher) work() {
 			out, errOut = nil, f.ErrOut
 			logger.Error("client failed to do request", "err", err)
 		} else {
-			f.initResponse(req, r)
 			logger.Info(r.Status)
+			if err := f.initResponse(req, r); err != nil {
+				logger.Error("initialize response", "err", err)
+				r.err = err
+			}
 		}
 		select {
 		case out <- r:
@@ -68,7 +71,7 @@ func (f *fetcher) work() {
 	}
 }
 
-func (f *fetcher) initResponse(req *Request, r *Response) {
+func (f *fetcher) initResponse(req *Request, r *Response) error {
 	// Redirected response is treated as the response of original URL,
 	// because we need to ensure there is only one instance of a URL in the
 	// processing flow, but many URLs can redirect to the same location.
@@ -80,6 +83,9 @@ func (f *fetcher) initResponse(req *Request, r *Response) {
 	r.ctx.response = r
 	r.Timestamp = time.Now()
 	r.scanLocation()
+	if err := r.normalize(f.cw.normalize); err != nil {
+		return err
+	}
 	r.detectContentType()
 
 	var (
@@ -87,14 +93,31 @@ func (f *fetcher) initResponse(req *Request, r *Response) {
 		err     error
 	)
 	if preview, err = r.preview(1024); err != nil {
-		r.err = fmt.Errorf("fetcher: preview: %v", err)
-		return
+		return fmt.Errorf("preview: %v", err)
 	}
 	if !r.CertainType {
 		r.ContentType = http.DetectContentType(preview)
 	}
 	r.scanHTMLMeta(preview)
 	r.convToUTF8(preview, f.cw.ctrl.Charset)
+	return nil
+}
+
+func (r *Response) normalize(normalize func(*url.URL) error) error {
+	if err := NormalizeURL(r.NewURL); err != nil {
+		return err
+	}
+	if r.ContentLocation != nil {
+		if err := NormalizeURL(r.ContentLocation); err != nil {
+			return err
+		}
+	}
+	if r.Refresh.URL != nil {
+		if err := NormalizeURL(r.Refresh.URL); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Response) convToUTF8(preview []byte, query func(*url.URL) string) {
@@ -116,50 +139,50 @@ func (r *Response) convToUTF8(preview []byte, query func(*url.URL) string) {
 	}
 }
 
-func (resp *Response) scanLocation() {
+func (r *Response) scanLocation() {
 	var baseurl *url.URL
-	if baseurl = resp.NewURL; baseurl == nil {
-		baseurl = resp.URL
+	if baseurl = r.NewURL; baseurl == nil {
+		baseurl = r.URL
 	}
-	if loc := resp.Header.Get("Content-Location"); loc != "" {
-		resp.ContentLocation, _ = baseurl.Parse(loc)
+	if loc := r.Header.Get("Content-Location"); loc != "" {
+		r.ContentLocation, _ = ParseURLFrom(baseurl, loc)
 	}
-	if s := resp.Header.Get("Refresh"); s != "" {
-		resp.Refresh.Seconds, resp.Refresh.URL = parseRefresh(s, baseurl)
+	if s := r.Header.Get("Refresh"); s != "" {
+		r.Refresh.Seconds, r.Refresh.URL = parseRefresh(s, baseurl)
 	}
 }
 
-func (resp *Response) detectContentType() (sure bool) {
-	if resp.CertainType {
+func (r *Response) detectContentType() (sure bool) {
+	if r.CertainType {
 		return true
 	}
-	defer func() { resp.CertainType = sure }()
+	defer func() { r.CertainType = sure }()
 
-	if t := resp.Header.Get("Content-Type"); t != "" {
-		resp.ContentType = t
+	if t := r.Header.Get("Content-Type"); t != "" {
+		r.ContentType = t
 		return true
 	}
-	if resp.NewURL != nil || resp.ContentLocation != nil {
+	if r.NewURL != nil || r.ContentLocation != nil {
 		var pth, ext string
-		if resp.NewURL != nil {
-			pth = resp.NewURL.Path
+		if r.NewURL != nil {
+			pth = r.NewURL.Path
 			ext = path.Ext(pth)
 		}
-		if ext == "" && resp.ContentLocation != nil {
-			pth = resp.ContentLocation.Path
+		if ext == "" && r.ContentLocation != nil {
+			pth = r.ContentLocation.Path
 			ext = path.Ext(pth)
 		}
 		if ext != "" {
 			if t := mime.TypeByExtension(ext); t != "" {
-				resp.ContentType = t
+				r.ContentType = t
 				return true
 			}
 		} else if strings.HasSuffix(pth, "/") {
-			resp.ContentType = "text/html"
+			r.ContentType = "text/html"
 			return false
 		}
 	}
-	resp.ContentType = string(CT_UNKNOWN)
+	r.ContentType = string(CT_UNKNOWN)
 	return false
 }
 
@@ -260,24 +283,25 @@ func contentCharset(s string) string {
 }
 
 func parseRefresh(s string, u *url.URL) (second int, uu *url.URL) {
+	const blank = " \t\n\f\r"
 	var i int
 	var err error
 	if i = strings.IndexAny(s, ";,"); i == -1 {
-		second, _ = strconv.Atoi(strings.TrimRight(s, " \t\n\f\r"))
+		second, _ = strconv.Atoi(strings.TrimRight(s, blank))
 		return
 	}
-	if second, err = strconv.Atoi(strings.TrimRight(s[:i], " \t\n\f\r")); err != nil {
+	if second, err = strconv.Atoi(strings.TrimRight(s[:i], blank)); err != nil {
 		return
 	}
-	s = strings.TrimLeft(s[i+1:], " \t\n\f\r")
+	s = strings.TrimLeft(s[i+1:], blank)
 	if i = strings.Index(s, "url"); i == -1 {
 		return
 	}
-	s = strings.TrimLeft(s[i+len("url"):], " \t\n\f\r")
+	s = strings.TrimLeft(s[i+len("url"):], blank)
 	if !strings.HasPrefix(s, "=") {
 		return
 	}
-	s = strings.TrimLeft(s[1:], " \t\n\f\r")
-	uu, _ = u.Parse(s)
+	s = strings.TrimLeft(s[1:], blank)
+	uu, _ = ParseURLFrom(u, s)
 	return
 }

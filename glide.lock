@@ -1,5 +1,5 @@
-hash: c3998f86ce0d4ca1b3537337b6410bbb0fc6129c1f5af98904417a29f028a10d
-updated: 2016-05-03T21:28:53.92222501+08:00
+hash: 9d850bd79b04a00bffbaef9ee4cefe12dac787836157c5bd45e51ac8efe15136
+updated: 2016-05-04T00:55:15.534176068+08:00
 imports:
 - name: github.com/boltdb/bolt
   version: d97499360d1ecebc492ea66c7447ea948f417620
@@ -32,6 +32,8 @@ imports:
   version: a5152d67cf63cbfb5d992a395458722a45194715
 - name: github.com/PuerkitoBio/goquery
   version: 2e29ea41f0d13f4a303c75553f4eeadddc7a4c56
+- name: github.com/PuerkitoBio/purell
+  version: d69616f51cdfcd7514d6a380847a152dfc2a749d
 - name: github.com/Sirupsen/logrus
   version: cd7d1bbe41066b6c1f19780f895901052150a575
 - name: github.com/stretchr/testify

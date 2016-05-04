@@ -2,7 +2,6 @@ package crawler
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"net/url"
 
@@ -31,9 +30,12 @@ func (h *handler) cleanup() { close(h.Out) }
 func (h *handler) work() {
 	for r := range h.In {
 		if r.err == nil {
-			if err := h.handle(r); err != nil {
-				r.err = fmt.Errorf("handler: %v")
-			} else if err, ok := r.ctx.Value(ckError).(error); ok && err != nil {
+			var err error
+			if err = h.handle(r); err == nil {
+				err, _ = r.ctx.Value(ckError).(error)
+			}
+			if err != nil {
+				h.logger.Error("handle response", "err", err)
 				r.err = err
 			}
 			r.bodyCloser.Close()
@@ -53,6 +55,16 @@ func (h *handler) handle(r *Response) error {
 	}
 	ch := make(chan *Link, LinkPerPage)
 	go func() {
+		original := r.URL.String()
+		// Treat the new url as one found under the original url
+		if r.NewURL.String() != original {
+			newurl := *r.NewURL
+			ch <- &Link{URL: &newurl}
+		}
+		if refresh := r.Refresh.URL; refresh != nil && refresh.String() != original {
+			newurl := *refresh
+			ch <- &Link{URL: &newurl}
+		}
 		h.cw.ctrl.Handle(r, ch)
 		close(ch)
 	}()
@@ -60,27 +72,13 @@ func (h *handler) handle(r *Response) error {
 }
 
 func (h *handler) handleLink(r *Response, ch <-chan *Link, depth int) error {
-	// Treat the new url as one found under the original url
-	original := r.URL.String()
-	if r.NewURL.String() != original {
-		if err := h.filter(r, &Link{
-			URL:   r.NewURL,
-			depth: depth + 1,
-		}); err != nil {
-			return err
-		}
-	}
-	if refresh := r.Refresh.URL; refresh != nil && refresh.String() != original {
-		if err := h.filter(r, &Link{
-			URL:   r.Refresh.URL,
-			depth: depth + 1,
-		}); err != nil {
-			return err
-		}
-	}
 	for link := range ch {
-		link.depth = depth
-		link.hyperlink = (link.URL.Host != r.NewURL.Host)
+		if err := h.cw.normalize(link.URL); err != nil {
+			h.logger.Warn("normalize URL", "url", link.URL, "err", err)
+			continue
+		}
+		link.depth = depth + 1
+		link.hyperlink = (link.URL.Host != r.URL.Host)
 		if err := h.filter(r, link); err != nil {
 			return err
 		}

@@ -28,7 +28,7 @@ type PersistableStore interface {
 
 type MemStore struct {
 	sync.RWMutex
-	m map[url.URL]*URL
+	m map[string]*URL
 
 	URLs     int32
 	Finished int32
@@ -38,20 +38,20 @@ type MemStore struct {
 
 func NewMemStore() *MemStore {
 	return &MemStore{
-		m: make(map[url.URL]*URL),
+		m: make(map[string]*URL),
 	}
 }
 
 func (p *MemStore) Exist(u *url.URL) (bool, error) {
 	p.RLock()
 	defer p.RUnlock()
-	_, ok := p.m[*u]
+	_, ok := p.m[u.String()]
 	return ok, nil
 }
 
 func (p *MemStore) Get(u *url.URL) (uu *URL, err error) {
 	p.RLock()
-	entry, present := p.m[*u]
+	entry, present := p.m[u.String()]
 	if present {
 		uu = entry.clone()
 	} else {
@@ -64,7 +64,7 @@ func (p *MemStore) Get(u *url.URL) (uu *URL, err error) {
 func (p *MemStore) GetDepth(u *url.URL) (int, error) {
 	p.RLock()
 	defer p.RUnlock()
-	if uu, ok := p.m[*u]; ok {
+	if uu, ok := p.m[u.String()]; ok {
 		return uu.Depth, nil
 	}
 	return 0, nil
@@ -73,10 +73,10 @@ func (p *MemStore) GetDepth(u *url.URL) (int, error) {
 func (p *MemStore) PutNX(u *URL) (bool, error) {
 	p.Lock()
 	defer p.Unlock()
-	if _, ok := p.m[u.Loc]; ok {
+	if _, ok := p.m[u.Loc.String()]; ok {
 		return false, nil
 	}
-	p.m[u.Loc] = u.clone()
+	p.m[u.Loc.String()] = u.clone()
 	p.URLs++
 	return true, nil
 }
@@ -84,7 +84,7 @@ func (p *MemStore) PutNX(u *URL) (bool, error) {
 func (p *MemStore) Update(u *URL) error {
 	p.Lock()
 	defer p.Unlock()
-	uu, ok := p.m[u.Loc]
+	uu, ok := p.m[u.Loc.String()]
 	if !ok {
 		return nil
 	}
@@ -96,7 +96,7 @@ func (p *MemStore) UpdateStatus(u *url.URL, status int) error {
 	p.Lock()
 	defer p.Unlock()
 
-	uu, ok := p.m[*u]
+	uu, ok := p.m[u.String()]
 	if !ok {
 		return nil
 	}

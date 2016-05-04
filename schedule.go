@@ -93,7 +93,6 @@ func (sd *scheduler) work() {
 		case resp := <-sd.ResIn:
 			sd.cw.store.IncVisitCount()
 			if resp.err != nil {
-				sd.logger.Error("response error", "err", err)
 				if item, ok = sd.retry(resp.URL); ok {
 					waiting = append(waiting, item)
 					continue

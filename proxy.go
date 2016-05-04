@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"net/url"
 	"time"
 
 	"golang.org/x/net/proxy"
@@ -15,7 +14,7 @@ func NewProxyClient(addr string) (*http.Client, error) {
 }
 
 func parseProxy(addr string) (*http.Client, error) {
-	u, err := url.Parse(addr)
+	u, err := ParseURL(addr)
 	if err != nil {
 		return nil, err
 	}
