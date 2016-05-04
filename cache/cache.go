@@ -2,6 +2,7 @@ package cache
 
 import (
 	"bytes"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -60,17 +61,15 @@ func Parse(r *http.Response, rt time.Time) *Control {
 		maxAge = time.Duration(-1)
 		kv     = map[string]string{}
 	)
-
 	switch r.StatusCode {
 	case 200, 203, 206, 300, 301:
-		// Do nothing
 	default:
 		return nil
 	}
 	cc.Timestamp = rt
-
+	cc.Date = rt
 	if t := r.Header.Get("Date"); t != "" {
-		if cc.Date, err = time.Parse(http.TimeFormat, t); err != nil {
+		if cc.Date, err = time.Parse(http.TimeFormat, t); err == nil {
 			cc.Date = rt
 		}
 	}
@@ -78,7 +77,7 @@ func Parse(r *http.Response, rt time.Time) *Control {
 		kv = parseCacheControl(s)
 		var sec int64 = -1
 		if v, ok := kv["max-age"]; ok {
-			if i, err := strconv.ParseInt(v, 0, 32); err != nil {
+			if i, err := strconv.ParseInt(v, 0, 32); err == nil {
 				sec = i
 			}
 		}
@@ -102,18 +101,21 @@ func Parse(r *http.Response, rt time.Time) *Control {
 		_, ok := kv[directive]
 		return ok
 	}
-	if maxAge < 0 || exist("no-store") {
-		return nil
-	}
 	// Cachable
 	cc.CacheType = CacheNormal
-	cc.MaxAge = maxAge
 	switch {
+	case exist("no-store"):
+		return nil
 	case exist("no-cache"):
+		maxAge = 0
 		cc.CacheType = CacheNeedValidate
 	case exist("must-revalidate"):
+		maxAge = 0
 		cc.CacheType = CacheNormal // TODO: special type?
+	case maxAge < 0:
+		return nil
 	}
+	cc.MaxAge = maxAge
 
 	var age time.Duration
 	if a := r.Header.Get("Age"); a != "" {
@@ -145,12 +147,8 @@ func parseCacheControl(s string) (kv map[string]string) {
 		if j := strings.Index(name, "="); j >= 0 {
 			val = strings.TrimLeft(name[j+1:], " \t\r\n\f")
 			name = strings.TrimRight(name[:j], " \t\r\n\f")
-			if len(val) > 0 {
-				kv[name] = val
-			}
-			continue
 		}
-		kv[name] = ""
+		kv[name] = val
 	}
 	return
 }
@@ -181,7 +179,7 @@ type Pool struct {
 	m map[string]*entry
 }
 
-func newCachePool(max int) *Pool {
+func NewPool(max int) *Pool {
 	return &Pool{
 		m:   make(map[string]*entry),
 		max: max,
@@ -189,7 +187,7 @@ func newCachePool(max int) *Pool {
 }
 
 func (p *Pool) Set(u *url.URL, cc *Control, r *http.Response, b []byte) {
-	if cc == nil || !cc.IsCacheable() || cc.IsExpired() {
+	if cc == nil || !cc.IsCacheable() {
 		return
 	}
 	us := u.String()
@@ -197,12 +195,16 @@ func (p *Pool) Set(u *url.URL, cc *Control, r *http.Response, b []byte) {
 	p.Lock()
 	defer p.Unlock()
 
-	for key := range p.m {
+	if e := p.m[us]; e != nil {
+		p.size -= len(e.body)
+		delete(p.m, us)
+	}
+	for k, e := range p.m {
 		if p.size+len(b) <= p.max {
 			break
 		}
-		p.size -= len(p.m[key].body)
-		delete(p.m, key)
+		p.size -= len(e.body)
+		delete(p.m, k)
 	}
 	p.m[us] = &entry{
 		r:    r,
@@ -210,6 +212,28 @@ func (p *Pool) Set(u *url.URL, cc *Control, r *http.Response, b []byte) {
 		body: b,
 	}
 	p.size += len(b)
+}
+
+func (p *Pool) Update(u *url.URL, cc *Control, h http.Header) bool {
+	us := u.String()
+	p.Lock()
+	defer p.Unlock()
+
+	e := p.m[us]
+	if e == nil {
+		return false
+	}
+	// rfc2616 13.12 Cache Replacement
+	if cc.Date.Before(e.ctrl.Date) {
+		return true
+	}
+	if cc == nil || !cc.IsCacheable() {
+		p.remove(us)
+		return true
+	}
+	e.ctrl = cc
+	e.r.Header = h
+	return true
 }
 
 func (p *Pool) Get(u *url.URL) (r *http.Response, b []byte, cc *Control, ok bool) {
@@ -226,12 +250,16 @@ func (p *Pool) Get(u *url.URL) (r *http.Response, b []byte, cc *Control, ok bool
 func (p *Pool) Remove(u *url.URL) {
 	us := u.String()
 	p.Lock()
+	p.remove(us)
+	p.Unlock()
+}
+
+func (p *Pool) remove(us string) {
 	r := p.m[us]
 	delete(p.m, us)
 	if r != nil {
 		p.size -= len(r.body)
 	}
-	p.Unlock()
 }
 
 func Construct(r, newr *http.Response, b []byte) *http.Response {
@@ -244,4 +272,54 @@ func Construct(r, newr *http.Response, b []byte) *http.Response {
 	}
 	r.Body = ioutil.NopCloser(bytes.NewReader(b))
 	return r
+}
+
+type cacheReader struct {
+	url      *url.URL
+	response *http.Response
+	cc       *Control
+	buf      *bytes.Buffer
+	pool     *Pool
+	err      error
+	status   int
+	tee      io.Reader
+}
+
+func (p *Pool) NewReader(u *url.URL, cc *Control,
+	r *http.Response, reader io.Reader) io.Reader {
+
+	buf := new(bytes.Buffer)
+	return &cacheReader{
+		url:      u,
+		cc:       cc,
+		response: r,
+		buf:      buf,
+		pool:     p,
+		tee:      io.TeeReader(reader, buf),
+	}
+}
+
+const (
+	statusReading = iota
+	statusEOF
+	statusError
+)
+
+func (c *cacheReader) Read(p []byte) (n int, err error) {
+	switch c.status {
+	case statusReading:
+		n, err = c.tee.Read(p)
+		if err != nil {
+			if err == io.EOF {
+				c.status = statusEOF
+				c.pool.Set(c.url, c.cc, c.response, c.buf.Bytes())
+			} else {
+				c.status = statusError
+			}
+			c.err = err
+		}
+	case statusEOF, statusError:
+		return 0, c.err
+	}
+	return
 }

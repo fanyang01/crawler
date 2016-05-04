@@ -54,6 +54,6 @@ func parseProxy(addr string) (*http.Client, error) {
 			Transport: transport,
 		}, nil
 	default:
-		return nil, errors.New("unsupported proxy type")
+		return nil, errors.New("proxy: unsupported proxy type")
 	}
 }

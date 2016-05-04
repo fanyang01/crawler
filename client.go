@@ -59,27 +59,31 @@ func (e ResponseStatusError) Error() string {
 }
 
 // Do implements Client.
-func (c *StdClient) Do(req *Request) (resp *Response, err error) {
+func (c *StdClient) Do(req *Request) (r *Response, err error) {
 	defer func() {
-		if err != nil && resp != nil {
-			resp.Free()
+		if err != nil && r != nil {
+			r.Free()
 		}
 	}()
 
 	var (
-		hr   *http.Response
-		cc   *cache.Control
-		body []byte
-		now  time.Time
-		ok   bool
+		hr       *http.Response
+		cc       *cache.Control
+		body     []byte
+		now      time.Time
+		ok       bool
+		modified bool = true
 	)
 	if req.Method == "GET" && c.Cache != nil {
 		if hr, body, cc, ok = c.Cache.Get(req.URL); ok {
 			if cc.NeedValidate() {
-				if hr, cc, err = c.revalidate(req.URL, hr, body, cc); err != nil {
+				if hr, cc, modified, err = c.revalidate(
+					req.URL, hr, body, cc,
+				); err != nil {
 					return
 				}
 			} else {
+				modified = false
 				hr.Body = ioutil.NopCloser(bytes.NewReader(body))
 			}
 			now = time.Now()
@@ -90,9 +94,11 @@ func (c *StdClient) Do(req *Request) (resp *Response, err error) {
 	if hr, err = c.Client.Do(req.Request); err != nil {
 		return
 	}
+	now = time.Now()
+
+	// Only status code 2xx is OK.
 	switch {
 	case 200 <= hr.StatusCode && hr.StatusCode < 300:
-		// Only status code 2xx is ok
 	default:
 		err = ResponseStatusError(hr.StatusCode)
 		hr.Body.Close()
@@ -101,15 +107,27 @@ func (c *StdClient) Do(req *Request) (resp *Response, err error) {
 	if c.Cache != nil {
 		cc = cache.Parse(hr, now)
 	}
-	resp = NewResponse()
 
 INIT:
-	resp.init(req.URL, hr, now, cc)
+	r = NewResponse()
+	r.init(req.URL, hr, now, cc)
+	if c.Cache != nil && cc != nil && cc.IsCacheable() {
+		if !modified { // Just update cached header
+			if ok := c.Cache.Update(req.URL, r.CacheControl, r.Header); ok {
+				return
+			}
+		}
+		r.Body = c.Cache.NewReader(r.NewURL, r.CacheControl, r.Response, r.Body)
+	}
 	return
 }
 
-func (c *StdClient) revalidate(u *url.URL, r *http.Response,
-	body []byte, cc *cache.Control) (rr *http.Response, rcc *cache.Control, err error) {
+func (c *StdClient) revalidate(
+	u *url.URL, r *http.Response, body []byte, cc *cache.Control,
+) (
+	rr *http.Response, rcc *cache.Control, modified bool, err error,
+) {
+	modified = true
 
 	req, _ := http.NewRequest("GET", u.String(), nil)
 	if cc.ETag != "" {
@@ -129,9 +147,15 @@ func (c *StdClient) revalidate(u *url.URL, r *http.Response,
 	case rr.StatusCode == 304:
 		rr.Body.Close()
 		rr = cache.Construct(r, rr, body)
+		if rr.Request.URL.String() == u.String() {
+			modified = false
+		}
 		fallthrough
 	case 200 <= rr.StatusCode && rr.StatusCode < 300:
 		rcc = cache.Parse(rr, time.Now())
+		if rcc == nil || !rcc.IsCacheable() {
+			c.Cache.Remove(u)
+		}
 		return
 	default:
 		rr.Body.Close()

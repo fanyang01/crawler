@@ -9,6 +9,7 @@ const (
 type Option struct {
 	UserAgent     string
 	RobotAgent    string
+	EnableCache   bool
 	MaxCacheSize  int64
 	MinDelay      time.Duration
 	RetryDuration time.Duration
@@ -17,10 +18,6 @@ type Option struct {
 	MaxHTML       int64
 	NWorker       struct {
 		Maker, Fetcher, Handler, Scheduler int
-	}
-	Electron struct {
-		ExecPath string
-		AppDir   string
 	}
 }
 
