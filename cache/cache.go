@@ -1,3 +1,4 @@
+// Package cache implements parts of HTTP caching protocol.
 package cache
 
 import (

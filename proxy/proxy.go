@@ -1,20 +1,22 @@
-package crawler
+// Package proxy provides http clients that use a http/socks5 proxy.
+package proxy
 
 import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"golang.org/x/net/proxy"
 )
 
-func NewProxyClient(addr string) (*http.Client, error) {
+func New(addr string) (*http.Client, error) {
 	return parseProxy(addr)
 }
 
 func parseProxy(addr string) (*http.Client, error) {
-	u, err := ParseURL(addr)
+	u, err := url.Parse(addr)
 	if err != nil {
 		return nil, err
 	}
