@@ -1,5 +1,5 @@
-hash: 9d850bd79b04a00bffbaef9ee4cefe12dac787836157c5bd45e51ac8efe15136
-updated: 2016-05-04T00:55:15.534176068+08:00
+hash: 0ab20d0655e96b750ad47801635ad8e12f7aa8beb1152d185a713072c506eb27
+updated: 2016-05-05T00:57:01.064154823+08:00
 imports:
 - name: github.com/boltdb/bolt
   version: d97499360d1ecebc492ea66c7447ea948f417620
@@ -7,6 +7,8 @@ imports:
   version: e1747dd9eeac7d825ec35e8aa135f5413c2b2763
 - name: github.com/fanyang01/rbtree
   version: 129a11d3290abd3da2b40f7f9d80370e738fef5a
+- name: github.com/gobwas/glob
+  version: d877f6352135181470c40c73ebb81aefa22115fa
 - name: github.com/golang/snappy
   version: 43fea289edce21979658cbbdb3925390890aa86e
 - name: github.com/gorilla/websocket
@@ -37,7 +39,7 @@ imports:
 - name: github.com/Sirupsen/logrus
   version: cd7d1bbe41066b6c1f19780f895901052150a575
 - name: github.com/stretchr/testify
-  version: c5d7a69bf8a2c9c374798160849c071093e41dd1
+  version: 6cb3b85ef5a0efef77caef88363ec4d4b5c0976d
   subpackages:
   - assert
 - name: github.com/syndtr/goleveldb
@@ -66,6 +68,7 @@ imports:
   - proxy
   - html/charset
   - context
+  - idna
   - html/atom
 - name: golang.org/x/sys
   version: b776ec39b3e54652e09028aaaaac9757f4f8211a

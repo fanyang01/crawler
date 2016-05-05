@@ -109,6 +109,21 @@ func (h *handler) filter(r *Response, link *Link) error {
 
 func ExtractHref(base *url.URL, reader io.Reader, ch chan<- *Link) error {
 	z := html.NewTokenizer(reader)
+	f := func(z *html.Tokenizer, base *url.URL) *url.URL {
+		for {
+			key, val, more := z.TagAttr()
+			if bytes.Equal(key, []byte("href")) {
+				if u, err := ParseURLFrom(base, string(val)); err == nil {
+					return u
+				}
+				break
+			}
+			if !more {
+				break
+			}
+		}
+		return nil
+	}
 LOOP:
 	for {
 		tt := z.Next()
@@ -121,36 +136,15 @@ LOOP:
 		case html.StartTagToken:
 			tn, hasAttr := z.TagName()
 			if hasAttr && len(tn) == 1 && tn[0] == 'a' {
-				for {
-					key, val, more := z.TagAttr()
-					if bytes.Equal(key, []byte("href")) {
-						if u, err := base.Parse(string(val)); err == nil {
-							u.Fragment = ""
-							ch <- &Link{
-								URL: u,
-							}
-						}
-						break
-					}
-					if !more {
-						break
-					}
+				if u := f(z, base); u != nil {
+					ch <- &Link{URL: u}
 				}
 			}
 		case html.SelfClosingTagToken:
 			tn, hasAttr := z.TagName()
 			if hasAttr && len(tn) == 4 && bytes.Equal(tn, []byte("base")) {
-				for {
-					key, val, more := z.TagAttr()
-					if bytes.Equal(key, []byte("href")) {
-						if u, err := base.Parse(string(val)); err == nil {
-							base = u
-						}
-						break
-					}
-					if !more {
-						break
-					}
+				if u := f(z, base); u != nil {
+					base = u
 				}
 			}
 		}
