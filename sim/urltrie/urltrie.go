@@ -32,24 +32,18 @@ func sorted(query url.Values) []kv {
 	return r
 }
 
-type queryNode struct {
-	// first key: query value
-	// second key: query key
-	next map[string]map[string]*queryNode
+type QueryNode struct {
+	next map[string]map[string]*QueryNode
 }
 
-func newQueryNode() *queryNode {
-	return &queryNode{
-		next: make(map[string]map[string]*queryNode),
-	}
+func newQueryNode() *QueryNode { return &QueryNode{} }
+
+type PathNode struct {
+	child map[string]*PathNode // key: segment
+	query map[string]map[string]*QueryNode
 }
 
-type Node struct {
-	child map[string]*Node // key: segment
-	query map[string]map[string]*queryNode
-}
-
-func newNode() *Node { return &Node{} }
+func newPathNode() *PathNode { return &PathNode{} }
 
 // A Trie is a special trie for URL. It reuses nodes at the segment level.
 // For instance, https://golang.org will be stored as:
@@ -59,37 +53,35 @@ func newNode() *Node { return &Node{} }
 //        doc pkg  src help ...
 //          /  |  \
 //        net fmt flag ...
-type Trie struct{ root Node }
+type Trie struct{ root PathNode }
 
 // New creates a url trie.
-func New() *Trie {
-	return &Trie{}
-}
+func New() *Trie { return &Trie{} }
 
 // Add adds a URL to the trie. It will cancel and return false if the
 // number of children of some node on the path exceeds the threshold.
 func (t *Trie) Add(u *url.URL, threshold int) bool {
 	var (
-		node     = &t.root
+		pnode    = &t.root
 		segments = strings.Split(u.EscapedPath(), "/")
-		m        map[string]*Node
+		m        map[string]*PathNode
 		prev     string
 		ok       bool
 	)
 	for _, seg := range segments[1:] {
-		if node == nil {
-			node = newNode()
-			m[prev] = node
+		if pnode == nil {
+			pnode = newPathNode()
+			m[prev] = pnode
 		}
-		if m = node.child; m == nil {
-			m = make(map[string]*Node, 1)
-			node.child = m
+		if m = pnode.child; m == nil {
+			m = make(map[string]*PathNode, 1)
+			pnode.child = m
 		}
-		if node, ok = m[seg]; !ok {
-			if threshold > 0 && len(node.child) >= threshold {
+		if pnode, ok = m[seg]; !ok {
+			if threshold > 0 && len(pnode.child) >= threshold {
 				return false
 			}
-			node.child[seg] = nil
+			m[seg] = nil
 		}
 		prev = seg
 	}
@@ -97,14 +89,18 @@ func (t *Trie) Add(u *url.URL, threshold int) bool {
 	query := sorted(u.Query())
 	if len(query) == 0 {
 		return true
-	} else if node.query == nil {
-		node.query = make(map[string]map[string]*queryNode)
+	} else if pnode == nil {
+		pnode = newPathNode()
+		m[prev] = pnode
+	} // DON'T use 'else if'!
+	if pnode.query == nil {
+		pnode.query = make(map[string]map[string]*QueryNode, 1)
 	}
 
 	var (
-		primary   = node.query
-		qnode     = &queryNode{next: primary}
-		secondary map[string]*queryNode
+		primary   = pnode.query
+		qnode     = &QueryNode{next: primary}
+		secondary map[string]*QueryNode
 	)
 	for _, kv := range query {
 		if qnode == nil {
@@ -112,11 +108,11 @@ func (t *Trie) Add(u *url.URL, threshold int) bool {
 			secondary[prev] = qnode
 		}
 		if primary = qnode.next; primary == nil {
-			primary = make(map[string]map[string]*queryNode, 1)
+			primary = make(map[string]map[string]*QueryNode, 1)
 			qnode.next = primary
 		}
 		if secondary = primary[kv.k]; secondary == nil {
-			secondary = make(map[string]*queryNode, 1)
+			secondary = make(map[string]*QueryNode, 1)
 			primary[kv.k] = secondary
 		}
 		if qnode, ok = secondary[kv.v]; !ok {
@@ -134,39 +130,47 @@ func (t *Trie) Add(u *url.URL, threshold int) bool {
 // return true either the number of children of some node on the lookup
 // path is greater than or equal to the threshold, or an exact match is found.
 func (t *Trie) Has(u *url.URL, threshold int) bool {
-	node := &t.root
+	pnode := &t.root
 	segments := strings.Split(u.EscapedPath(), "/")
 	// Consider github.com/{user}. If the number of users is equal to
 	// threshold, github.com/someone-stored/{repo} should still be enabled.
 	for _, seg := range segments[1:] {
-		if node.child == nil {
+		if pnode == nil || pnode.child == nil {
 			return false
 		}
-		child := node.child[seg]
-		if child == nil {
-			if len(node.child) >= threshold {
+		child, ok := pnode.child[seg]
+		if !ok {
+			if threshold > 0 && len(pnode.child) >= threshold {
 				return true
 			}
 			return false
 		}
-		node = child
+		pnode = child
 	}
 
 	query := sorted(u.Query())
-	primary := node.query
-	qnode := &queryNode{next: primary}
+	if len(query) == 0 {
+		return true
+	} else if pnode == nil {
+		return false
+	}
+	primary := pnode.query
+	qnode := &QueryNode{next: primary}
 
 	for _, kv := range query {
-		if primary = qnode.next; primary == nil {
+		if qnode == nil {
+			return false
+		} else if primary = qnode.next; primary == nil {
 			return false
 		}
 		secondary := primary[kv.k]
 		if secondary == nil {
 			return false
 		}
-		qnode = secondary[kv.v]
-		if qnode == nil {
-			if len(secondary) >= threshold {
+		var ok bool
+		qnode, ok = secondary[kv.v]
+		if !ok {
+			if threshold > 0 && len(secondary) >= threshold {
 				return true
 			}
 			return false
