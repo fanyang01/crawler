@@ -10,40 +10,43 @@ import (
 
 type scheduler struct {
 	workerConn
-	NewIn     chan *url.URL
-	DoneIn    chan *url.URL
-	ErrIn     chan *url.URL
-	RecoverIn chan *url.URL
-	Out       chan *url.URL
-	ResIn     chan *Response
-	cw        *Crawler
+	cw *Crawler
 
-	prioQueue queue.WaitQueue
-	pqIn      chan<- *queue.Item
-	pqOut     <-chan *url.URL
-	pqErr     <-chan error
+	NewIn     chan *url.URL
+	RecoverIn chan *url.URL
+	RetryIn   chan *url.URL
+	ErrIn     chan *url.URL
+	Out       chan *url.URL
+	In        chan *Response
+
+	queue    queue.WaitQueue
+	queueIn  chan<- *queue.Item
+	queueOut <-chan *url.URL
+	queueErr <-chan error
 
 	once sync.Once // used for closing Out
-	done chan struct{}
+	stop chan struct{}
 }
 
 func (cw *Crawler) newScheduler(wq queue.WaitQueue) *scheduler {
 	nworker := cw.opt.NWorker.Scheduler
-	chIn, chOut, chErr := wq.Channel()
+	queueIn, queueOut, queueErr := wq.Channel()
+
 	this := &scheduler{
+		cw: cw,
+
 		NewIn:     make(chan *url.URL, nworker),
-		DoneIn:    make(chan *url.URL, nworker),
-		ErrIn:     make(chan *url.URL, nworker),
 		RecoverIn: make(chan *url.URL, nworker),
+		RetryIn:   make(chan *url.URL, nworker),
+		ErrIn:     make(chan *url.URL, nworker),
 		Out:       make(chan *url.URL, 4*nworker),
-		cw:        cw,
 
-		prioQueue: wq,
-		pqIn:      chIn,
-		pqOut:     chOut,
-		pqErr:     chErr,
+		queue:    wq,
+		queueIn:  queueIn,
+		queueOut: queueOut,
+		queueErr: queueErr,
 
-		done: make(chan struct{}),
+		stop: make(chan struct{}),
 	}
 
 	cw.initWorker("scheduler", this, nworker)
@@ -65,7 +68,7 @@ func (sd *scheduler) work() {
 			outURL = outURLs[0]
 		}
 		if len(waiting) > 0 {
-			queueIn = sd.pqIn
+			queueIn = sd.queueIn
 			next = waiting[0]
 		}
 		var (
@@ -90,15 +93,12 @@ func (sd *scheduler) work() {
 				waiting = append(waiting, item)
 				continue
 			}
-		case resp := <-sd.ResIn:
-			sd.cw.store.IncVisitCount()
-			if resp.err != nil {
-				if item, ok = sd.retry(resp.URL); ok {
-					waiting = append(waiting, item)
-					continue
-				}
-				break
+		case resp, ok := <-sd.In:
+			if !ok {
+				sd.exit()
+				return // closed
 			}
+			sd.cw.store.IncVisitCount()
 			for _, link := range resp.links {
 				item, done, err = sd.schedURL(resp, link.URL, URLTypeNew)
 				if err != nil {
@@ -115,14 +115,16 @@ func (sd *scheduler) work() {
 				waiting = append(waiting, item)
 				continue
 			}
-		case u = <-sd.DoneIn:
-			sd.cw.store.UpdateStatus(u, URLStatusFinished)
-		case u = <-sd.ErrIn:
+		case u = <-sd.RetryIn:
 			if item, ok = sd.retry(u); ok {
 				waiting = append(waiting, item)
 				continue
 			}
-		case u = <-sd.pqOut:
+		case u = <-sd.ErrIn:
+			if err = sd.cw.store.UpdateStatus(u, URLStatusError); err != nil {
+				goto ERROR
+			}
+		case u = <-sd.queueOut:
 			if u == nil { // queue has been closed
 				return
 			}
@@ -139,12 +141,12 @@ func (sd *scheduler) work() {
 			}
 
 		// Control:
-		case err = <-sd.pqErr:
+		case err = <-sd.queueErr:
 			if err != nil {
 				goto ERROR
 			}
 			return
-		case <-sd.done:
+		case <-sd.stop:
 			return
 		case <-sd.quit:
 			return
@@ -153,28 +155,28 @@ func (sd *scheduler) work() {
 		if ok, err = sd.cw.store.IsFinished(); err != nil {
 			goto ERROR
 		} else if ok {
-			sd.stop() // notify other goroutines to exit.
+			sd.exit()
 			return
 		}
 		continue
 
 	ERROR:
 		sd.logger.Error("scheduler error", "err", err)
-		sd.stop()
+		sd.exit() // notify other scheduler goroutines to exit.
 		return
 	}
 }
 
 func (sd *scheduler) cleanup() {
 	close(sd.Out)
-	close(sd.pqIn)
-	if err := sd.prioQueue.Close(); err != nil {
+	close(sd.queueIn)
+	if err := sd.queue.Close(); err != nil {
 		sd.logger.Error("close wait queue", "err", err)
 	}
 }
 
-func (sd *scheduler) stop() {
-	sd.once.Do(func() { close(sd.done) })
+func (sd *scheduler) exit() {
+	sd.once.Do(func() { close(sd.stop) })
 }
 
 func (sd *scheduler) schedURL(r *Response, u *url.URL, typ int) (item *queue.Item, done bool, err error) {

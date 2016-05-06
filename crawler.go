@@ -32,7 +32,7 @@ func NewCrawler(cfg *Config) *Crawler {
 	cfg = initConfig(cfg)
 	cw := &Crawler{
 		opt:       cfg.Option,
-		store:     cfg.Store,
+		store:     storeWrapper{cfg.Store},
 		ctrl:      cfg.Controller,
 		logger:    cfg.Logger,
 		normalize: cfg.NormalizeURL,
@@ -49,10 +49,13 @@ func NewCrawler(cfg *Config) *Crawler {
 	cw.maker.In = cw.scheduler.Out
 	cw.fetcher.In = cw.maker.Out
 	cw.handler.In = cw.fetcher.Out
-	cw.scheduler.ResIn = cw.handler.Out
+	cw.scheduler.In = cw.handler.Out
 
 	// additional flow
-	cw.fetcher.ErrOut = cw.scheduler.ErrIn
+	cw.maker.ErrOut = cw.scheduler.ErrIn
+	cw.fetcher.RetryOut = cw.scheduler.RetryIn
+	cw.handler.ErrOut = cw.scheduler.ErrIn
+	cw.handler.RetryOut = cw.scheduler.RetryIn
 
 	return cw
 }

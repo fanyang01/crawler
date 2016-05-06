@@ -2,7 +2,6 @@ package crawler
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"mime"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fanyang01/crawler/media"
 	"github.com/fanyang01/crawler/urlx"
 	"github.com/fanyang01/crawler/util"
 
@@ -19,18 +19,12 @@ import (
 	"golang.org/x/net/html/charset"
 )
 
-var (
-	ErrTooManyEncodings    = errors.New("read response: too many encodings")
-	ErrContentTooLong      = errors.New("read response: content length too long")
-	ErrUnkownContentLength = errors.New("read response: unkown content length")
-)
-
 type fetcher struct {
 	workerConn
-	In     <-chan *Request
-	Out    chan *Response
-	ErrOut chan *url.URL
-	cw     *Crawler
+	In       <-chan *Request
+	Out      chan *Response
+	RetryOut chan *url.URL
+	cw       *Crawler
 }
 
 func (cw *Crawler) newFetcher() *fetcher {
@@ -49,23 +43,26 @@ func (f *fetcher) work() {
 	for req := range f.In {
 		var (
 			out    = f.Out
-			errOut chan *url.URL
+			retry  chan *url.URL
+			logger = f.logger.New("url", req.URL)
 		)
-		logger := f.logger.New("url", req.URL)
 		r, err := req.Client.Do(req)
 		if err != nil {
-			out, errOut = nil, f.ErrOut
+			out, retry = nil, f.RetryOut
 			logger.Error("client failed to do request", "err", err)
-		} else {
-			logger.Info(r.Status)
-			if err := f.initResponse(req, r); err != nil {
-				logger.Error("initialize response", "err", err)
-				r.err = err
-			}
+			goto END
 		}
+		logger.Info(r.Status)
+		if err := f.initResponse(req, r); err != nil {
+			// The only possible error comes from reading the body.
+			out, retry = nil, f.RetryOut
+			logger.Error("initialize response", "err", err)
+			r.Free()
+		}
+	END:
 		select {
 		case out <- r:
-		case errOut <- req.URL:
+		case retry <- req.URL:
 		case <-f.quit:
 			return
 		}
@@ -123,7 +120,7 @@ func (r *Response) normalize(normalize func(*url.URL) error) error {
 
 func (r *Response) convToUTF8(preview []byte, query func(*url.URL) string) {
 	// Convert to UTF-8
-	if CT_HTML.match(r.ContentType) {
+	if media.IsHTML(r.ContentType) {
 		e, name, certain := charset.DetermineEncoding(
 			preview, r.ContentType,
 		)
@@ -183,7 +180,7 @@ func (r *Response) detectContentType() (sure bool) {
 			return false
 		}
 	}
-	r.ContentType = string(CT_UNKNOWN)
+	r.ContentType = string(media.UNKNOWN)
 	return false
 }
 
