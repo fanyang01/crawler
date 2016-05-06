@@ -1,4 +1,5 @@
-package crawler
+// Package urlx implements some URL utility functions.
+package urlx
 
 import (
 	"errors"
@@ -31,7 +32,7 @@ func validateHost(host string) (string, error) {
 	return "", errors.New("not valid domain name or IP address")
 }
 
-func NormalizeURL(u *url.URL) error {
+func Normalize(u *url.URL) error {
 	u.Scheme = strings.ToLower(u.Scheme)
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("normalize URL: unsupported scheme: %v", u.Scheme)
@@ -60,7 +61,7 @@ func NormalizeURL(u *url.URL) error {
 	return nil
 }
 
-func ParseURL(s string, f ...func(*url.URL) error) (*url.URL, error) {
+func Parse(s string, f ...func(*url.URL) error) (*url.URL, error) {
 	u, err := url.Parse(s)
 	if err != nil {
 		return nil, err
@@ -73,7 +74,7 @@ func ParseURL(s string, f ...func(*url.URL) error) (*url.URL, error) {
 	return u, nil
 }
 
-func ParseURLFrom(base *url.URL, s string, f ...func(*url.URL) error) (*url.URL, error) {
+func ParseRef(base *url.URL, s string, f ...func(*url.URL) error) (*url.URL, error) {
 	u, err := base.Parse(s)
 	if err != nil {
 		return nil, err

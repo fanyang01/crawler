@@ -4,6 +4,7 @@ import (
 	"net/url"
 
 	"github.com/fanyang01/crawler/queue"
+	"github.com/fanyang01/crawler/urlx"
 	"github.com/inconshreveable/log15"
 )
 
@@ -41,7 +42,7 @@ func initConfig(cfg *Config) *Config {
 		cfg.Logger.SetHandler(log15.DiscardHandler())
 	}
 	if cfg.NormalizeURL == nil {
-		cfg.NormalizeURL = NormalizeURL
+		cfg.NormalizeURL = urlx.Normalize
 	}
 	return cfg
 }

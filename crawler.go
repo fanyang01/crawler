@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"sync"
 
+	"github.com/fanyang01/crawler/urlx"
 	"github.com/inconshreveable/log15"
 )
 
@@ -117,7 +118,7 @@ func (cw *Crawler) addSeeds(seeds ...string) (n int, err error) {
 	for _, seed := range seeds {
 		var u *url.URL
 		var ok bool
-		if u, err = ParseURL(seed, cw.normalize); err != nil {
+		if u, err = urlx.Parse(seed, cw.normalize); err != nil {
 			return
 		}
 		if ok, err = cw.store.PutNX(&URL{
@@ -135,7 +136,7 @@ func (cw *Crawler) addSeeds(seeds ...string) (n int, err error) {
 // Enqueue adds urls to queue.
 func (cw *Crawler) Enqueue(urls ...string) error {
 	for _, u := range urls {
-		uu, err := ParseURL(u, cw.normalize)
+		uu, err := urlx.Parse(u, cw.normalize)
 		if err != nil {
 			return err
 		}

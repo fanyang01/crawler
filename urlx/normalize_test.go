@@ -1,4 +1,4 @@
-package crawler
+package urlx
 
 import (
 	"testing"
@@ -17,7 +17,7 @@ func TestNormalizeURL(t *testing.T) {
 	}
 	assert := assert.New(t)
 	for _, v := range data {
-		u, err := ParseURL(v[0], NormalizeURL)
+		u, err := Parse(v[0], Normalize)
 		assert.NoError(err)
 		assert.NotNil(u)
 		assert.Equal(v[1], u.String())

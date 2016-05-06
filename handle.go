@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/url"
 
+	"github.com/fanyang01/crawler/urlx"
+
 	"golang.org/x/net/html"
 )
 
@@ -113,7 +115,7 @@ func ExtractHref(base *url.URL, reader io.Reader, ch chan<- *Link) error {
 		for {
 			key, val, more := z.TagAttr()
 			if bytes.Equal(key, []byte("href")) {
-				if u, err := ParseURLFrom(base, string(val)); err == nil {
+				if u, err := urlx.ParseRef(base, string(val)); err == nil {
 					return u
 				}
 				break

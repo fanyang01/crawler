@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/fanyang01/crawler"
+	"github.com/fanyang01/crawler/urlx"
 
 	"golang.org/x/net/html"
 )
@@ -62,7 +63,7 @@ func (e *Extractor) tokenLoop(
 	normalize := e.Normalize
 	dest := e.Destination
 	if normalize == nil {
-		normalize = crawler.NormalizeURL
+		normalize = urlx.Normalize
 	}
 	if len(dest) == 0 {
 		dest = []struct{ Tag, Attr string }{{"a", "href"}}
@@ -95,7 +96,7 @@ func (e *Extractor) tokenLoop(
 					continue
 				} else if v, ok = get(&token, d.Attr); !ok || v == "" {
 					continue
-				} else if u, err = crawler.ParseURLFrom(
+				} else if u, err = urlx.ParseRef(
 					&base, v,
 				); err != nil {
 					continue

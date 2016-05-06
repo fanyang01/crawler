@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fanyang01/crawler/urlx"
 	"github.com/fanyang01/crawler/util"
 
 	"golang.org/x/net/html"
@@ -104,16 +105,16 @@ func (f *fetcher) initResponse(req *Request, r *Response) error {
 }
 
 func (r *Response) normalize(normalize func(*url.URL) error) error {
-	if err := NormalizeURL(r.NewURL); err != nil {
+	if err := normalize(r.NewURL); err != nil {
 		return err
 	}
 	if r.ContentLocation != nil {
-		if err := NormalizeURL(r.ContentLocation); err != nil {
+		if err := normalize(r.ContentLocation); err != nil {
 			return err
 		}
 	}
 	if r.Refresh.URL != nil {
-		if err := NormalizeURL(r.Refresh.URL); err != nil {
+		if err := normalize(r.Refresh.URL); err != nil {
 			return err
 		}
 	}
@@ -145,7 +146,7 @@ func (r *Response) scanLocation() {
 		baseurl = r.URL
 	}
 	if loc := r.Header.Get("Content-Location"); loc != "" {
-		r.ContentLocation, _ = ParseURLFrom(baseurl, loc)
+		r.ContentLocation, _ = urlx.ParseRef(baseurl, loc)
 	}
 	if s := r.Header.Get("Refresh"); s != "" {
 		r.Refresh.Seconds, r.Refresh.URL = parseRefresh(s, baseurl)
@@ -302,6 +303,6 @@ func parseRefresh(s string, u *url.URL) (second int, uu *url.URL) {
 		return
 	}
 	s = strings.TrimLeft(s[1:], blank)
-	uu, _ = ParseURLFrom(u, s)
+	uu, _ = urlx.ParseRef(u, s)
 	return
 }
