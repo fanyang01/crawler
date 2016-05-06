@@ -34,11 +34,11 @@ func TestAdd(t *testing.T) {
 		"http://localhost/?hello=world",
 	}
 	for _, u := range data {
-		assert.True(trie.Add(mustParse(u), 0), u)
+		assert.True(trie.Add(mustParse(u), nil), u)
 		// print(trie)
 	}
 	for _, u := range data {
-		assert.True(trie.Has(mustParse(u), 0), u)
+		assert.True(trie.Has(mustParse(u), nil), u)
 	}
 }
 

@@ -59,9 +59,11 @@ type Trie struct{ root PathNode }
 func New() *Trie { return &Trie{} }
 
 // Add adds a URL to the trie. It will cancel and return false if the
-// number of children of some node on the path exceeds the threshold.
-func (t *Trie) Add(u *url.URL, threshold int) bool {
+// number of children of some node on the path exceeds the threshold
+// computed using the depth of the node. The depth of root node is 0.
+func (t *Trie) Add(u *url.URL, threshold func(depth int) int) bool {
 	var (
+		depth    = 0
 		pnode    = &t.root
 		segments = strings.Split(u.EscapedPath(), "/")
 		m        map[string]*PathNode
@@ -69,6 +71,7 @@ func (t *Trie) Add(u *url.URL, threshold int) bool {
 		ok       bool
 	)
 	for _, seg := range segments[1:] {
+		depth++
 		if pnode == nil {
 			pnode = newPathNode()
 			m[prev] = pnode
@@ -78,7 +81,7 @@ func (t *Trie) Add(u *url.URL, threshold int) bool {
 			pnode.child = m
 		}
 		if pnode, ok = m[seg]; !ok {
-			if threshold > 0 && len(pnode.child) >= threshold {
+			if threshold != nil && len(m) >= threshold(depth) {
 				return false
 			}
 			m[seg] = nil
@@ -103,6 +106,7 @@ func (t *Trie) Add(u *url.URL, threshold int) bool {
 		secondary map[string]*QueryNode
 	)
 	for _, kv := range query {
+		depth++
 		if qnode == nil {
 			qnode = newQueryNode()
 			secondary[prev] = qnode
@@ -116,7 +120,7 @@ func (t *Trie) Add(u *url.URL, threshold int) bool {
 			primary[kv.k] = secondary
 		}
 		if qnode, ok = secondary[kv.v]; !ok {
-			if threshold > 0 && len(secondary) >= threshold {
+			if threshold != nil && len(secondary) >= threshold(depth) {
 				return false
 			}
 			secondary[kv.v] = nil
@@ -128,19 +132,22 @@ func (t *Trie) Add(u *url.URL, threshold int) bool {
 
 // Has searches the trie to check whether there are similar URLs. It will
 // return true either the number of children of some node on the lookup
-// path is greater than or equal to the threshold, or an exact match is found.
-func (t *Trie) Has(u *url.URL, threshold int) bool {
+// path is greater than or equal to the threshold, or an exact match is
+// found.
+func (t *Trie) Has(u *url.URL, threshold func(depth int) int) bool {
+	depth := 0
 	pnode := &t.root
 	segments := strings.Split(u.EscapedPath(), "/")
 	// Consider github.com/{user}. If the number of users is equal to
 	// threshold, github.com/someone-stored/{repo} should still be enabled.
 	for _, seg := range segments[1:] {
+		depth++
 		if pnode == nil || pnode.child == nil {
 			return false
 		}
 		child, ok := pnode.child[seg]
 		if !ok {
-			if threshold > 0 && len(pnode.child) >= threshold {
+			if threshold != nil && len(pnode.child) >= threshold(depth) {
 				return true
 			}
 			return false
@@ -158,6 +165,7 @@ func (t *Trie) Has(u *url.URL, threshold int) bool {
 	qnode := &QueryNode{next: primary}
 
 	for _, kv := range query {
+		depth++
 		if qnode == nil {
 			return false
 		} else if primary = qnode.next; primary == nil {
@@ -170,7 +178,7 @@ func (t *Trie) Has(u *url.URL, threshold int) bool {
 		var ok bool
 		qnode, ok = secondary[kv.v]
 		if !ok {
-			if threshold > 0 && len(secondary) >= threshold {
+			if threshold != nil && len(secondary) >= threshold(depth) {
 				return true
 			}
 			return false

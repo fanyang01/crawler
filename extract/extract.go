@@ -14,10 +14,11 @@ import (
 type Extractor struct {
 	Normalize   func(*url.URL) error
 	Matcher     Matcher
-	Destination []struct{ Tag, Attr string }
 	MaxDepth    int
 	SpanHosts   bool
 	SameOrigin  bool
+	Destination []struct{ Tag, Attr string }
+	SniffFlags  int
 }
 
 // Extract parses the HTML document, extracts URLs and filters them using
@@ -67,6 +68,7 @@ func (e *Extractor) tokenLoop(
 		dest = []struct{ Tag, Attr string }{{"a", "href"}}
 	}
 
+	var prev html.Token
 	for {
 		tt := z.Next()
 		switch tt {
@@ -77,6 +79,7 @@ func (e *Extractor) tokenLoop(
 			return
 		case html.StartTagToken, html.SelfClosingTagToken:
 			token := z.Token()
+			prev = token
 			if len(token.Attr) == 0 {
 				continue
 			}
@@ -92,7 +95,9 @@ func (e *Extractor) tokenLoop(
 					continue
 				} else if v, ok = get(&token, d.Attr); !ok || v == "" {
 					continue
-				} else if u, err = crawler.ParseURLFrom(&base, v); err != nil {
+				} else if u, err = crawler.ParseURLFrom(
+					&base, v,
+				); err != nil {
 					continue
 				}
 				if name == "base" {
@@ -103,6 +108,26 @@ func (e *Extractor) tokenLoop(
 				}
 				ch <- u
 			}
+		case html.TextToken:
+			token := z.Token()
+			var urls []*url.URL
+			switch {
+			case e.SniffFlags&SniffWindowLocation != 0:
+				if prev.Type == html.StartTagToken && prev.Data == "script" {
+					urls = windowLocation(&base, token.Data)
+				}
+			case e.SniffFlags&SniffAbsoluteURLs != 0:
+				urls = absoluteURLs(&base, token.Data)
+			}
+			for _, u := range urls {
+				if err := normalize(u); err != nil {
+					continue
+				}
+				ch <- u
+			}
+			prev = token
+		default:
+			prev = html.Token{}
 		}
 	}
 }
