@@ -82,10 +82,6 @@ func (s *LevelStore) GetDepth(u *url.URL) (depth int, err error) {
 	uu, err := s.Get(u)
 	return uu.Depth, err
 }
-func (s *LevelStore) GetExtra(u *url.URL) (extra interface{}, err error) {
-	uu, err := s.Get(u)
-	return uu.Extra, err
-}
 
 func (s *LevelStore) PutNX(u *crawler.URL) (ok bool, err error) {
 	tx, err := s.DB.OpenTransaction()
@@ -162,12 +158,6 @@ func (s *LevelStore) UpdateFunc(u *url.URL, f func(*crawler.URL)) error {
 		}
 	}
 	return err
-}
-
-func (s *LevelStore) UpdateExtra(u *url.URL, extra interface{}) (err error) {
-	return s.UpdateFunc(u, func(uu *crawler.URL) {
-		uu.Extra = extra
-	})
 }
 
 func (s *LevelStore) Complete(u *url.URL) (err error) {

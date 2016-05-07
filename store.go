@@ -14,14 +14,12 @@ type Store interface {
 	Get(u *url.URL) (*URL, error)
 	GetDepth(u *url.URL) (int, error)
 	GetFunc(u *url.URL, f func(*URL)) error
-	GetExtra(u *url.URL) (interface{}, error)
 
 	PutNX(u *URL) (bool, error)
 	Complete(u *url.URL) error
 
 	Update(u *URL) error
 	UpdateFunc(u *url.URL, f func(*URL)) error
-	UpdateExtra(u *url.URL, extra interface{}) error
 
 	IncVisitCount() error
 	IsFinished() (bool, error)
@@ -88,15 +86,6 @@ func (p *MemStore) GetDepth(u *url.URL) (int, error) {
 	return 0, ErrItemNotFound
 }
 
-func (p *MemStore) GetExtra(u *url.URL) (interface{}, error) {
-	p.RLock()
-	defer p.RUnlock()
-	if uu, ok := p.m[u.String()]; ok {
-		return uu.Extra, nil
-	}
-	return nil, ErrItemNotFound
-}
-
 func (p *MemStore) PutNX(u *URL) (bool, error) {
 	p.Lock()
 	defer p.Unlock()
@@ -122,12 +111,6 @@ func (p *MemStore) UpdateFunc(u *url.URL, f func(*URL)) error {
 func (p *MemStore) Update(u *URL) error {
 	return p.UpdateFunc(&u.URL, func(uu *URL) {
 		uu.Update(u)
-	})
-}
-
-func (p *MemStore) UpdateExtra(u *url.URL, extra interface{}) error {
-	return p.UpdateFunc(u, func(uu *URL) {
-		uu.Extra = extra
 	})
 }
 

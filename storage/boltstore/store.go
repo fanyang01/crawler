@@ -123,13 +123,6 @@ func (s *BoltStore) GetDepth(u *url.URL) (depth int, err error) {
 	return
 }
 
-func (s *BoltStore) GetExtra(u *url.URL) (extra interface{}, err error) {
-	err = s.GetFunc(u, func(uu *crawler.URL) {
-		extra = uu.Extra
-	})
-	return
-}
-
 func (s *BoltStore) PutNX(u *crawler.URL) (ok bool, err error) {
 	err = s.DB.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bkURL)
@@ -174,12 +167,6 @@ func (s *BoltStore) UpdateFunc(u *url.URL, f func(*crawler.URL)) error {
 func (s *BoltStore) Update(u *crawler.URL) error {
 	return s.UpdateFunc(&u.URL, func(uu *crawler.URL) {
 		uu.Update(u)
-	})
-}
-
-func (s *BoltStore) UpdateExtra(u *url.URL, extra interface{}) error {
-	return s.UpdateFunc(u, func(uu *crawler.URL) {
-		uu.Extra = extra
 	})
 }
 

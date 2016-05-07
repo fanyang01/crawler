@@ -19,10 +19,9 @@ const (
 )
 
 type Context struct {
-	C        context.Context
-	url      *url.URL
-	response *Response
-	cw       *Crawler
+	C   context.Context
+	url *url.URL
+	cw  *Crawler
 }
 
 func newContext(cw *Crawler, u *url.URL) *Context {
@@ -36,8 +35,14 @@ func newContext(cw *Crawler, u *url.URL) *Context {
 func (c *Context) URL() *url.URL { return c.url }
 
 func (c *Context) Depth() (depth int, err error) {
-	err = c.fromStore()
-	return c.Value(ckDepth).(int), err
+	depth, ok := c.Value(ckDepth).(int)
+	if !ok {
+		if depth, err = c.cw.store.GetDepth(c.url); err == nil {
+			c.WithValue(ckDepth, depth)
+		}
+		return
+	}
+	return depth, nil
 }
 func (c *Context) VisitCount() (cnt int, err error) {
 	err = c.fromStore()
@@ -87,5 +92,13 @@ func (c *Context) Reset() *Context {
 	return c
 }
 
-func (c *Context) Response() *Response { return c.response }
-func (c *Context) Error(err error)     { c.WithValue(ckError, err) }
+func (c *Context) Error(err error) {
+	c.WithValue(ckError, err)
+}
+func (c *Context) Retry(err error) {
+	c.WithValue(ckError, wrapRetriable(err))
+}
+func (c *Context) err() error {
+	err, _ := c.Value(ckError).(error)
+	return err
+}

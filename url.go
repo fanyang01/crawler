@@ -5,15 +5,8 @@ import (
 	"time"
 )
 
-// LinkPerPage is the rouge number of links in a HTML document.
-const LinkPerPage = 32
-
-// Link represents a link found by crawler.
-type Link struct {
-	URL *url.URL
-	// Extra holds user-specified data.
-	Extra interface{}
-}
+// perPage is the rouge number of links in a HTML document.
+const perPage = 64
 
 // Status of a URL.
 const (
@@ -29,7 +22,6 @@ type URL struct {
 	Done     bool
 	Last     time.Time
 	Status   int
-	Extra    interface{}
 	NumVisit int
 	NumError int
 }

@@ -23,11 +23,11 @@ type Controller interface {
 	// non-standard links from a response and return them. Note that it
 	// doesn't need to handle standard links(<a href="..."></a>) in html
 	// document because the crawler will do this.
-	Handle(r *Response, ch chan<- *Link)
+	Handle(r *Response, ch chan<- *url.URL)
 
 	// Accept determines whether a URL should be processed. It acts as a
 	// blacklist that preventing some unneccesary URLs to be processed.
-	Accept(r *Response, link *Link) bool
+	Accept(r *Response, u *url.URL) bool
 
 	// Schedule gives a score between 0 and 1024 for a URL, Higher score
 	// means higher priority in queue. Schedule also specifies the next
@@ -50,11 +50,11 @@ type Controller interface {
 // and does nothing.
 type NopController struct{}
 
-func (c NopController) Prepare(_ *Request)                 {}
-func (c NopController) Interval(_ string) time.Duration    { return 0 }
-func (c NopController) Charset(_ *url.URL) string          { return "utf-8" }
-func (c NopController) Handle(_ *Response, _ chan<- *Link) {}
-func (c NopController) Accept(_ *Response, _ *Link) bool   { return true }
+func (c NopController) Prepare(_ *Request)                    {}
+func (c NopController) Interval(_ string) time.Duration       { return 0 }
+func (c NopController) Charset(_ *url.URL) string             { return "utf-8" }
+func (c NopController) Handle(_ *Response, _ chan<- *url.URL) {}
+func (c NopController) Accept(_ *Response, _ *url.URL) bool   { return true }
 func (c NopController) Sched(_ *Response, _ *url.URL) Ticket {
 	return Ticket{}
 }

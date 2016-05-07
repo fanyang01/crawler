@@ -17,7 +17,7 @@ type testController struct {
 	content chan []byte
 }
 
-func (t testController) Handle(r *Response, _ chan<- *Link) {
+func (t testController) Handle(r *Response, _ chan<- *url.URL) {
 	b, _ := ioutil.ReadAll(r.Body)
 	t.content <- b
 }

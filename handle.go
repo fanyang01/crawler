@@ -83,18 +83,18 @@ func (h *handler) handle(r *Response) error {
 	if err != nil {
 		return err
 	}
-	ch := make(chan *Link, LinkPerPage)
+	ch := make(chan *url.URL, perPage)
 	go func() {
 		original := r.URL.String()
 		// Treat the new url as one found under the original url
 		if r.NewURL.String() != original {
 			newurl := *r.NewURL
-			ch <- &Link{URL: &newurl}
+			ch <- &newurl
 		}
 		if refresh := r.Refresh.URL; refresh != nil &&
 			refresh.String() != original {
 			newurl := *refresh
-			ch <- &Link{URL: &newurl}
+			ch <- &newurl
 		}
 		h.cw.ctrl.Handle(r, ch)
 		close(ch)
@@ -102,34 +102,33 @@ func (h *handler) handle(r *Response) error {
 	return h.handleLink(r, ch, depth)
 }
 
-func (h *handler) handleLink(r *Response, ch <-chan *Link, depth int) error {
-	for link := range ch {
-		if err := h.cw.normalize(link.URL); err != nil {
-			h.logger.Warn("normalize URL", "url", link.URL, "err", err)
+func (h *handler) handleLink(r *Response, ch <-chan *url.URL, depth int) error {
+	for u := range ch {
+		if err := h.cw.normalize(u); err != nil {
+			h.logger.Warn("normalize URL", "url", u, "err", err)
 			continue
 		}
-		if ok, err := h.filter(r, link, depth); err != nil {
+		if ok, err := h.filter(r, u, depth); err != nil {
 			return err
 		} else if ok {
-			r.links = append(r.links, link)
+			r.links = append(r.links, u)
 		}
 	}
 	return nil
 }
 
-func (h *handler) filter(r *Response, link *Link, depth int) (bool, error) {
-	if !h.cw.ctrl.Accept(r, link) {
+func (h *handler) filter(r *Response, u *url.URL, depth int) (bool, error) {
+	if !h.cw.ctrl.Accept(r, u) {
 		return false, nil
 	}
-	if ok, err := h.cw.store.Exist(link.URL); err != nil {
+	if ok, err := h.cw.store.Exist(u); err != nil {
 		return false, err
 	} else if ok {
 		return false, nil
 	}
 	// New link
 	if ok, err := h.cw.store.PutNX(&URL{
-		URL:   *link.URL,
-		Extra: link.Extra,
+		URL:   *u,
 		Depth: depth + 1,
 	}); err != nil || !ok {
 		return false, err
@@ -137,7 +136,7 @@ func (h *handler) filter(r *Response, link *Link, depth int) (bool, error) {
 	return true, nil
 }
 
-func ExtractHref(base *url.URL, reader io.Reader, ch chan<- *Link) error {
+func ExtractHref(base *url.URL, reader io.Reader, ch chan<- *url.URL) error {
 	z := html.NewTokenizer(reader)
 	f := func(z *html.Tokenizer, base *url.URL) *url.URL {
 		for {
@@ -167,7 +166,7 @@ LOOP:
 			tn, hasAttr := z.TagName()
 			if hasAttr && len(tn) == 1 && tn[0] == 'a' {
 				if u := f(z, base); u != nil {
-					ch <- &Link{URL: u}
+					ch <- u
 				}
 			}
 		case html.SelfClosingTagToken:

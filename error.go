@@ -8,6 +8,13 @@ func (e RetriableError) Error() string {
 	return e.Err.Error()
 }
 
+func wrapRetriable(err error) error {
+	if err == nil {
+		return nil
+	}
+	return RetriableError{err}
+}
+
 type StorageError struct{ err error }
 
 func (e StorageError) Error() string {
@@ -39,10 +46,6 @@ func (w storeWrapper) GetDepth(u *url.URL) (int, error) {
 	v, err := w.store.GetDepth(u)
 	return v, storeErr(err)
 }
-func (w storeWrapper) GetExtra(u *url.URL) (interface{}, error) {
-	v, err := w.store.GetExtra(u)
-	return v, storeErr(err)
-}
 func (w storeWrapper) PutNX(u *URL) (bool, error) {
 	v, err := w.store.PutNX(u)
 	return v, storeErr(err)
@@ -53,10 +56,6 @@ func (w storeWrapper) Update(u *URL) error {
 }
 func (w storeWrapper) UpdateFunc(u *url.URL, f func(*URL)) error {
 	err := w.store.UpdateFunc(u, f)
-	return storeErr(err)
-}
-func (w storeWrapper) UpdateExtra(u *url.URL, extra interface{}) error {
-	err := w.store.UpdateExtra(u, extra)
 	return storeErr(err)
 }
 func (w storeWrapper) Complete(u *url.URL) error {

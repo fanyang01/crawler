@@ -60,7 +60,7 @@ func (cw *Crawler) newScheduler(wq queue.WaitQueue) *scheduler {
 func (sd *scheduler) work() {
 	var (
 		queueIn   chan<- *queue.Item
-		waiting   = make([]*queue.Item, 0, LinkPerPage)
+		waiting   = make([]*queue.Item, 0, perPage)
 		next      *queue.Item
 		u, outURL *url.URL
 		out       chan<- *url.URL
@@ -108,8 +108,8 @@ func (sd *scheduler) work() {
 				return // closed
 			}
 			sd.cw.store.IncVisitCount()
-			for _, link := range resp.links {
-				item = sd.sched(resp, link.URL)
+			for _, url := range resp.links {
+				item = sd.sched(resp, url)
 				waiting = append(waiting, item)
 			}
 			item, done, err = sd.resched(resp)
@@ -124,8 +124,8 @@ func (sd *scheduler) work() {
 			// NOTE: even if an error occured, links found in the response
 			// should still be enqueued, because the state of storage has
 			// been changed.
-			for _, link := range resp.links {
-				item = sd.sched(resp, link.URL)
+			for _, url := range resp.links {
+				item = sd.sched(resp, url)
 				waiting = append(waiting, item)
 			}
 			switch resp.err.(type) {

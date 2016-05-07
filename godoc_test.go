@@ -3,6 +3,7 @@ package crawler
 import (
 	"bufio"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"reflect"
 	"strings"
@@ -20,7 +21,7 @@ type godocController struct {
 	sync.Mutex
 }
 
-func (c *godocController) Handle(r *Response, ch chan<- *Link) {
+func (c *godocController) Handle(r *Response, ch chan<- *url.URL) {
 	if strings.HasPrefix(r.URL.Path, "/pkg/") {
 		pkg := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/pkg/"), "/")
 		if pkg != "" { // http://localhost:6060/pkg/
@@ -35,8 +36,8 @@ func (c *godocController) Handle(r *Response, ch chan<- *Link) {
 	}
 }
 
-func (c *godocController) Accept(_ *Response, l *Link) bool {
-	return l.URL.Host == "localhost:34567" && strings.HasPrefix(l.URL.Path, "/pkg/")
+func (c *godocController) Accept(_ *Response, u *url.URL) bool {
+	return u.Host == "localhost:34567" && strings.HasPrefix(u.Path, "/pkg/")
 }
 
 func TestGodoc(t *testing.T) {

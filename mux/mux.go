@@ -155,19 +155,19 @@ type (
 	}
 	// Handler handles the response.
 	Handler interface {
-		Handle(*crawler.Response, chan<- *crawler.Link)
+		Handle(*crawler.Response, chan<- *url.URL)
 	}
 	// PreparerFunc configures a request before it is actually made.
 	PreparerFunc func(*crawler.Request)
 	// HandlerFunc handles the response.
-	HandlerFunc func(*crawler.Response, chan<- *crawler.Link)
+	HandlerFunc func(*crawler.Response, chan<- *url.URL)
 )
 
 // Prepare implements Preparer.
 func (f PreparerFunc) Prepare(req *crawler.Request) { f(req) }
 
 // Handle implements Handler.
-func (f HandlerFunc) Handle(r *crawler.Response, ch chan<- *crawler.Link) { f(r, ch) }
+func (f HandlerFunc) Handle(r *crawler.Response, ch chan<- *url.URL) { f(r, ch) }
 
 // Allow specifies that urls matching pattern should be processed.
 func (mux *Mux) Allow(pattern string) {
@@ -234,7 +234,7 @@ func (mux *Mux) AddHandler(pattern string, h Handler) {
 }
 
 // AddHandleFunc registers f to handle responses whose url matches pattern.
-func (mux *Mux) AddHandleFunc(pattern string, f func(*crawler.Response, chan<- *crawler.Link)) {
+func (mux *Mux) AddHandleFunc(pattern string, f func(*crawler.Response, chan<- *url.URL)) {
 	mux.AddHandler(pattern, HandlerFunc(f))
 }
 
@@ -254,7 +254,7 @@ func (mux *Mux) Prepare(req *crawler.Request) {
 }
 
 // Handle implements Controller.
-func (mux *Mux) Handle(r *crawler.Response, ch chan<- *crawler.Link) {
+func (mux *Mux) Handle(r *crawler.Response, ch chan<- *url.URL) {
 	url := r.URL.String()
 	if f, ok := mux.matcher[muxHANDLE].Get(url); ok {
 		f.(Handler).Handle(r, ch)
@@ -306,8 +306,8 @@ func (mux *Mux) Sched(r *crawler.Response, u *url.URL) (t crawler.Ticket) {
 }
 
 // Accept implements Controller.
-func (mux *Mux) Accept(_ *crawler.Response, link *crawler.Link) bool {
-	if ac, ok := mux.matcher[muxFILTER].Get(link.URL.String()); ok {
+func (mux *Mux) Accept(_ *crawler.Response, u *url.URL) bool {
+	if ac, ok := mux.matcher[muxFILTER].Get(u.String()); ok {
 		return ac.(bool)
 	}
 	return false

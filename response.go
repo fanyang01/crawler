@@ -56,7 +56,7 @@ type Response struct {
 
 	ctx   *Context
 	err   error
-	links []*Link
+	links []*url.URL
 }
 
 var (
@@ -74,7 +74,7 @@ func NewResponse() *Response {
 
 func (r *Response) Free() {
 	links := r.links
-	if len(links) > LinkPerPage {
+	if len(links) > perPage {
 		links = nil
 	} else {
 		links = links[:0]

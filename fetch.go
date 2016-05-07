@@ -78,7 +78,6 @@ func (f *fetcher) initResponse(req *Request, r *Response) error {
 		r.NewURL = r.URL
 	}
 	r.ctx = req.ctx
-	r.ctx.response = r
 	r.Timestamp = time.Now()
 	r.scanLocation()
 	if err := r.normalize(f.cw.normalize); err != nil {

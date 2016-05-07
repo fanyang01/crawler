@@ -25,7 +25,7 @@ type Extractor struct {
 // Extract parses the HTML document, extracts URLs and filters them using
 // the matcher.
 func (e *Extractor) Extract(
-	r *crawler.Response, body io.Reader, ch chan<- *crawler.Link,
+	r *crawler.Response, body io.Reader, ch chan<- *url.URL,
 ) error {
 	if e.MaxDepth > 0 {
 		if depth, err := r.Context().Depth(); err != nil {
@@ -47,7 +47,7 @@ func (e *Extractor) Extract(
 		} else if !e.Matcher.Match(u) {
 			continue
 		}
-		ch <- &crawler.Link{URL: u}
+		ch <- u
 	}
 	return <-chErr
 }
