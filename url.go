@@ -5,6 +5,16 @@ import (
 	"time"
 )
 
+// LinkPerPage is the rouge number of links in a HTML document.
+const LinkPerPage = 32
+
+// Link represents a link found by crawler.
+type Link struct {
+	URL *url.URL
+	// Extra holds user-specified data.
+	Extra interface{}
+}
+
 // Status of a URL.
 const (
 	URLStatusProcessing = iota
@@ -12,16 +22,16 @@ const (
 	URLStatusError
 )
 
-// URL contains metadata of a url in crawler.
+// URL holds the metadata of a URL.
 type URL struct {
-	Loc    url.URL
-	Depth  int
-	Status int
-
-	// Can modified by Update
-	Last       time.Time
-	VisitCount int
-	ErrorCount int
+	url.URL
+	Depth    int
+	Done     bool
+	Last     time.Time
+	Status   int
+	Extra    interface{}
+	NumVisit int
+	NumError int
 }
 
 func (u *URL) clone() *URL {
@@ -29,8 +39,9 @@ func (u *URL) clone() *URL {
 	return &uu
 }
 
-func (uu *URL) Update(u *URL) {
-	uu.ErrorCount = u.ErrorCount
-	uu.VisitCount = u.VisitCount
-	uu.Last = u.Last
+func (u *URL) Update(uu *URL) {
+	u.NumError = uu.NumError
+	u.NumVisit = uu.NumVisit
+	u.Last = uu.Last
+	u.Status = uu.Status
 }

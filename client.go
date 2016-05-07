@@ -13,6 +13,11 @@ import (
 	"github.com/fanyang01/crawler/cache"
 )
 
+// Client defines how requests are made.
+type Client interface {
+	Do(*Request) (*Response, error)
+}
+
 var (
 	DefaultHTTPTransport = &http.Transport{
 		Proxy: http.ProxyFromEnvironment,

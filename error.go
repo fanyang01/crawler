@@ -8,15 +8,15 @@ func (e RetriableError) Error() string {
 	return e.Err.Error()
 }
 
-type StoreError struct{ err error }
+type StorageError struct{ err error }
 
-func (e StoreError) Error() string {
+func (e StorageError) Error() string {
 	return e.err.Error()
 }
 
 func storeErr(err error) error {
 	if err != nil {
-		return StoreError{err}
+		return StorageError{err}
 	}
 	return nil
 }
@@ -35,6 +35,10 @@ func (w storeWrapper) GetDepth(u *url.URL) (int, error) {
 	v, err := w.store.GetDepth(u)
 	return v, storeErr(err)
 }
+func (w storeWrapper) GetExtra(u *url.URL) (interface{}, error) {
+	v, err := w.store.GetExtra(u)
+	return v, storeErr(err)
+}
 func (w storeWrapper) PutNX(u *URL) (bool, error) {
 	v, err := w.store.PutNX(u)
 	return v, storeErr(err)
@@ -43,16 +47,16 @@ func (w storeWrapper) Update(u *URL) error {
 	err := w.store.Update(u)
 	return storeErr(err)
 }
-func (w storeWrapper) UpdateStatus(u *url.URL, status int) error {
-	err := w.store.UpdateStatus(u, status)
+func (w storeWrapper) UpdateExtra(u *url.URL, extra interface{}) error {
+	err := w.store.UpdateExtra(u, extra)
+	return storeErr(err)
+}
+func (w storeWrapper) Complete(u *url.URL) error {
+	err := w.store.Complete(u)
 	return storeErr(err)
 }
 func (w storeWrapper) IncVisitCount() error {
 	err := w.store.IncVisitCount()
-	return storeErr(err)
-}
-func (w storeWrapper) IncErrorCount() error {
-	err := w.store.IncErrorCount()
 	return storeErr(err)
 }
 func (w storeWrapper) IsFinished() (bool, error) {

@@ -70,6 +70,10 @@ func (s *LevelStore) GetDepth(u *url.URL) (depth int, err error) {
 	uu, err := s.Get(u)
 	return uu.Depth, err
 }
+func (s *LevelStore) GetExtra(u *url.URL) (extra interface{}, err error) {
+	uu, err := s.Get(u)
+	return uu.Extra, err
+}
 
 func (s *LevelStore) PutNX(u *crawler.URL) (ok bool, err error) {
 	tx, err := s.DB.OpenTransaction()
@@ -83,7 +87,7 @@ func (s *LevelStore) PutNX(u *crawler.URL) (ok bool, err error) {
 		}
 	}()
 
-	key := keyURL(&u.Loc)
+	key := keyURL(&u.URL)
 	has, err := tx.Has(key, nil)
 	if err != nil {
 		return
@@ -123,7 +127,7 @@ func (s *LevelStore) Update(u *crawler.URL) (err error) {
 		}
 	}()
 
-	key := keyURL(&u.Loc)
+	key := keyURL(&u.URL)
 	v, err := tx.Get(key, nil)
 	if err != nil {
 		return
@@ -142,7 +146,38 @@ func (s *LevelStore) Update(u *crawler.URL) (err error) {
 	return
 }
 
-func (s *LevelStore) UpdateStatus(u *url.URL, status int) (err error) {
+func (s *LevelStore) UpdateExtra(u *url.URL, extra interface{}) (err error) {
+	tx, err := s.DB.OpenTransaction()
+	if err != nil {
+		return
+	}
+	commit := false
+	defer func() {
+		if !commit && err != nil {
+			tx.Discard() // TODO: handle error
+		}
+	}()
+
+	key := keyURL(u)
+	v, err := tx.Get(key, nil)
+	if err != nil {
+		return
+	}
+	var uu crawler.URL
+	if err = s.codec.Unmarshal(v, &uu); err != nil {
+		return
+	}
+	uu.Extra = extra
+	if v, err = s.codec.Marshal(&uu); err == nil {
+		if err = tx.Put(key, v, nil); err == nil {
+			commit = true
+			err = tx.Commit()
+		}
+	}
+	return
+}
+
+func (s *LevelStore) Complete(u *url.URL) (err error) {
 	tx, err := s.DB.OpenTransaction()
 	if err != nil {
 		return
@@ -163,19 +198,12 @@ func (s *LevelStore) UpdateStatus(u *url.URL, status int) (err error) {
 	if err = s.codec.Unmarshal(v, &uu); err != nil {
 		return
 	}
-	uu.Status = status
+	uu.Done = true
 	if v, err = s.codec.Marshal(&uu); err != nil {
 		return
 	}
 	if err = tx.Put(key, v, nil); err != nil {
 		return
-	}
-	switch status {
-	default:
-		commit = true
-		err = tx.Commit()
-		return
-	case crawler.URLStatusFinished, crawler.URLStatusError:
 	}
 	if v, err = tx.Get(keyFinishCount, nil); err != nil {
 		return

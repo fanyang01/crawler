@@ -17,7 +17,7 @@ type handler struct {
 
 	In       <-chan *Response
 	Out      chan *Response
-	ErrOut   chan *url.URL
+	ErrOut   chan *Response
 	RetryOut chan *url.URL
 
 	stop chan struct{}
@@ -41,8 +41,7 @@ func (h *handler) work() {
 	for r := range h.In {
 		var (
 			err    error
-			errOut chan *url.URL
-			retry  chan *url.URL
+			errOut chan *Response
 			out    = h.Out
 			logger = h.logger.New("url", r.URL)
 		)
@@ -52,22 +51,21 @@ func (h *handler) work() {
 		r.bodyCloser.Close()
 		if err != nil {
 			switch err := err.(type) {
-			case StoreError:
+			case StorageError:
 				logger.Crit("storage fault", "err", err)
 				h.exit()
 				return
 			case RetriableError:
 				logger.Error("error occured, will retry...", "err", err)
-				out, retry = nil, h.RetryOut
 			default:
 				logger.Error("unknown error", "err", err)
-				out, errOut = nil, h.ErrOut
 			}
+			r.err = err
+			out, errOut = nil, h.ErrOut
 		}
 		select {
 		case out <- r:
-		case retry <- r.URL:
-		case errOut <- r.URL:
+		case errOut <- r:
 		case <-h.stop:
 			return
 		case <-h.quit:
@@ -93,7 +91,8 @@ func (h *handler) handle(r *Response) error {
 			newurl := *r.NewURL
 			ch <- &Link{URL: &newurl}
 		}
-		if refresh := r.Refresh.URL; refresh != nil && refresh.String() != original {
+		if refresh := r.Refresh.URL; refresh != nil &&
+			refresh.String() != original {
 			newurl := *refresh
 			ch <- &Link{URL: &newurl}
 		}
@@ -109,9 +108,7 @@ func (h *handler) handleLink(r *Response, ch <-chan *Link, depth int) error {
 			h.logger.Warn("normalize URL", "url", link.URL, "err", err)
 			continue
 		}
-		link.depth = depth + 1
-		link.hyperlink = (link.URL.Host != r.URL.Host)
-		if ok, err := h.filter(r, link); err != nil {
+		if ok, err := h.filter(r, link, depth); err != nil {
 			return err
 		} else if ok {
 			r.links = append(r.links, link)
@@ -120,7 +117,7 @@ func (h *handler) handleLink(r *Response, ch <-chan *Link, depth int) error {
 	return nil
 }
 
-func (h *handler) filter(r *Response, link *Link) (bool, error) {
+func (h *handler) filter(r *Response, link *Link, depth int) (bool, error) {
 	if !h.cw.ctrl.Accept(r, link) {
 		return false, nil
 	}
@@ -131,8 +128,9 @@ func (h *handler) filter(r *Response, link *Link) (bool, error) {
 	}
 	// New link
 	if ok, err := h.cw.store.PutNX(&URL{
-		Loc:   *link.URL,
-		Depth: link.depth,
+		URL:   *link.URL,
+		Extra: link.Extra,
+		Depth: depth + 1,
 	}); err != nil || !ok {
 		return false, err
 	}

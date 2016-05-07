@@ -1,3 +1,4 @@
+// Package crawler provides a flexible web crawler.
 package crawler
 
 import (
@@ -5,8 +6,9 @@ import (
 	"net/url"
 	"sync"
 
-	"github.com/fanyang01/crawler/urlx"
 	"github.com/inconshreveable/log15"
+
+	"github.com/fanyang01/crawler/urlx"
 )
 
 // Crawler crawls web pages.
@@ -52,7 +54,7 @@ func NewCrawler(cfg *Config) *Crawler {
 	cw.scheduler.In = cw.handler.Out
 
 	// additional flow
-	cw.maker.ErrOut = cw.scheduler.ErrIn
+	cw.maker.ErrOut = cw.scheduler.ErrURLIn
 	cw.fetcher.RetryOut = cw.scheduler.RetryIn
 	cw.handler.ErrOut = cw.scheduler.ErrIn
 	cw.handler.RetryOut = cw.scheduler.RetryIn
@@ -125,7 +127,7 @@ func (cw *Crawler) addSeeds(seeds ...string) (n int, err error) {
 			return
 		}
 		if ok, err = cw.store.PutNX(&URL{
-			Loc: *u,
+			URL: *u,
 		}); err != nil {
 			return
 		} else if ok {
@@ -144,7 +146,7 @@ func (cw *Crawler) Enqueue(urls ...string) error {
 			return err
 		}
 		if ok, err := cw.store.PutNX(&URL{
-			Loc: *uu,
+			URL: *uu,
 		}); err != nil {
 			return err
 		} else if ok {

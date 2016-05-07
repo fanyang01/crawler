@@ -116,10 +116,21 @@ func (s *BoltStore) GetDepth(u *url.URL) (depth int, err error) {
 	return
 }
 
+func (s *BoltStore) GetExtra(u *url.URL) (extra interface{}, err error) {
+	err = s.DB.View(func(tx *bolt.Tx) error {
+		var uu *crawler.URL
+		if uu, err = s.getFromTx(tx, u); err == nil {
+			extra = uu.Extra
+		}
+		return err
+	})
+	return
+}
+
 func (s *BoltStore) PutNX(u *crawler.URL) (ok bool, err error) {
 	err = s.DB.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bkURL)
-		k := []byte(u.Loc.String())
+		k := []byte(u.URL.String())
 		v, err := s.codec.Marshal(u)
 		if err != nil {
 			return err
@@ -135,7 +146,7 @@ func (s *BoltStore) PutNX(u *crawler.URL) (ok bool, err error) {
 		return b.Put(keyURLCount, util.I64tob(cnt))
 	})
 	if err == nil && ok {
-		s.filter.Add(&u.Loc)
+		s.filter.Add(&u.URL)
 	}
 	return
 }
@@ -143,12 +154,12 @@ func (s *BoltStore) PutNX(u *crawler.URL) (ok bool, err error) {
 func (s *BoltStore) Update(u *crawler.URL) error {
 	return s.DB.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bkURL)
-		uu, err := s.getFromBucket(b, &u.Loc)
+		uu, err := s.getFromBucket(b, &u.URL)
 		if err != nil {
 			return err
 		}
 		uu.Update(u)
-		k := []byte(u.Loc.String())
+		k := []byte(u.URL.String())
 		v, err := s.codec.Marshal(uu)
 		if err != nil {
 			return err
@@ -157,14 +168,31 @@ func (s *BoltStore) Update(u *crawler.URL) error {
 	})
 }
 
-func (s *BoltStore) UpdateStatus(u *url.URL, status int) error {
+func (s *BoltStore) UpdateExtra(u *url.URL, extra interface{}) error {
 	return s.DB.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bkURL)
 		uu, err := s.getFromBucket(b, u)
 		if err != nil {
 			return err
 		}
-		uu.Status = status
+		uu.Extra = extra
+		k := []byte(u.String())
+		v, err := s.codec.Marshal(uu)
+		if err != nil {
+			return err
+		}
+		return b.Put(k, v)
+	})
+}
+
+func (s *BoltStore) Complete(u *url.URL) error {
+	return s.DB.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bkURL)
+		uu, err := s.getFromBucket(b, u)
+		if err != nil {
+			return err
+		}
+		uu.Done = true
 		k := []byte(u.String())
 		v, err := s.codec.Marshal(uu)
 		if err != nil {
@@ -173,13 +201,9 @@ func (s *BoltStore) UpdateStatus(u *url.URL, status int) error {
 		if err = b.Put(k, v); err != nil {
 			return err
 		}
-		switch status {
-		case crawler.URLStatusFinished, crawler.URLStatusError:
-			b = tx.Bucket(bkCount)
-			cnt := util.Btoi64(b.Get(keyFinishCount)) + 1
-			return b.Put(keyFinishCount, util.I64tob(cnt))
-		}
-		return nil
+		b = tx.Bucket(bkCount)
+		cnt := util.Btoi64(b.Get(keyFinishCount)) + 1
+		return b.Put(keyFinishCount, util.I64tob(cnt))
 	})
 }
 
@@ -218,10 +242,8 @@ func (s *BoltStore) Recover(ch chan<- *url.URL) error {
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			if err := s.codec.Unmarshal(v, &u); err != nil {
 				return err
-			}
-			switch u.Status {
-			case crawler.URLStatusProcessing:
-				ch <- &u.Loc
+			} else if !u.Done {
+				ch <- &u.URL
 			}
 		}
 		return nil

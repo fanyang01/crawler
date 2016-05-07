@@ -31,18 +31,18 @@ func StoreTest(t *testing.T, s crawler.Store) {
 			t2.Round(time.Microsecond))
 	}
 	cmp := func(u, uu *crawler.URL) bool {
-		return u.Loc.String() == uu.Loc.String() &&
+		return u.URL.String() == uu.URL.String() &&
 			u.Depth == uu.Depth &&
 			u.Status == uu.Status &&
 			equalTime(u.Last, uu.Last) &&
-			u.VisitCount == uu.VisitCount &&
-			u.ErrorCount == uu.ErrorCount
+			u.NumVisit == uu.NumVisit &&
+			u.NumError == uu.NumError
 	}
 	tm := time.Now().UTC()
 	assert := assert.New(t)
 	u, _ := url.Parse("http://localhost:6060")
 	uu := &crawler.URL{
-		Loc:  *u,
+		URL:  *u,
 		Last: tm,
 	}
 	ok, err := s.PutNX(uu)
@@ -62,7 +62,7 @@ func StoreTest(t *testing.T, s crawler.Store) {
 	// assert.Equal(*uu, *uuu)
 	assert.True(cmp(uu, uuu))
 
-	uuu.VisitCount++
+	uuu.NumVisit++
 	uuu.Last = time.Now().UTC()
 	assert.NoError(s.Update(uuu))
 	uu, err = s.Get(u)
@@ -81,14 +81,14 @@ func StoreTest(t *testing.T, s crawler.Store) {
 	assert.NoError(err)
 	assert.False(ok)
 
-	assert.NoError(s.UpdateStatus(u, crawler.URLStatusFinished))
+	assert.NoError(s.Complete(u))
 	ok, err = s.IsFinished()
 	assert.NoError(err)
 	assert.True(ok)
 
 	u.Path = "/hello"
 	uu = &crawler.URL{
-		Loc: *u,
+		URL: *u,
 	}
 	ok, err = s.PutNX(uu)
 	assert.NoError(err)
@@ -97,7 +97,7 @@ func StoreTest(t *testing.T, s crawler.Store) {
 	assert.NoError(err)
 	assert.False(ok)
 
-	assert.NoError(s.UpdateStatus(u, crawler.URLStatusError))
+	assert.NoError(s.Complete(u))
 	ok, err = s.IsFinished()
 	assert.NoError(err)
 	assert.True(ok)
@@ -143,7 +143,7 @@ func benchPut(b *testing.B, store crawler.Store, name string) {
 	for i := 0; i < b.N; i++ {
 		now := time.Now().UTC()
 		store.PutNX(&crawler.URL{
-			Loc:  *mustParse(fmt.Sprintf("http://example.com/foo/bar/%d", i)),
+			URL:  *mustParse(fmt.Sprintf("http://example.com/foo/bar/%d", i)),
 			Last: now,
 		})
 	}
@@ -218,7 +218,7 @@ func initGet() {
 		for i := 0; i < bench_get_size; i++ {
 			now := time.Now().UTC()
 			st.PutNX(&crawler.URL{
-				Loc:  *mustParse(fmt.Sprintf("http://example.com/foo/bar/%d", i)),
+				URL:  *mustParse(fmt.Sprintf("http://example.com/foo/bar/%d", i)),
 				Last: now,
 			})
 		}

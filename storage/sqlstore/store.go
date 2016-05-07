@@ -90,15 +90,15 @@ func (s *SQLStore) Get(u *url.URL) (uu *crawler.URL, err error) {
     	WHERE scheme = $1 AND host = $2 AND path = $3 AND query = $4`,
 		u.Scheme, u.Host, u.Path, u.RawQuery,
 	).Scan(
-		&uu.Loc.Scheme,
-		&uu.Loc.Host,
-		&uu.Loc.Path,
-		&uu.Loc.RawQuery,
+		&uu.URL.Scheme,
+		&uu.URL.Host,
+		&uu.URL.Path,
+		&uu.URL.RawQuery,
 		&uu.Depth,
 		&uu.Status,
 		&uu.Last,
-		&uu.VisitCount,
-		&uu.ErrorCount,
+		&uu.NumVisit,
+		&uu.NumError,
 	)
 	return
 }
@@ -123,7 +123,7 @@ func (s *SQLStore) PutNX(u *crawler.URL) (ok bool, err error) {
 			tx.Rollback() // TODO: handle error
 		} else {
 			if err = tx.Commit(); err == nil && put {
-				s.filter.Add(&u.Loc)
+				s.filter.Add(&u.URL)
 				ok = true
 			}
 		}
@@ -133,7 +133,7 @@ func (s *SQLStore) PutNX(u *crawler.URL) (ok bool, err error) {
 	if err = tx.QueryRow(`
 		SELECT count(*) FROM url
     	WHERE scheme = $1 AND host = $2 AND path = $3 AND query = $4`,
-		u.Loc.Scheme, u.Loc.Host, u.Loc.Path, u.Loc.RawQuery,
+		u.URL.Scheme, u.URL.Host, u.URL.Path, u.URL.RawQuery,
 	).Scan(&cnt); err != nil {
 		return
 	} else if cnt > 0 {
@@ -143,15 +143,15 @@ func (s *SQLStore) PutNX(u *crawler.URL) (ok bool, err error) {
 	if _, err = tx.Exec(`
 	INSERT INTO url(scheme, host, path, query, depth, status, last, visit_count, err_count)
 	 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		u.Loc.Scheme,
-		u.Loc.Host,
-		u.Loc.Path,
-		u.Loc.RawQuery,
+		u.URL.Scheme,
+		u.URL.Host,
+		u.URL.Path,
+		u.URL.RawQuery,
 		u.Depth,
 		u.Status,
 		u.Last,
-		u.VisitCount,
-		u.ErrorCount,
+		u.NumVisit,
+		u.NumError,
 	); err == nil {
 		put = true
 		_, err = tx.Exec(
@@ -164,14 +164,14 @@ func (s *SQLStore) Update(u *crawler.URL) (err error) {
 	_, err = s.DB.Exec(`
 	UPDATE url SET err_count = $1, visit_count = $2, last = $3 
 	WHERE scheme = $4 AND host = $5 AND path = $6 AND query = $7`,
-		u.ErrorCount,
-		u.VisitCount,
+		u.NumError,
+		u.NumVisit,
 		u.Last,
 
-		u.Loc.Scheme,
-		u.Loc.Host,
-		u.Loc.Path,
-		u.Loc.RawQuery,
+		u.URL.Scheme,
+		u.URL.Host,
+		u.URL.Path,
+		u.URL.RawQuery,
 	)
 	return
 }

@@ -6,6 +6,17 @@ import (
 	"strings"
 )
 
+// Request is a HTTP request to be made.
+type Request struct {
+	*http.Request
+	Proxy   *url.URL
+	Cookies []*http.Cookie
+	Client  Client
+	ctx     *Context
+}
+
+func (r *Request) Context() *Context { return r.ctx }
+
 type maker struct {
 	workerConn
 	In     <-chan *url.URL

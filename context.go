@@ -66,8 +66,8 @@ func (c *Context) fromStore() error {
 
 func (c *Context) fromURL(u *URL) {
 	c.WithValue(ckDepth, u.Depth)
-	c.WithValue(ckVisitCount, u.VisitCount)
-	c.WithValue(ckErrorCount, u.ErrorCount)
+	c.WithValue(ckVisitCount, u.NumVisit)
+	c.WithValue(ckErrorCount, u.NumError)
 	c.WithValue(ckLastVisit, u.Last)
 	c.WithValue(ckLoaded, true)
 }
