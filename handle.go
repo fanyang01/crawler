@@ -111,32 +111,32 @@ func (h *handler) handleLink(r *Response, ch <-chan *Link, depth int) error {
 		}
 		link.depth = depth + 1
 		link.hyperlink = (link.URL.Host != r.URL.Host)
-		if err := h.filter(r, link); err != nil {
+		if ok, err := h.filter(r, link); err != nil {
 			return err
+		} else if ok {
+			r.links = append(r.links, link)
 		}
 	}
 	return nil
 }
 
-func (h *handler) filter(r *Response, link *Link) error {
-	if !h.cw.ctrl.Accept(r.ctx, link) {
-		return nil
+func (h *handler) filter(r *Response, link *Link) (bool, error) {
+	if !h.cw.ctrl.Accept(r, link) {
+		return false, nil
 	}
 	if ok, err := h.cw.store.Exist(link.URL); err != nil {
-		return err
+		return false, err
 	} else if ok {
-		return nil
+		return false, nil
 	}
 	// New link
 	if ok, err := h.cw.store.PutNX(&URL{
 		Loc:   *link.URL,
 		Depth: link.depth,
-	}); err != nil {
-		return err
-	} else if ok {
-		r.links = append(r.links, link)
+	}); err != nil || !ok {
+		return false, err
 	}
-	return nil
+	return true, nil
 }
 
 func ExtractHref(base *url.URL, reader io.Reader, ch chan<- *Link) error {

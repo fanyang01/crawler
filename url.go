@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
+// Status of a URL.
 const (
-	// Status of a URL.
 	URLStatusProcessing = iota
 	URLStatusFinished
 	URLStatusError

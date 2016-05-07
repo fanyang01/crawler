@@ -279,8 +279,9 @@ func (mux *Mux) follow(r *crawler.Response, depth int) bool {
 }
 
 // Schedule implements Controller.
-func (mux *Mux) Schedule(ctx *crawler.Context, u *url.URL) (done bool, at time.Time, score int) {
-	url := u.String()
+func (mux *Mux) Resched(r *crawler.Response) (done bool, ticket crawler.Ticket) {
+	url := r.URL.String()
+	ctx := r.Context()
 	if t, ok := mux.matcher[muxFREQ].Get(url); ok {
 		if cnt, err := ctx.VisitCount(); err != nil || cnt >= t.(int) {
 			done = true
@@ -291,13 +292,21 @@ func (mux *Mux) Schedule(ctx *crawler.Context, u *url.URL) (done bool, at time.T
 		return
 	}
 	if sc, ok := mux.matcher[muxSCORE].Get(url); ok {
-		score = sc.(int)
+		ticket.Score = sc.(int)
+	}
+	return
+}
+
+func (mux *Mux) Sched(r *crawler.Response, u *url.URL) (t crawler.Ticket) {
+	url := u.String()
+	if sc, ok := mux.matcher[muxSCORE].Get(url); ok {
+		t.Score = sc.(int)
 	}
 	return
 }
 
 // Accept implements Controller.
-func (mux *Mux) Accept(_ *crawler.Context, link *crawler.Link) bool {
+func (mux *Mux) Accept(_ *crawler.Response, link *crawler.Link) bool {
 	if ac, ok := mux.matcher[muxFILTER].Get(link.URL.String()); ok {
 		return ac.(bool)
 	}

@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/net/context"
+
 	"github.com/fanyang01/crawler/queue"
 )
 
@@ -79,20 +81,13 @@ func (sd *scheduler) work() {
 		select {
 		// Input:
 		case u = <-sd.NewIn:
-			item, _, err = sd.schedURL(nil, u, URLTypeSeed)
-			if err != nil {
-				goto ERROR
-			}
+			item = sd.schedNewURL(nil, u)
 			waiting = append(waiting, item)
 			continue
 		case u = <-sd.RecoverIn:
-			item, done, err = sd.schedURL(nil, u, URLTypeRecover)
-			if err != nil {
-				goto ERROR
-			} else if !done {
-				waiting = append(waiting, item)
-				continue
-			}
+			item = sd.schedNewURL(nil, u)
+			waiting = append(waiting, item)
+			continue
 		case resp, ok := <-sd.In:
 			if !ok {
 				sd.exit()
@@ -100,14 +95,10 @@ func (sd *scheduler) work() {
 			}
 			sd.cw.store.IncVisitCount()
 			for _, link := range resp.links {
-				item, done, err = sd.schedURL(resp, link.URL, URLTypeNew)
-				if err != nil {
-					goto ERROR
-				} else if !done {
-					waiting = append(waiting, item)
-				}
+				item = sd.schedNewURL(resp, link.URL)
+				waiting = append(waiting, item)
 			}
-			item, done, err = sd.schedURL(resp, resp.URL, URLTypeResponse)
+			item, done, err = sd.schedResponse(resp)
 			resp.Free()
 			if err != nil {
 				goto ERROR
@@ -116,7 +107,9 @@ func (sd *scheduler) work() {
 				continue
 			}
 		case u = <-sd.RetryIn:
-			if item, ok = sd.retry(u); ok {
+			if item, ok, err = sd.retry(u); err != nil {
+				goto ERROR
+			} else if ok {
 				waiting = append(waiting, item)
 				continue
 			}
@@ -179,59 +172,69 @@ func (sd *scheduler) exit() {
 	sd.once.Do(func() { close(sd.stop) })
 }
 
-func (sd *scheduler) schedURL(r *Response, u *url.URL, typ int) (item *queue.Item, done bool, err error) {
-	uu, err := sd.cw.store.Get(u)
+func (sd *scheduler) schedNewURL(r *Response, u *url.URL) *queue.Item {
+	item := queue.NewItem()
+	item.URL = u
+	t := sd.cw.ctrl.Sched(r, u)
+	if t.Ctx == nil {
+		t.Ctx = context.TODO()
+	}
+	item.Next, item.Score, item.Ctx = t.At, t.Score, t.Ctx
+	return item
+}
+
+func (sd *scheduler) schedResponse(r *Response) (
+	item *queue.Item, done bool, err error,
+) {
+	uu, err := sd.cw.store.Get(r.URL)
 	if err != nil {
-		// TODO
 		return
 	}
-	var ctx *Context
-	switch typ {
-	case URLTypeResponse:
-		uu.VisitCount++
-		uu.Last = r.Timestamp
-		if err = sd.cw.store.Update(uu); err != nil {
-			return
-		}
-		ctx = r.Context()
-	case URLTypeNew:
-		ctx = newContext(sd.cw, u)
-		ctx.response = r
-	default:
-		ctx = newContext(sd.cw, u)
+	uu.VisitCount++
+	uu.Last = r.Timestamp
+	if err = sd.cw.store.Update(uu); err != nil {
+		return
 	}
-	ctx.fromURL(uu)
 
 	minTime := uu.Last.Add(sd.cw.opt.MinDelay)
 	item = queue.NewItem()
-	item.URL = u
-	done, item.Next, item.Score = sd.cw.ctrl.Schedule(ctx, u)
-	ctx.response = nil
+	item.URL = r.URL
+
+	var t Ticket
+	done, t = sd.cw.ctrl.Resched(r)
 	if done {
-		sd.cw.store.UpdateStatus(u, URLStatusFinished)
+		err = sd.cw.store.UpdateStatus(r.URL, URLStatusFinished)
 		return
+	} else if t.Ctx == nil {
+		t.Ctx = context.TODO()
 	}
+	item.Next, item.Score, item.Ctx = t.At, t.Score, t.Ctx
 	if item.Next.Before(minTime) {
 		item.Next = minTime
 	}
 	return
 }
 
-func (sd *scheduler) retry(u *url.URL) (*queue.Item, bool) {
-	if cnt := sd.incErrCount(u); cnt >= sd.cw.opt.MaxRetry {
-		sd.cw.store.UpdateStatus(u, URLStatusError)
-		return nil, false
+func (sd *scheduler) retry(u *url.URL) (*queue.Item, bool, error) {
+	if cnt, err := sd.incErrCount(u); err != nil {
+		return nil, false, err
+	} else if cnt >= sd.cw.opt.MaxRetry {
+		err := sd.cw.store.UpdateStatus(u, URLStatusError)
+		return nil, false, err
 	}
 	item := queue.NewItem()
 	item.URL = u
 	item.Next = time.Now().Add(sd.cw.opt.RetryDuration)
-	return item, true
+	return item, true, nil
 }
 
-func (sd *scheduler) incErrCount(u *url.URL) int {
-	uu, _ := sd.cw.store.Get(u)
-	cnt := uu.ErrorCount
+func (sd *scheduler) incErrCount(u *url.URL) (cnt int, err error) {
+	var uu *URL
+	if uu, err = sd.cw.store.Get(u); err != nil {
+		return
+	}
 	uu.ErrorCount++
-	sd.cw.store.Update(uu)
-	return cnt
+	cnt = uu.ErrorCount
+	err = sd.cw.store.Update(uu)
+	return
 }

@@ -35,7 +35,7 @@ func (c *godocController) Handle(r *Response, ch chan<- *Link) {
 	}
 }
 
-func (c *godocController) Accept(_ *Context, l *Link) bool {
+func (c *godocController) Accept(_ *Response, l *Link) bool {
 	return l.URL.Host == "localhost:34567" && strings.HasPrefix(l.URL.Path, "/pkg/")
 }
 

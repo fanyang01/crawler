@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"golang.org/x/net/context"
 )
 
 // ErrPushClosed is a general queue error.
@@ -14,8 +16,9 @@ var ErrPushClosed = errors.New("queue: can not push on closed queue")
 // Item is the item in wait queue.
 type Item struct {
 	URL   *url.URL
-	Next  time.Time // next time to crawl
-	Score int       // optional for implementation
+	Next  time.Time       // next time to crawl
+	Score int             // optional for implementation
+	Ctx   context.Context // optional for implementation
 }
 
 var freelist = &sync.Pool{
@@ -24,7 +27,9 @@ var freelist = &sync.Pool{
 
 // NewItem allocates an Item object.
 func NewItem() *Item {
-	return freelist.Get().(*Item)
+	item := freelist.Get().(*Item)
+	item.Ctx = context.TODO()
+	return item
 }
 
 // Free deallocates an Item object.
@@ -32,6 +37,7 @@ func (item *Item) Free() {
 	item.URL = nil
 	item.Next = time.Time{}
 	item.Score = 0
+	item.Ctx = nil
 	freelist.Put(item)
 }
 
