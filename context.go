@@ -19,16 +19,17 @@ const (
 )
 
 type Context struct {
-	C   context.Context
-	url *url.URL
 	cw  *Crawler
+	url *url.URL
+	err error
+	C   context.Context
 }
 
-func newContext(cw *Crawler, u *url.URL) *Context {
+func (cw *Crawler) newContext(u *url.URL, ctx context.Context) *Context {
 	return &Context{
-		url: u,
 		cw:  cw,
-		C:   context.Background(),
+		url: u,
+		C:   ctx,
 	}
 }
 
@@ -45,16 +46,22 @@ func (c *Context) Depth() (depth int, err error) {
 	return depth, nil
 }
 func (c *Context) VisitCount() (cnt int, err error) {
-	err = c.fromStore()
-	return c.Value(ckVisitCount).(int), err
+	if err = c.fromStore(); err == nil {
+		cnt = c.Value(ckVisitCount).(int)
+	}
+	return
 }
 func (c *Context) ErrorCount() (cnt int, err error) {
-	err = c.fromStore()
-	return c.Value(ckErrorCount).(int), err
+	if err = c.fromStore(); err == nil {
+		cnt = c.Value(ckErrorCount).(int)
+	}
+	return
 }
 func (c *Context) LastVisit() (t time.Time, err error) {
-	err = c.fromStore()
-	return c.Value(ckLastVisit).(time.Time), err
+	if err = c.fromStore(); err == nil {
+		t = c.Value(ckLastVisit).(time.Time)
+	}
+	return
 }
 
 func (c *Context) fromStore() error {
@@ -93,12 +100,8 @@ func (c *Context) Reset() *Context {
 }
 
 func (c *Context) Error(err error) {
-	c.WithValue(ckError, err)
+	c.err = err
 }
 func (c *Context) Retry(err error) {
-	c.WithValue(ckError, wrapRetriable(err))
-}
-func (c *Context) err() error {
-	err, _ := c.Value(ckError).(error)
-	return err
+	c.err = wrapRetriable(err)
 }

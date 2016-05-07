@@ -3,7 +3,6 @@ package ratelimitq
 
 import (
 	"container/heap"
-	"net/url"
 	"sync"
 	"time"
 
@@ -171,7 +170,7 @@ func (q *RateLimitQueue) Push(item *queue.Item) error {
 
 // Pop will block if heap is empty or none of items should be removed at now.
 // It will return nil without error if the queue is closed.
-func (q *RateLimitQueue) Pop() (u *url.URL, _ error) {
+func (q *RateLimitQueue) Pop() (item *queue.Item, _ error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -204,8 +203,7 @@ WAIT:
 			pi.Last = now
 			q.updatePrimary(host, interval)
 		}
-		u = si.URL
-		si.Free()
+		item = si
 		q.pushCond.Signal()
 		return
 	}

@@ -50,11 +50,11 @@ type WaitQueue interface {
 	// channel and error channel when Close method is called. Callers
 	// should be responsible for closing the out channel.
 	// Channel should be goroutine-safe.
-	Channel() (in chan<- *Item, out <-chan *url.URL, err <-chan error)
+	Channel() (in chan<- *Item, out <-chan *Item, err <-chan error)
 	// Push adds an item to queue.
 	Push(*Item) error
 	// Pop removes an item from queue.
-	Pop() (*url.URL, error)
+	Pop() (*Item, error)
 	// Close closes queue. Close will be called even an error has been
 	// returned in above operations.
 	Close() error
@@ -64,7 +64,7 @@ type WaitQueue interface {
 // method for implementations.
 type Interface interface {
 	Push(*Item) error
-	Pop() (*url.URL, error)
+	Pop() (*Item, error)
 	Close() error
 }
 
@@ -73,12 +73,12 @@ type channel struct {
 	quit chan struct{}
 	mu   sync.Mutex
 	in   chan *Item
-	out  chan *url.URL
+	out  chan *Item
 	err  chan error
 }
 
 // Channel implements WaitQueue.
-func (q *channel) Channel() (in chan<- *Item, out <-chan *url.URL, err <-chan error) {
+func (q *channel) Channel() (in chan<- *Item, out <-chan *Item, err <-chan error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -89,7 +89,7 @@ func (q *channel) Channel() (in chan<- *Item, out <-chan *url.URL, err <-chan er
 	q.in = make(chan *Item, 1024)
 	q.err = make(chan error, 1)
 	// Small output buffer size means that we pop an item only when it's requested.
-	q.out = make(chan *url.URL, 1)
+	q.out = make(chan *Item, 1)
 	go func() {
 		for item := range q.in {
 			if err := q.Push(item); err != nil {
@@ -100,13 +100,13 @@ func (q *channel) Channel() (in chan<- *Item, out <-chan *url.URL, err <-chan er
 	}()
 	go func() {
 		for {
-			url, err := q.Pop()
+			item, err := q.Pop()
 			if err != nil {
 				q.sendErr(err)
 				return
 			}
-			if url != nil {
-				q.out <- url
+			if item != nil {
+				q.out <- item
 				continue
 			}
 			return

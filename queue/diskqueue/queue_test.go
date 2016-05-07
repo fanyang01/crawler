@@ -72,8 +72,8 @@ func testTime(t *testing.T, wq *DiskQueue) {
 		wq.Push(item)
 	}
 	for i := 0; i < len(items); i++ {
-		u, _ := wq.Pop()
-		assert.Equal(t, exp[i], u.Path)
+		item, _ := wq.Pop()
+		assert.Equal(t, exp[i], item.URL.Path)
 	}
 }
 
@@ -103,11 +103,11 @@ func TestOverflow(t *testing.T) {
 	assert := assert.New(t)
 	m := map[int]bool{}
 	for i := 0; i < 500; i++ {
-		u, _ := wq.Pop()
+		item, _ := wq.Pop()
 		if i == 0 {
 			assert.True(time.Now().After(now.Add(1 * time.Second)))
 		}
-		id, _ := strconv.Atoi(strings.TrimPrefix(u.String(), "http://example.com/"))
+		id, _ := strconv.Atoi(strings.TrimPrefix(item.URL.String(), "http://example.com/"))
 		assert.False(m[id])
 		m[id] = true
 	}

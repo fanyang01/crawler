@@ -2,7 +2,6 @@ package crawler
 
 import (
 	"container/heap"
-	"net/url"
 	"sync"
 	"time"
 
@@ -51,12 +50,11 @@ func (q *MemQueue) Push(item *queue.Item) error {
 
 // Pop will block if heap is empty or none of items should be removed at now.
 // It will return nil without error if the queue was closed.
-func (q *MemQueue) Pop() (u *url.URL, _ error) {
+func (q *MemQueue) Pop() (item *queue.Item, _ error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	var now time.Time
-	var item *queue.Item
 	wait := false
 
 WAIT:
@@ -73,8 +71,6 @@ WAIT:
 
 	if item.Next.Before(now) {
 		heap.Pop(&q.heap)
-		u = item.URL
-		item.Free()
 		q.pushCond.Signal()
 		return
 	}

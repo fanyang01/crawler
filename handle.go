@@ -46,7 +46,7 @@ func (h *handler) work() {
 			logger = h.logger.New("url", r.URL)
 		)
 		if err = h.handle(r); err != nil {
-			err, _ = r.ctx.Value(ckError).(error)
+			err = r.ctx.err
 		}
 		r.bodyCloser.Close()
 		if err != nil {

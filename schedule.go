@@ -17,14 +17,14 @@ type scheduler struct {
 	NewIn     chan *url.URL
 	RecoverIn chan *url.URL
 	RetryIn   chan *url.URL
-	ErrURLIn  chan *url.URL
-	Out       chan *url.URL
+	ErrURLIn  chan *Context
+	Out       chan *Context
 	In        chan *Response
 	ErrIn     chan *Response
 
 	queue    queue.WaitQueue
 	queueIn  chan<- *queue.Item
-	queueOut <-chan *url.URL
+	queueOut <-chan *queue.Item
 	queueErr <-chan error
 
 	once sync.Once // used for closing Out
@@ -41,9 +41,9 @@ func (cw *Crawler) newScheduler(wq queue.WaitQueue) *scheduler {
 		NewIn:     make(chan *url.URL, nworker),
 		RecoverIn: make(chan *url.URL, nworker),
 		RetryIn:   make(chan *url.URL, nworker),
-		ErrURLIn:  make(chan *url.URL, nworker),
+		ErrURLIn:  make(chan *Context, nworker),
 		ErrIn:     make(chan *Response, nworker),
-		Out:       make(chan *url.URL, 4*nworker),
+		Out:       make(chan *Context, nworker),
 
 		queue:    wq,
 		queueIn:  queueIn,
@@ -59,17 +59,18 @@ func (cw *Crawler) newScheduler(wq queue.WaitQueue) *scheduler {
 
 func (sd *scheduler) work() {
 	var (
-		queueIn   chan<- *queue.Item
-		waiting   = make([]*queue.Item, 0, perPage)
-		next      *queue.Item
-		u, outURL *url.URL
-		out       chan<- *url.URL
-		outURLs   []*url.URL
+		queueIn chan<- *queue.Item
+		waiting = make([]*queue.Item, 0, perPage)
+		next    *queue.Item
+		u       *url.URL
+		out     chan<- *Context
+		first   *Context
+		outFIFO []*Context
 	)
 	for {
-		if len(outURLs) != 0 {
+		if len(outFIFO) != 0 {
 			out = sd.Out
-			outURL = outURLs[0]
+			first = outFIFO[0]
 		}
 		if len(waiting) > 0 {
 			queueIn = sd.queueIn
@@ -90,8 +91,8 @@ func (sd *scheduler) work() {
 			item = sd.sched(nil, u)
 			waiting = append(waiting, item)
 			continue
-		case u = <-sd.ErrURLIn:
-			if err = sd.cw.store.Complete(u); err != nil {
+		case ctx := <-sd.ErrURLIn:
+			if err = sd.cw.store.Complete(ctx.url); err != nil {
 				goto ERROR
 			}
 		case u = <-sd.RetryIn:
@@ -142,19 +143,22 @@ func (sd *scheduler) work() {
 				}
 			}
 
-		case u = <-sd.queueOut:
-			if u == nil { // queue has been closed
+		case item := <-sd.queueOut:
+			if item == nil { // queue has been closed
 				return
 			}
-			outURLs = append(outURLs, u)
+			outFIFO = append(
+				outFIFO, sd.cw.newContext(item.URL, item.Ctx),
+			)
+			item.Free()
 
 		// Output:
 		case queueIn <- next:
 			if waiting = waiting[1:]; len(waiting) == 0 {
 				queueIn = nil
 			}
-		case out <- outURL:
-			if outURLs = outURLs[1:]; len(outURLs) == 0 {
+		case out <- first:
+			if outFIFO = outFIFO[1:]; len(outFIFO) == 0 {
 				out = nil
 			}
 

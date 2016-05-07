@@ -3,7 +3,14 @@ package crawler
 import (
 	"net/url"
 	"time"
+
+	"golang.org/x/net/context"
 )
+
+type ctxURL struct {
+	ctx context.Context
+	url *url.URL
+}
 
 // perPage is the rouge number of links in a HTML document.
 const perPage = 64

@@ -19,8 +19,8 @@ func (r *Request) Context() *Context { return r.ctx }
 
 type maker struct {
 	workerConn
-	In     <-chan *url.URL
-	ErrOut chan<- *url.URL
+	In     <-chan *Context
+	ErrOut chan<- *Context
 	Out    chan *Request
 	cw     *Crawler
 }
@@ -35,11 +35,9 @@ func (cw *Crawler) newRequestMaker() *maker {
 	return this
 }
 
-func (m *maker) newRequest(u *url.URL) (req *Request, err error) {
-	req = &Request{
-		ctx: newContext(m.cw, u),
-	}
-	if req.Request, err = http.NewRequest("GET", u.String(), nil); err != nil {
+func (m *maker) newRequest(ctx *Context) (req *Request, err error) {
+	req = &Request{ctx: ctx}
+	if req.Request, err = http.NewRequest("GET", ctx.url.String(), nil); err != nil {
 		return
 	}
 	m.cw.ctrl.Prepare(req)
@@ -56,19 +54,19 @@ func (m *maker) cleanup() { close(m.Out) }
 func (m *maker) work() {
 	var (
 		out    chan<- *Request
-		errOut chan<- *url.URL
+		errOut chan<- *Context
 		req    *Request
 		err    error
 	)
-	for u := range m.In {
+	for ctx := range m.In {
 		out, errOut = m.Out, nil
-		if req, err = m.newRequest(u); err != nil {
+		if req, err = m.newRequest(ctx); err != nil {
 			out, errOut = nil, m.ErrOut
 			m.logger.Error("make request", "err", err)
 		}
 		select {
 		case out <- req:
-		case errOut <- u:
+		case errOut <- ctx:
 		case <-m.quit:
 			return
 		}

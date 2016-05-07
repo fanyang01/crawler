@@ -278,7 +278,7 @@ func (q *DiskQueue) writeToBuffer(v interface{}) error {
 }
 
 // Push implements the queue.WaitQueue interface.
-func (q *DiskQueue) Pop() (u *url.URL, err error) {
+func (q *DiskQueue) Pop() (item *queue.Item, err error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -303,8 +303,7 @@ func (q *DiskQueue) Pop() (u *url.URL, err error) {
 			)
 			if el.item.Next.Before(now) {
 				q.tree.Delete(node)
-				u = el.item.URL
-				el.item.Free()
+				item = el.item
 				return
 			}
 			q.newTimer(now, el.item.Next)

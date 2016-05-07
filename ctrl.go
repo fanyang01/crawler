@@ -1,9 +1,10 @@
 package crawler
 
 import (
-	"context"
 	"net/url"
 	"time"
+
+	"golang.org/x/net/context"
 )
 
 type Ticket struct {
