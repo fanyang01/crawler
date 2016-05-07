@@ -66,6 +66,18 @@ func (s *LevelStore) Get(u *url.URL) (uu *crawler.URL, err error) {
 	err = s.codec.Unmarshal(v, uu)
 	return
 }
+func (s *LevelStore) GetFunc(u *url.URL, f func(*crawler.URL)) error {
+	v, err := s.DB.Get(keyURL(u), nil)
+	if err != nil {
+		return err
+	}
+	uu := &crawler.URL{}
+	if err = s.codec.Unmarshal(v, uu); err != nil {
+		return err
+	}
+	f(uu)
+	return nil
+}
 func (s *LevelStore) GetDepth(u *url.URL) (depth int, err error) {
 	uu, err := s.Get(u)
 	return uu.Depth, err
@@ -116,40 +128,15 @@ func (s *LevelStore) PutNX(u *crawler.URL) (ok bool, err error) {
 }
 
 func (s *LevelStore) Update(u *crawler.URL) (err error) {
-	tx, err := s.DB.OpenTransaction()
-	if err != nil {
-		return
-	}
-	commit := false
-	defer func() {
-		if !commit && err != nil {
-			tx.Discard() // TODO: handle error
-		}
-	}()
-
-	key := keyURL(&u.URL)
-	v, err := tx.Get(key, nil)
-	if err != nil {
-		return
-	}
-	var uu crawler.URL
-	if err = s.codec.Unmarshal(v, &uu); err != nil {
-		return
-	}
-	uu.Update(u)
-	if v, err = s.codec.Marshal(&uu); err == nil {
-		if err = tx.Put(key, v, nil); err == nil {
-			commit = true
-			err = tx.Commit()
-		}
-	}
-	return
+	return s.UpdateFunc(&u.URL, func(uu *crawler.URL) {
+		uu.Update(u)
+	})
 }
 
-func (s *LevelStore) UpdateExtra(u *url.URL, extra interface{}) (err error) {
+func (s *LevelStore) UpdateFunc(u *url.URL, f func(*crawler.URL)) error {
 	tx, err := s.DB.OpenTransaction()
 	if err != nil {
-		return
+		return err
 	}
 	commit := false
 	defer func() {
@@ -161,20 +148,26 @@ func (s *LevelStore) UpdateExtra(u *url.URL, extra interface{}) (err error) {
 	key := keyURL(u)
 	v, err := tx.Get(key, nil)
 	if err != nil {
-		return
+		return err
 	}
 	var uu crawler.URL
 	if err = s.codec.Unmarshal(v, &uu); err != nil {
-		return
+		return err
 	}
-	uu.Extra = extra
+	f(&uu)
 	if v, err = s.codec.Marshal(&uu); err == nil {
 		if err = tx.Put(key, v, nil); err == nil {
 			commit = true
 			err = tx.Commit()
 		}
 	}
-	return
+	return err
+}
+
+func (s *LevelStore) UpdateExtra(u *url.URL, extra interface{}) (err error) {
+	return s.UpdateFunc(u, func(uu *crawler.URL) {
+		uu.Extra = extra
+	})
 }
 
 func (s *LevelStore) Complete(u *url.URL) (err error) {

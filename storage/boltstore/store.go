@@ -31,7 +31,7 @@ func New(path string, opt *bolt.Options, e codec.Codec) (bs *BoltStore, err erro
 		e = codec.JSON
 	}
 	bs = &BoltStore{
-		filter: bloom.NewFilter(-1, 0.001),
+		filter: bloom.NewFilter(-1, 0.0001),
 		codec:  e,
 	}
 	if bs.DB, err = bolt.Open(path, 0644, opt); err != nil {
@@ -88,7 +88,7 @@ func (s *BoltStore) getFromBucket(b *bolt.Bucket, u *url.URL) (uu *crawler.URL, 
 		return nil, errors.New("boltstore: item is not found")
 	}
 	uu = &crawler.URL{}
-	err = s.codec.Unmarshal(v, &uu)
+	err = s.codec.Unmarshal(v, uu)
 	return
 }
 
@@ -105,24 +105,27 @@ func (s *BoltStore) Get(u *url.URL) (uu *crawler.URL, err error) {
 	return
 }
 
-func (s *BoltStore) GetDepth(u *url.URL) (depth int, err error) {
-	err = s.DB.View(func(tx *bolt.Tx) error {
-		var uu *crawler.URL
-		if uu, err = s.getFromTx(tx, u); err == nil {
-			depth = uu.Depth
+func (s *BoltStore) GetFunc(u *url.URL, f func(*crawler.URL)) error {
+	return s.DB.View(func(tx *bolt.Tx) error {
+		uu, err := s.getFromTx(tx, u)
+		if err != nil {
+			return err
 		}
-		return err
+		f(uu)
+		return nil
+	})
+}
+
+func (s *BoltStore) GetDepth(u *url.URL) (depth int, err error) {
+	err = s.GetFunc(u, func(uu *crawler.URL) {
+		depth = uu.Depth
 	})
 	return
 }
 
 func (s *BoltStore) GetExtra(u *url.URL) (extra interface{}, err error) {
-	err = s.DB.View(func(tx *bolt.Tx) error {
-		var uu *crawler.URL
-		if uu, err = s.getFromTx(tx, u); err == nil {
-			extra = uu.Extra
-		}
-		return err
+	err = s.GetFunc(u, func(uu *crawler.URL) {
+		extra = uu.Extra
 	})
 	return
 }
@@ -151,15 +154,15 @@ func (s *BoltStore) PutNX(u *crawler.URL) (ok bool, err error) {
 	return
 }
 
-func (s *BoltStore) Update(u *crawler.URL) error {
+func (s *BoltStore) UpdateFunc(u *url.URL, f func(*crawler.URL)) error {
 	return s.DB.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bkURL)
-		uu, err := s.getFromBucket(b, &u.URL)
+		uu, err := s.getFromBucket(b, u)
 		if err != nil {
 			return err
 		}
-		uu.Update(u)
-		k := []byte(u.URL.String())
+		f(uu)
+		k := []byte(u.String())
 		v, err := s.codec.Marshal(uu)
 		if err != nil {
 			return err
@@ -168,20 +171,15 @@ func (s *BoltStore) Update(u *crawler.URL) error {
 	})
 }
 
+func (s *BoltStore) Update(u *crawler.URL) error {
+	return s.UpdateFunc(&u.URL, func(uu *crawler.URL) {
+		uu.Update(u)
+	})
+}
+
 func (s *BoltStore) UpdateExtra(u *url.URL, extra interface{}) error {
-	return s.DB.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bkURL)
-		uu, err := s.getFromBucket(b, u)
-		if err != nil {
-			return err
-		}
+	return s.UpdateFunc(u, func(uu *crawler.URL) {
 		uu.Extra = extra
-		k := []byte(u.String())
-		v, err := s.codec.Marshal(uu)
-		if err != nil {
-			return err
-		}
-		return b.Put(k, v)
 	})
 }
 

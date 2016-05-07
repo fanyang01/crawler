@@ -19,3 +19,4 @@ import:
 - package: github.com/inconshreveable/log15
 - package: github.com/PuerkitoBio/purell
 - package: github.com/gobwas/glob
+- package: github.com/jmoiron/sqlx

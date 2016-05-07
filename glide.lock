@@ -1,5 +1,5 @@
-hash: 0ab20d0655e96b750ad47801635ad8e12f7aa8beb1152d185a713072c506eb27
-updated: 2016-05-05T00:57:01.064154823+08:00
+hash: 02dc33ffdfee7cdfd2e80297caa8bb1ca8ba922a64b0affa13b10b767d4d62cd
+updated: 2016-05-07T17:49:10.153793782+08:00
 imports:
 - name: github.com/boltdb/bolt
   version: d97499360d1ecebc492ea66c7447ea948f417620
@@ -9,6 +9,10 @@ imports:
   version: 129a11d3290abd3da2b40f7f9d80370e738fef5a
 - name: github.com/gobwas/glob
   version: d877f6352135181470c40c73ebb81aefa22115fa
+  subpackages:
+  - match
+  - runes
+  - strings
 - name: github.com/golang/snappy
   version: 43fea289edce21979658cbbdb3925390890aa86e
 - name: github.com/gorilla/websocket
@@ -18,6 +22,8 @@ imports:
   subpackages:
   - stack
   - term
+- name: github.com/jmoiron/sqlx
+  version: 398dd5876282499cdfd4cb8ea0f31a672abe9495
 - name: github.com/mattn/go-colorable
   version: 45ce6a6f60010487dd0dbab368b5fbbed1c14ef0
 - name: github.com/mattn/go-isatty

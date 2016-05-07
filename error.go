@@ -31,6 +31,10 @@ func (w storeWrapper) Get(u *url.URL) (*URL, error) {
 	v, err := w.store.Get(u)
 	return v, storeErr(err)
 }
+func (w storeWrapper) GetFunc(u *url.URL, f func(*URL)) error {
+	err := w.store.GetFunc(u, f)
+	return storeErr(err)
+}
 func (w storeWrapper) GetDepth(u *url.URL) (int, error) {
 	v, err := w.store.GetDepth(u)
 	return v, storeErr(err)
@@ -45,6 +49,10 @@ func (w storeWrapper) PutNX(u *URL) (bool, error) {
 }
 func (w storeWrapper) Update(u *URL) error {
 	err := w.store.Update(u)
+	return storeErr(err)
+}
+func (w storeWrapper) UpdateFunc(u *url.URL, f func(*URL)) error {
+	err := w.store.UpdateFunc(u, f)
 	return storeErr(err)
 }
 func (w storeWrapper) UpdateExtra(u *url.URL, extra interface{}) error {

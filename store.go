@@ -13,11 +13,15 @@ type Store interface {
 	Exist(u *url.URL) (bool, error)
 	Get(u *url.URL) (*URL, error)
 	GetDepth(u *url.URL) (int, error)
+	GetFunc(u *url.URL, f func(*URL)) error
 	GetExtra(u *url.URL) (interface{}, error)
+
 	PutNX(u *URL) (bool, error)
-	Update(u *URL) error
-	UpdateExtra(u *url.URL, extra interface{}) error
 	Complete(u *url.URL) error
+
+	Update(u *URL) error
+	UpdateFunc(u *url.URL, f func(*URL)) error
+	UpdateExtra(u *url.URL, extra interface{}) error
 
 	IncVisitCount() error
 	IsFinished() (bool, error)
@@ -64,6 +68,17 @@ func (p *MemStore) Get(u *url.URL) (uu *URL, err error) {
 	return
 }
 
+func (p *MemStore) GetFunc(u *url.URL, f func(*URL)) error {
+	p.RLock()
+	defer p.RUnlock()
+	entry, present := p.m[u.String()]
+	if !present {
+		return errors.New("memstore: item is not found")
+	}
+	f(entry.clone())
+	return nil
+}
+
 func (p *MemStore) GetDepth(u *url.URL) (int, error) {
 	p.RLock()
 	defer p.RUnlock()
@@ -93,26 +108,27 @@ func (p *MemStore) PutNX(u *URL) (bool, error) {
 	return true, nil
 }
 
-func (p *MemStore) Update(u *URL) error {
-	p.Lock()
-	defer p.Unlock()
-	uu, ok := p.m[u.URL.String()]
-	if !ok {
-		return ErrItemNotFound
-	}
-	uu.Update(u)
-	return nil
-}
-
-func (p *MemStore) UpdateExtra(u *url.URL, extra interface{}) error {
+func (p *MemStore) UpdateFunc(u *url.URL, f func(*URL)) error {
 	p.Lock()
 	defer p.Unlock()
 	uu, ok := p.m[u.String()]
 	if !ok {
 		return ErrItemNotFound
 	}
-	uu.Extra = extra
+	f(uu)
 	return nil
+}
+
+func (p *MemStore) Update(u *URL) error {
+	return p.UpdateFunc(&u.URL, func(uu *URL) {
+		uu.Update(u)
+	})
+}
+
+func (p *MemStore) UpdateExtra(u *url.URL, extra interface{}) error {
+	return p.UpdateFunc(u, func(uu *URL) {
+		uu.Extra = extra
+	})
 }
 
 func (p *MemStore) Complete(u *url.URL) error {

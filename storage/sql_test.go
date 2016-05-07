@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/fanyang01/crawler/storage/sqlstore"
-	_ "github.com/lib/pq"
 )
 
 func TestSQL(t *testing.T) {
@@ -15,7 +14,7 @@ func TestSQL(t *testing.T) {
 	if host := os.Getenv("POSTGRES_PORT_5432_TCP_ADDR"); host != "" {
 		conn += " host=" + host
 	}
-	ss, err := sqlstore.NewSQLStore("postgres", conn)
+	ss, err := sqlstore.New(conn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +23,7 @@ func TestSQL(t *testing.T) {
 }
 
 func BenchmarkSQLPut(b *testing.B) {
-	ss, err := sqlstore.NewSQLStore("postgres", "user=postgres dbname=test sslmode=disable")
+	ss, err := sqlstore.New("user=postgres dbname=test sslmode=disable")
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -37,7 +36,7 @@ func BenchmarkSQLPut(b *testing.B) {
 }
 
 func BenchmarkSQLGet(b *testing.B) {
-	ss, err := sqlstore.NewSQLStore("postgres", "user=postgres dbname=test sslmode=disable")
+	ss, err := sqlstore.New("user=postgres dbname=test sslmode=disable")
 	if err != nil {
 		b.Fatal(err)
 	}
