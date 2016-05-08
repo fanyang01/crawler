@@ -55,7 +55,6 @@ type Response struct {
 	Encoding       encoding.Encoding
 
 	ctx   *Context
-	err   error
 	links []*url.URL
 }
 
@@ -72,7 +71,7 @@ func NewResponse() *Response {
 	return r
 }
 
-func (r *Response) Free() {
+func (r *Response) free() {
 	links := r.links
 	if len(links) > perPage {
 		links = nil
@@ -86,7 +85,6 @@ func (r *Response) Free() {
 }
 
 func (r *Response) Context() *Context { return r.ctx }
-func (r *Response) Err() error        { return r.err }
 
 type bodyReader struct {
 	err    error

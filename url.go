@@ -30,7 +30,7 @@ type URL struct {
 	Last     time.Time
 	Status   int
 	NumVisit int
-	NumError int
+	NumRetry int
 }
 
 func (u *URL) clone() *URL {
@@ -39,7 +39,7 @@ func (u *URL) clone() *URL {
 }
 
 func (u *URL) Update(uu *URL) {
-	u.NumError = uu.NumError
+	u.NumRetry = uu.NumRetry
 	u.NumVisit = uu.NumVisit
 	u.Last = uu.Last
 	u.Status = uu.Status

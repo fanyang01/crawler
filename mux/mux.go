@@ -283,11 +283,11 @@ func (mux *Mux) Resched(r *crawler.Response) (done bool, ticket crawler.Ticket) 
 	url := r.URL.String()
 	ctx := r.Context()
 	if t, ok := mux.matcher[muxFREQ].Get(url); ok {
-		if cnt, err := ctx.VisitCount(); err != nil || cnt >= t.(int) {
+		if cnt, err := ctx.NumVisit(); err != nil || cnt >= t.(int) {
 			done = true
 			return
 		}
-	} else if cnt, err := ctx.VisitCount(); err != nil || cnt >= 1 {
+	} else if cnt, err := ctx.NumVisit(); err != nil || cnt >= 1 {
 		done = true
 		return
 	}

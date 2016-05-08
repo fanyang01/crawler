@@ -15,10 +15,14 @@ var ErrPushClosed = errors.New("queue: can not push on closed queue")
 
 // Item is the item in wait queue.
 type Item struct {
-	URL   *url.URL
-	Next  time.Time       // next time to crawl
-	Score int             // optional for implementation
-	Ctx   context.Context // optional for implementation
+	URL  *url.URL
+	Next time.Time // next time to crawl
+
+	// optional for implementation
+	Score      int             `json:",omitempty"`
+	RetryMax   int             `json:",omitempty"`
+	RetryDelay time.Duration   `json:",omitempty"`
+	Ctx        context.Context `json:"-"`
 }
 
 var freelist = &sync.Pool{

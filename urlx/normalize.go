@@ -60,29 +60,3 @@ func Normalize(u *url.URL) error {
 	u.Fragment = ""
 	return nil
 }
-
-func Parse(s string, f ...func(*url.URL) error) (*url.URL, error) {
-	u, err := url.Parse(s)
-	if err != nil {
-		return nil, err
-	}
-	for _, ff := range f {
-		if err = ff(u); err != nil {
-			return nil, err
-		}
-	}
-	return u, nil
-}
-
-func ParseRef(base *url.URL, s string, f ...func(*url.URL) error) (*url.URL, error) {
-	u, err := base.Parse(s)
-	if err != nil {
-		return nil, err
-	}
-	for _, ff := range f {
-		if err = ff(u); err != nil {
-			return nil, err
-		}
-	}
-	return u, nil
-}

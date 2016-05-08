@@ -36,7 +36,7 @@ func StoreTest(t *testing.T, s crawler.Store) {
 			u.Status == uu.Status &&
 			equalTime(u.Last, uu.Last) &&
 			u.NumVisit == uu.NumVisit &&
-			u.NumError == uu.NumError
+			u.NumRetry == uu.NumRetry
 	}
 	tm := time.Now().UTC()
 	assert := assert.New(t)

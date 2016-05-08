@@ -2,20 +2,40 @@ package crawler
 
 import (
 	"net/http"
-	"net/url"
 	"strings"
 )
 
 // Request is a HTTP request to be made.
 type Request struct {
 	*http.Request
-	Proxy   *url.URL
-	Cookies []*http.Cookie
-	Client  Client
-	ctx     *Context
+	Client Client
+	ctx    *Context
 }
 
-func (r *Request) Context() *Context { return r.ctx }
+func (r *Request) Context() *Context {
+	return r.ctx
+}
+func (r *Request) Use(c Client) {
+	r.Client = c
+}
+func (r *Request) AddCookie(c *http.Cookie) {
+	r.Request.AddCookie(c)
+}
+func (r *Request) AddHeader(key, value string) {
+	r.Header.Add(key, value)
+}
+func (r *Request) SetHeader(key, value string) {
+	r.Header.Set(key, value)
+}
+func (r *Request) SetBasicAuth(usr, pwd string) {
+	r.Request.SetBasicAuth(usr, pwd)
+}
+func (r *Request) SetReferer(url string) {
+	r.Header.Set("Referer", url)
+}
+func (r *Request) SetUserAgent(agent string) {
+	r.Header.Set("User-Agent", agent)
+}
 
 type maker struct {
 	workerConn
@@ -38,9 +58,12 @@ func (cw *Crawler) newRequestMaker() *maker {
 func (m *maker) newRequest(ctx *Context) (req *Request, err error) {
 	req = &Request{ctx: ctx}
 	if req.Request, err = http.NewRequest("GET", ctx.url.String(), nil); err != nil {
-		return
+		return nil, err
 	}
 	m.cw.ctrl.Prepare(req)
+	if err = req.ctx.err; err != nil {
+		return nil, err
+	}
 
 	req.Method = strings.ToUpper(req.Method)
 	if req.Client == nil {

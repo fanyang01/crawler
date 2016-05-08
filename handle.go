@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"net/url"
-	"sync"
 
 	"github.com/fanyang01/crawler/urlx"
 
@@ -15,21 +14,16 @@ type handler struct {
 	workerConn
 	cw *Crawler
 
-	In       <-chan *Response
-	Out      chan *Response
-	ErrOut   chan *Response
-	RetryOut chan *url.URL
-
-	stop chan struct{}
-	once sync.Once
+	In     <-chan *Response
+	Out    chan *Response
+	ErrOut chan *Response
 }
 
 func (cw *Crawler) newRespHandler() *handler {
 	nworker := cw.opt.NWorker.Handler
 	this := &handler{
-		cw:   cw,
-		Out:  make(chan *Response, nworker),
-		stop: make(chan struct{}),
+		cw:  cw,
+		Out: make(chan *Response, nworker),
 	}
 	cw.initWorker("handler", this, nworker)
 	return this
@@ -45,37 +39,22 @@ func (h *handler) work() {
 			out    = h.Out
 			logger = h.logger.New("url", r.URL)
 		)
-		if err = h.handle(r); err != nil {
+		if err = h.handle(r); err == nil {
 			err = r.ctx.err
 		}
 		r.bodyCloser.Close()
 		if err != nil {
-			switch err := err.(type) {
-			case StorageError:
-				logger.Crit("storage fault", "err", err)
-				h.exit()
-				return
-			case RetriableError:
-				logger.Error("error occured, will retry...", "err", err)
-			default:
-				logger.Error("unknown error", "err", err)
-			}
-			r.err = err
+			logger.Error("handle response", "err", err)
+			r.ctx.err = err
 			out, errOut = nil, h.ErrOut
 		}
 		select {
 		case out <- r:
 		case errOut <- r:
-		case <-h.stop:
-			return
 		case <-h.quit:
 			return
 		}
 	}
-}
-
-func (h *handler) exit() {
-	h.once.Do(func() { close(h.stop) })
 }
 
 func (h *handler) handle(r *Response) error {

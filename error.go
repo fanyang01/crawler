@@ -2,28 +2,19 @@ package crawler
 
 import "net/url"
 
-type RetriableError struct{ Err error }
+type RetryableError struct{ Err error }
+type FatalError struct{ Err error }
 
-func (e RetriableError) Error() string {
+func (e RetryableError) Error() string {
 	return e.Err.Error()
 }
-
-func wrapRetriable(err error) error {
-	if err == nil {
-		return nil
-	}
-	return RetriableError{err}
-}
-
-type StorageError struct{ err error }
-
-func (e StorageError) Error() string {
-	return e.err.Error()
+func (e FatalError) Error() string {
+	return e.Err.Error()
 }
 
 func storeErr(err error) error {
 	if err != nil {
-		return StorageError{err}
+		return FatalError{err}
 	}
 	return nil
 }

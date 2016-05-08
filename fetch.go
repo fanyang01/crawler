@@ -21,10 +21,10 @@ import (
 
 type fetcher struct {
 	workerConn
-	In       <-chan *Request
-	Out      chan *Response
-	RetryOut chan *url.URL
-	cw       *Crawler
+	In     <-chan *Request
+	Out    chan *Response
+	ErrOut chan *Context
+	cw     *Crawler
 }
 
 func (cw *Crawler) newFetcher() *fetcher {
@@ -43,26 +43,25 @@ func (f *fetcher) work() {
 	for req := range f.In {
 		var (
 			out    = f.Out
-			retry  chan *url.URL
+			errOut chan *Context
 			logger = f.logger.New("url", req.URL)
 		)
 		r, err := req.Client.Do(req)
 		if err != nil {
-			out, retry = nil, f.RetryOut
+			out, errOut = nil, f.ErrOut
 			logger.Error("client failed to do request", "err", err)
 			goto END
 		}
 		logger.Info(r.Status)
 		if err := f.initResponse(req, r); err != nil {
-			// The only possible error comes from reading the body.
-			out, retry = nil, f.RetryOut
+			out, errOut = nil, f.ErrOut
 			logger.Error("initialize response", "err", err)
-			r.Free()
+			r.free()
 		}
 	END:
 		select {
 		case out <- r:
-		case retry <- req.URL:
+		case errOut <- req.ctx:
 		case <-f.quit:
 			return
 		}

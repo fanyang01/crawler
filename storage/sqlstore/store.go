@@ -43,7 +43,7 @@ func (w *wrapper) ToURL() *crawler.URL {
 		Status:   w.Status,
 		Last:     w.Last,
 		NumVisit: w.NumVisit,
-		NumError: w.NumError,
+		NumRetry: w.NumError,
 	}
 	return u
 }
@@ -58,7 +58,7 @@ func (w *wrapper) fromURL(u *crawler.URL) {
 	w.Status = u.Status
 	w.Last = u.Last
 	w.NumVisit = u.NumVisit
-	w.NumError = u.NumError
+	w.NumError = u.NumRetry
 }
 
 const (

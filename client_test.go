@@ -52,8 +52,8 @@ func TestClientCache(t *testing.T) {
 		}
 	}
 	client := &StdClient{
-		Client: &http.Client{},
-		Cache:  cache.NewPool(1 << 20),
+		client: &http.Client{},
+		cache:  cache.NewPool(1 << 20),
 	}
 
 	magic := "00000"

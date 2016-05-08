@@ -16,11 +16,10 @@ type scheduler struct {
 
 	NewIn     chan *url.URL
 	RecoverIn chan *url.URL
-	RetryIn   chan *url.URL
-	ErrURLIn  chan *Context
+	ErrIn     chan *Context
 	Out       chan *Context
 	In        chan *Response
-	ErrIn     chan *Response
+	ErrRespIn chan *Response
 
 	queue    queue.WaitQueue
 	queueIn  chan<- *queue.Item
@@ -40,9 +39,8 @@ func (cw *Crawler) newScheduler(wq queue.WaitQueue) *scheduler {
 
 		NewIn:     make(chan *url.URL, nworker),
 		RecoverIn: make(chan *url.URL, nworker),
-		RetryIn:   make(chan *url.URL, nworker),
-		ErrURLIn:  make(chan *Context, nworker),
-		ErrIn:     make(chan *Response, nworker),
+		ErrIn:     make(chan *Context, nworker),
+		ErrRespIn: make(chan *Response, nworker),
 		Out:       make(chan *Context, nworker),
 
 		queue:    wq,
@@ -91,16 +89,29 @@ func (sd *scheduler) work() {
 			item = sd.sched(nil, u)
 			waiting = append(waiting, item)
 			continue
-		case ctx := <-sd.ErrURLIn:
-			if err = sd.cw.store.Complete(ctx.url); err != nil {
+		case ctx := <-sd.ErrIn:
+			switch ctx.err.(type) {
+			case RetryableError, *RetryableError:
+				sd.logger.Error(
+					"error occured, will retry...",
+					"err", ctx.err, "url", ctx.url,
+				)
+				if item, ok, err = sd.retry(ctx); err != nil {
+					goto ERROR
+				} else if ok {
+					waiting = append(waiting, item)
+					continue
+				}
+			case FatalError, *FatalError:
+				err = ctx.err
 				goto ERROR
 			}
-		case u = <-sd.RetryIn:
-			if item, ok, err = sd.retry(u); err != nil {
+			sd.logger.Error(
+				"complete due to error",
+				"err", ctx.err, "url", ctx.url,
+			)
+			if err = sd.cw.store.Complete(ctx.url); err != nil {
 				goto ERROR
-			} else if ok {
-				waiting = append(waiting, item)
-				continue
 			}
 
 		case resp, ok := <-sd.In:
@@ -114,14 +125,13 @@ func (sd *scheduler) work() {
 				waiting = append(waiting, item)
 			}
 			item, done, err = sd.resched(resp)
-			resp.Free()
 			if err != nil {
 				goto ERROR
 			} else if !done {
 				waiting = append(waiting, item)
 				continue
 			}
-		case resp := <-sd.ErrIn:
+		case resp := <-sd.ErrRespIn:
 			// NOTE: even if an error occured, links found in the response
 			// should still be enqueued, because the state of storage has
 			// been changed.
@@ -129,14 +139,17 @@ func (sd *scheduler) work() {
 				item = sd.sched(resp, url)
 				waiting = append(waiting, item)
 			}
-			switch resp.err.(type) {
-			case RetriableError:
-				if item, ok, err = sd.retry(u); err != nil {
+			switch resp.ctx.err.(type) {
+			case RetryableError, *RetryableError:
+				if item, ok, err = sd.retry(resp.ctx); err != nil {
 					goto ERROR
 				} else if ok {
 					waiting = append(waiting, item)
 					continue
 				}
+			case FatalError, *FatalError:
+				err = resp.ctx.err
+				goto ERROR
 			default:
 				if err = sd.cw.store.Complete(u); err != nil {
 					goto ERROR
@@ -183,7 +196,7 @@ func (sd *scheduler) work() {
 		continue
 
 	ERROR:
-		sd.logger.Error("scheduler error", "err", err)
+		sd.logger.Crit("unrecoverable error, exiting...", "err", err)
 		sd.exit() // notify other scheduler goroutines to exit.
 		return
 	}
@@ -206,7 +219,7 @@ func (sd *scheduler) sched(r *Response, u *url.URL) *queue.Item {
 	item.URL = u
 	t := sd.cw.ctrl.Sched(r, u)
 	if t.Ctx == nil {
-		t.Ctx = context.TODO()
+		t.Ctx = context.Background()
 	}
 	item.Next, item.Score, item.Ctx = t.At, t.Score, t.Ctx
 	return item
@@ -215,19 +228,20 @@ func (sd *scheduler) sched(r *Response, u *url.URL) *queue.Item {
 func (sd *scheduler) resched(r *Response) (
 	item *queue.Item, done bool, err error,
 ) {
-	uu, err := sd.cw.store.Get(r.URL)
-	if err != nil {
-		return
-	}
-	uu.NumVisit++
-	uu.Last = r.Timestamp
-	if err = sd.cw.store.Update(uu); err != nil {
-		return
-	}
+	defer func() {
+		r.ctx.free()
+		r.free()
+	}()
 
-	minTime := uu.Last.Add(sd.cw.opt.MinDelay)
-	item = queue.NewItem()
-	item.URL = r.URL
+	var last time.Time
+	if err = sd.cw.store.UpdateFunc(r.URL, func(u *URL) {
+		u.NumVisit++
+		u.NumRetry = 0
+		last = u.Last
+		u.Last = r.Timestamp
+	}); err != nil {
+		return
+	}
 
 	var t Ticket
 	done, t = sd.cw.ctrl.Resched(r)
@@ -235,35 +249,37 @@ func (sd *scheduler) resched(r *Response) (
 		err = sd.cw.store.Complete(r.URL)
 		return
 	} else if t.Ctx == nil {
-		t.Ctx = context.TODO()
+		t.Ctx = context.Background()
 	}
+
+	item = queue.NewItem()
+	item.URL = r.URL
 	item.Next, item.Score, item.Ctx = t.At, t.Score, t.Ctx
-	if item.Next.Before(minTime) {
-		item.Next = minTime
+	min := last.Add(sd.cw.opt.MinDelay)
+	if item.Next.Before(min) {
+		item.Next = min
 	}
 	return
 }
 
-func (sd *scheduler) retry(u *url.URL) (*queue.Item, bool, error) {
-	if cnt, err := sd.incErrCount(u); err != nil {
+func (sd *scheduler) retry(ctx *Context) (*queue.Item, bool, error) {
+	var cnt int
+	if err := sd.cw.store.UpdateFunc(ctx.url, func(uu *URL) {
+		uu.NumRetry++
+		cnt = uu.NumRetry
+	}); err != nil {
+		ctx.free()
 		return nil, false, err
-	} else if cnt >= sd.cw.opt.MaxRetry {
-		err := sd.cw.store.Complete(u)
+	}
+	delay, max := sd.cw.ctrl.Retry(ctx)
+	if cnt >= max {
+		err := sd.cw.store.Complete(ctx.url)
+		ctx.free()
 		return nil, false, err
 	}
 	item := queue.NewItem()
-	item.URL = u
-	item.Next = time.Now().Add(sd.cw.opt.RetryDuration)
+	item.URL = ctx.url
+	item.Ctx = ctx.C
+	item.Next = time.Now().Add(delay)
 	return item, true, nil
-}
-
-func (sd *scheduler) incErrCount(u *url.URL) (cnt int, err error) {
-	var uu *URL
-	if uu, err = sd.cw.store.Get(u); err != nil {
-		return
-	}
-	uu.NumError++
-	cnt = uu.NumError
-	err = sd.cw.store.Update(uu)
-	return
 }

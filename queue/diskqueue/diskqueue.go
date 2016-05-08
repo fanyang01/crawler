@@ -4,9 +4,8 @@ package diskqueue
 import (
 	"bytes"
 	"container/list"
+	"encoding/json"
 	"fmt"
-	"log"
-	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -41,8 +40,14 @@ func (e *element) key() []byte {
 	return b
 }
 
-func (e *element) url() []byte {
-	return []byte(e.item.URL.String())
+func (e *element) encode() (b []byte, err error) {
+	// return []byte(e.item.URL.String())
+	return json.Marshal(e.item)
+}
+
+func (e *element) decode(b []byte) error {
+	e.item = queue.NewItem()
+	return json.Unmarshal(b, e.item)
 }
 
 // A DiskQueue can store numerous items without using too much memory.
@@ -72,8 +77,9 @@ type DiskQueue struct {
 		quit  bool
 	}
 
-	db   *bolt.DB
-	file string
+	db     *bolt.DB
+	bucket []byte
+	file   string
 }
 
 func compare(x, y interface{}) int {
@@ -141,6 +147,7 @@ func newDiskQueue(filename string, bucket []byte, memQueueSize, writeBufSize int
 		file:     filename,
 		dbCount:  dbCount,
 		dbMinKey: dbMinKey,
+		bucket:   bucket,
 	}
 	q.cond = sync.NewCond(&q.mu)
 
@@ -177,12 +184,18 @@ func (q *DiskQueue) writeLoop() {
 		}
 		// Write all buffered elements to DB
 		if err := q.db.Update(func(tx *bolt.Tx) error {
-			b := tx.Bucket(DefaultBucket)
+			b := tx.Bucket(q.bucket)
 			var next *list.Element
 			for le := q.write.buf.Front(); le != nil; le = next {
+				// Remove this element from list
 				next = le.Next()
-				v := q.write.buf.Remove(le).(*element)
-				if err := b.Put(v.key(), v.url()); err != nil {
+				elem := q.write.buf.Remove(le).(*element)
+
+				v, err := elem.encode()
+				if err != nil {
+					return err
+				}
+				if err := b.Put(elem.key(), v); err != nil {
 					return err
 				}
 				q.write.count--
@@ -342,19 +355,17 @@ func (q *DiskQueue) Pop() (item *queue.Item, err error) {
 			n = q.dbCount
 		}
 		if err = q.db.Update(func(tx *bolt.Tx) error {
-			b := tx.Bucket([]byte(DefaultBucket))
+			b := tx.Bucket(q.bucket)
 			c := b.Cursor()
 			i := 0
 			for k, v := c.First(); k != nil && i < n; k, v = c.Next() {
-				item := queue.NewItem()
-				item.URL, _ = url.Parse(string(v))
-				item.Next = timeFromKey(k)
-				q.tree.Insert(&element{
-					item: item,
-					uid:  uidFromKey(k),
-				})
+				elem := &element{}
+				if err := elem.decode(v); err != nil {
+					return err
+				}
+				elem.uid = uidFromKey(k)
+				q.tree.Insert(elem)
 				if err := b.Delete(k); err != nil {
-					log.Println(err)
 					return err
 				}
 				i++

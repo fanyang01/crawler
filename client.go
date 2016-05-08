@@ -30,7 +30,8 @@ var (
 	// DefaultHTTPClient uses DefaultHTTPTransport to make HTTP request,
 	// and enables the cookie jar.
 	DefaultHTTPClient *http.Client
-	// DefaultClient is the default client used to fetch static pages.
+	// DefaultClient is the default client used by crawler to fetch static
+	// resources.
 	DefaultClient *StdClient
 )
 
@@ -44,13 +45,28 @@ func init() {
 		Jar:       jar,
 		Timeout:   10 * time.Second,
 	}
-	DefaultClient = &StdClient{Client: DefaultHTTPClient}
+	DefaultClient = &StdClient{client: DefaultHTTPClient}
 }
 
-// StdClient is used for static pages.
+// StdClient is intended to be used for fetching static resources.
 type StdClient struct {
-	*http.Client
-	Cache *cache.Pool
+	client *http.Client
+	cache  *cache.Pool
+}
+
+// NewStdClient returns a new standard client that uses the provided HTTP
+// client to do HTTP requests. cacheSize specifies the maxmium size(in
+// bytes) of the HTTP cache pool. If cacheSize <= 0, HTTP caching will be
+// disabled.
+func NewStdClient(client *http.Client, cacheSize int) *StdClient {
+	if client == nil {
+		client = DefaultHTTPClient
+	}
+	c := &StdClient{client: client}
+	if cacheSize > 0 {
+		c.cache = cache.NewPool(cacheSize)
+	}
+	return c
 }
 
 // ResponseStatusError represents unexpected response status.
@@ -63,11 +79,11 @@ func (e ResponseStatusError) Error() string {
 	return fmt.Sprintf("unexpected response status: %d %s", int(e), http.StatusText(int(e)))
 }
 
-// Do implements Client.
+// Do implements the Client interface.
 func (c *StdClient) Do(req *Request) (r *Response, err error) {
 	defer func() {
 		if err != nil && r != nil {
-			r.Free()
+			r.free()
 		}
 	}()
 
@@ -79,8 +95,8 @@ func (c *StdClient) Do(req *Request) (r *Response, err error) {
 		ok       bool
 		modified bool = true
 	)
-	if req.Method == "GET" && c.Cache != nil {
-		if hr, body, cc, ok = c.Cache.Get(req.URL); ok {
+	if req.Method == "GET" && c.cache != nil {
+		if hr, body, cc, ok = c.cache.Get(req.URL); ok {
 			if cc.NeedValidate() {
 				if hr, cc, modified, err = c.revalidate(
 					req.URL, hr, body, cc,
@@ -96,7 +112,7 @@ func (c *StdClient) Do(req *Request) (r *Response, err error) {
 		}
 	}
 
-	if hr, err = c.Client.Do(req.Request); err != nil {
+	if hr, err = c.client.Do(req.Request); err != nil {
 		return
 	}
 	now = time.Now()
@@ -105,24 +121,26 @@ func (c *StdClient) Do(req *Request) (r *Response, err error) {
 	switch {
 	case 200 <= hr.StatusCode && hr.StatusCode < 300:
 	default:
-		err = ResponseStatusError(hr.StatusCode)
+		err = RetryableError{
+			Err: ResponseStatusError(hr.StatusCode),
+		}
 		hr.Body.Close()
 		return
 	}
-	if c.Cache != nil {
+	if c.cache != nil {
 		cc = cache.Parse(hr, now)
 	}
 
 INIT:
 	r = NewResponse()
 	r.init(req.URL, hr, now, cc)
-	if c.Cache != nil && cc != nil && cc.IsCacheable() {
+	if c.cache != nil && cc != nil && cc.IsCacheable() {
 		if !modified { // Just update cached header
-			if ok := c.Cache.Update(req.URL, r.CacheControl, r.Header); ok {
+			if ok := c.cache.Update(req.URL, r.CacheControl, r.Header); ok {
 				return
 			}
 		}
-		r.Body = c.Cache.NewReader(r.NewURL, r.CacheControl, r.Response, r.Body)
+		r.Body = c.cache.NewReader(r.NewURL, r.CacheControl, r.Response, r.Body)
 	}
 	return
 }
@@ -144,7 +162,7 @@ func (c *StdClient) revalidate(
 	}
 	req.Header.Add("If-Modified-Since", t.Format(http.TimeFormat))
 
-	if rr, err = c.Client.Do(req); err != nil {
+	if rr, err = c.client.Do(req); err != nil {
 		return
 	}
 
@@ -159,7 +177,7 @@ func (c *StdClient) revalidate(
 	case 200 <= rr.StatusCode && rr.StatusCode < 300:
 		rcc = cache.Parse(rr, time.Now())
 		if rcc == nil || !rcc.IsCacheable() {
-			c.Cache.Remove(u)
+			c.cache.Remove(u)
 		}
 		return
 	default:

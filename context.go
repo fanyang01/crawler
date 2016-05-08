@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"net/url"
+	"sync"
 	"time"
 
 	"golang.org/x/net/context"
@@ -10,11 +11,11 @@ import (
 type ctxKey int
 
 const (
-	ckLoaded ctxKey = 1 + iota
-	ckDepth
-	ckVisitCount
-	ckErrorCount
-	ckLastVisit
+	ckDepth ctxKey = 1 + iota
+	ckLoaded
+	ckNumVisit
+	ckNumError
+	ckLastTime
 	ckError
 )
 
@@ -25,15 +26,48 @@ type Context struct {
 	C   context.Context
 }
 
-func (cw *Crawler) newContext(u *url.URL, ctx context.Context) *Context {
-	return &Context{
-		cw:  cw,
-		url: u,
-		C:   ctx,
+var (
+	ctxFreeList = &sync.Pool{
+		New: func() interface{} {
+			return &Context{}
+		},
 	}
+	emptyContext = Context{}
+)
+
+func (cw *Crawler) newContext(u *url.URL, ctx context.Context) *Context {
+	c := ctxFreeList.Get().(*Context)
+	c.cw = cw
+	c.url = u
+	c.C = ctx
+	return c
+}
+
+func (c *Context) free() {
+	*c = emptyContext
+	ctxFreeList.Put(c)
 }
 
 func (c *Context) URL() *url.URL { return c.url }
+
+func (c *Context) With(ctx context.Context) { c.C = ctx }
+
+func (c *Context) WithValue(k, v interface{}) {
+	c.C = context.WithValue(c.C, k, v)
+}
+func (c *Context) Value(k interface{}) interface{} {
+	return c.C.Value(k)
+}
+
+func (c *Context) Retry(err error) {
+	c.err = RetryableError{err}
+}
+func (c *Context) Error(err error) {
+	c.err = err
+}
+func (c *Context) Fatal(err error) {
+	c.err = FatalError{err}
+}
 
 func (c *Context) Depth() (depth int, err error) {
 	depth, ok := c.Value(ckDepth).(int)
@@ -45,21 +79,21 @@ func (c *Context) Depth() (depth int, err error) {
 	}
 	return depth, nil
 }
-func (c *Context) VisitCount() (cnt int, err error) {
+func (c *Context) NumVisit() (cnt int, err error) {
 	if err = c.fromStore(); err == nil {
-		cnt = c.Value(ckVisitCount).(int)
+		cnt = c.Value(ckNumVisit).(int)
 	}
 	return
 }
-func (c *Context) ErrorCount() (cnt int, err error) {
+func (c *Context) NumError() (cnt int, err error) {
 	if err = c.fromStore(); err == nil {
-		cnt = c.Value(ckErrorCount).(int)
+		cnt = c.Value(ckNumError).(int)
 	}
 	return
 }
-func (c *Context) LastVisit() (t time.Time, err error) {
+func (c *Context) LastTime() (t time.Time, err error) {
 	if err = c.fromStore(); err == nil {
-		t = c.Value(ckLastVisit).(time.Time)
+		t = c.Value(ckLastTime).(time.Time)
 	}
 	return
 }
@@ -78,30 +112,8 @@ func (c *Context) fromStore() error {
 
 func (c *Context) fromURL(u *URL) {
 	c.WithValue(ckDepth, u.Depth)
-	c.WithValue(ckVisitCount, u.NumVisit)
-	c.WithValue(ckErrorCount, u.NumError)
-	c.WithValue(ckLastVisit, u.Last)
+	c.WithValue(ckNumVisit, u.NumVisit)
+	c.WithValue(ckNumError, u.NumRetry)
+	c.WithValue(ckLastTime, u.Last)
 	c.WithValue(ckLoaded, true)
-}
-
-func (c *Context) WithValue(k, v interface{}) {
-	c.C = context.WithValue(c.C, k, v)
-}
-func (c *Context) Value(k interface{}) interface{} {
-	return c.C.Value(k)
-}
-
-var emptyContext = Context{}
-
-func (c *Context) Reset() *Context {
-	*c = emptyContext
-	c.C = context.Background()
-	return c
-}
-
-func (c *Context) Error(err error) {
-	c.err = err
-}
-func (c *Context) Retry(err error) {
-	c.err = wrapRetriable(err)
 }
