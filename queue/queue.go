@@ -2,10 +2,13 @@
 package queue
 
 import (
+	"encoding/json"
 	"errors"
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/fanyang01/crawler/urlx"
 
 	"golang.org/x/net/context"
 )
@@ -19,10 +22,39 @@ type Item struct {
 	Next time.Time // next time to crawl
 
 	// optional for implementation
-	Score      int             `json:",omitempty"`
-	RetryMax   int             `json:",omitempty"`
-	RetryDelay time.Duration   `json:",omitempty"`
-	Ctx        context.Context `json:"-"`
+	Score int             `json:",omitempty"`
+	Ctx   context.Context `json:"-"`
+}
+
+type jsonWrapper struct {
+	URL   urlx.URL
+	Next  time.Time
+	Score int `json:",omitempty"`
+}
+
+func (w jsonWrapper) To(item *Item) {
+	item.URL = w.URL.URL
+	item.Next = w.Next
+	item.Score = w.Score
+}
+func (w *jsonWrapper) From(item *Item) {
+	w.URL.URL = item.URL
+	w.Next = item.Next
+	w.Score = item.Score
+}
+
+func (item *Item) MarshalJSON() ([]byte, error) {
+	w := &jsonWrapper{}
+	w.From(item)
+	return json.Marshal(w)
+}
+func (item *Item) UnmarshalJSON(b []byte) error {
+	w := &jsonWrapper{}
+	if err := json.Unmarshal(b, w); err != nil {
+		return err
+	}
+	w.To(item)
+	return nil
 }
 
 var freelist = &sync.Pool{
@@ -116,7 +148,7 @@ func (q *channel) Channel() (in chan<- *Item, out <-chan *Item, err <-chan error
 			return
 		}
 	}()
-	return q.in, q.out, nil
+	return q.in, q.out, q.err
 }
 
 func (q *channel) sendErr(err error) {

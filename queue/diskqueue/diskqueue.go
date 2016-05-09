@@ -23,7 +23,7 @@ const TimeFormat = "20060102T15:04:05.000"
 // Default configuration.
 var (
 	DefaultBucket       = []byte("QUEUE")
-	DefaultMemQueueSize = 1024
+	DefaultMemQueueSize = 4096
 	DefaultBufSize      = 256
 )
 
@@ -340,6 +340,10 @@ func (q *DiskQueue) Pop() (item *queue.Item, err error) {
 		// Ask writing goroutine to write all buffered items.
 		ch := make(chan struct{}, 1)
 		q.write.mu.Lock()
+		if err = q.write.err; err != nil {
+			q.write.mu.Unlock()
+			return
+		}
 		q.write.flush = ch
 		q.write.cond.Signal()
 		q.write.mu.Unlock()
