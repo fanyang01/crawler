@@ -37,7 +37,7 @@ func newTestQueue(t *testing.T, size int) (tmpfile string, q *DiskQueue) {
 	}
 	tmpfile = f.Name()
 	f.Close()
-	q, err = newDiskQueue(tmpfile, DefaultBucket, size, 100)
+	q, err = newDiskQueue(tmpfile, DefaultBucket, size, 256)
 	if err != nil {
 		os.Remove(tmpfile)
 		t.Fatal(err)
@@ -90,10 +90,10 @@ func TestZeroSize(t *testing.T) {
 }
 
 func TestOverflow(t *testing.T) {
-	tmpfile, wq := newTestQueue(t, 100)
+	tmpfile, wq := newTestQueue(t, 200)
 	defer os.Remove(tmpfile)
 	now := time.Now()
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 2000; i++ {
 		wq.Push(&queue.Item{
 			// assume all items can be pushed into queue in 1s.
 			Next: now.Add(1 * time.Second),
@@ -102,7 +102,7 @@ func TestOverflow(t *testing.T) {
 	}
 	assert := assert.New(t)
 	m := map[int]bool{}
-	for i := 0; i < 500; i++ {
+	for i := 0; i < 2000; i++ {
 		item, _ := wq.Pop()
 		if i == 0 {
 			assert.True(time.Now().After(now.Add(1 * time.Second)))

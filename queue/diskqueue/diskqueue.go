@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"container/list"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -22,7 +23,7 @@ const TimeFormat = "20060102T15:04:05.000"
 // Default configuration.
 var (
 	DefaultBucket       = []byte("QUEUE")
-	DefaultMemQueueSize = 4094
+	DefaultMemQueueSize = 1024
 	DefaultBufSize      = 256
 )
 
@@ -354,27 +355,37 @@ func (q *DiskQueue) Pop() (item *queue.Item, err error) {
 		if n = q.limit/2 + 1; n > q.dbCount {
 			n = q.dbCount
 		}
+		// NOTE: don't use bucket stats after updating bucket
+		// https://github.com/boltdb/bolt/issues/275
 		if err = q.db.Update(func(tx *bolt.Tx) error {
 			b := tx.Bucket(q.bucket)
-			c := b.Cursor()
-			i := 0
-			for k, v := c.First(); k != nil && i < n; k, v = c.Next() {
+			for i := 0; i < n; i++ {
+				cur := b.Cursor() // NOTE: always reposition cursor
+				if cur == nil {
+					return errors.New("diskqueue: broken DB stats")
+				}
+
+				k, v := cur.First()
 				elem := &element{}
 				if err := elem.decode(v); err != nil {
 					return err
 				}
 				elem.uid = uidFromKey(k)
 				q.tree.Insert(elem)
-				if err := b.Delete(k); err != nil {
+
+				if err := cur.Delete(); err != nil {
 					return err
 				}
-				i++
 			}
 			// Update dbCount and dbMinKey
-			if q.dbCount = b.Stats().KeyN; q.dbCount <= 0 {
+			// NOTE: don't use b.Stats().KeyN
+			if q.dbCount = q.dbCount - n; q.dbCount <= 0 {
 				q.dbMinKey = nil
 			} else {
-				q.dbMinKey, _ = b.Cursor().First()
+				// NOTE: keys are only valid for the life of the transaction.
+				key, _ := b.Cursor().First()
+				q.dbMinKey = q.dbMinKey[:0]
+				q.dbMinKey = append(q.dbMinKey, key...)
 			}
 			return nil
 
@@ -404,6 +415,8 @@ func timeFromKey(k []byte) time.Time {
 
 func uidFromKey(k []byte) string {
 	i := bytes.IndexByte(k, ' ')
+	// NOTE: copying instead of slicing
+	// String conversion will copy underly bytes.
 	return string(k[i+1:])
 }
 
