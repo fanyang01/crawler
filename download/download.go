@@ -94,13 +94,23 @@ func file(pth string) (f *os.File, err error) {
 	)
 }
 
-func (d *SimDownloader) Handle(u *url.URL, r io.Reader) (similar bool, err error) {
+func (d *SimDownloader) Handle(u *url.URL, r io.Reader, isHTML bool) (similar bool, err error) {
 	d.init()
 
 	var f *os.File
 	var buf *bytes.Buffer
 	var tee io.Reader
 	pth := d.GenPath(u)
+
+	if !isHTML {
+		if f, err = file(pth); err != nil {
+			return
+		}
+		defer f.Close()
+
+		_, err = io.Copy(f, r)
+		return false, err
+	}
 
 	if d.PreDownload {
 		if f, err = file(pth); err != nil {

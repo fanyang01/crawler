@@ -3,9 +3,10 @@ package crawler
 import (
 	"net/url"
 
+	"gopkg.in/inconshreveable/log15.v2"
+
 	"github.com/fanyang01/crawler/queue"
 	"github.com/fanyang01/crawler/urlx"
-	"github.com/inconshreveable/log15"
 )
 
 type Config struct {

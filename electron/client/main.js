@@ -45,7 +45,7 @@ const newNATS = () => {
 
   nats = NATS.connect({
     url: natsURL,
-  json: true
+    json: true
   });
   nats.on('error', function(e) {
     console.log(`[nats] error [${nats.options.url}]: ${e}`);
@@ -150,9 +150,9 @@ const handleTask = (task, from, reply) => {
   }, task.timeout || 20000);
 
   task.mode = task.mode || '';
-  switch(task.mode.toUpperCase()) {
+  switch (task.mode.toUpperCase()) {
     case 'INJECT':
-      if(task.injection) {
+      if (task.injection) {
         win.webContents.send('injection', task.injection);
         break;
       }
@@ -165,10 +165,11 @@ const handleTask = (task, from, reply) => {
         clearTimeout(timer);
         win.webContents.send('main-finish', task.fetchCode);
       });
-      break;      
+      break;
   }
 
-  var respDetail = {}, currentURL = task.url;
+  var respDetail = {};
+  var currentURL = task.url;
 
   win.webContents.on('did-get-redirect-request', function(
     event,
@@ -182,7 +183,9 @@ const handleTask = (task, from, reply) => {
   ) {
     currentURL = newURL;
   });
-
+  win.webContents.on('did-navigate', function(event, url) {
+    currentURL = url;
+  });
   win.webContents.on('did-get-response-details', function(
     event,
     status,
@@ -194,7 +197,7 @@ const handleTask = (task, from, reply) => {
     headers,
     resourceType
   ) {
-    if(requestMethod.toUpperCase() !== "GET" || newURL !== currentURL) {
+    if (requestMethod.toUpperCase() !== "GET" || newURL !== currentURL) {
       return;
     }
     respDetail.newURL = newURL;
@@ -208,7 +211,7 @@ const handleTask = (task, from, reply) => {
 
   let eventName = `win-${win.id}-renderer-finish`;
   const finish = function(event, result) {
-    if(timer === null)
+    if (timer === null)
       return;
     clearTimeout(timer);
     var response = {
@@ -218,7 +221,6 @@ const handleTask = (task, from, reply) => {
 
       newURL: result.newURL,
       content: result.content,
-      contentType: result.contentType,
 
       originalURL: task.url,
       taskID: task.taskID,
@@ -244,18 +246,28 @@ const handleTask = (task, from, reply) => {
   };
   ipcMain.on(eventName, finish);
 
-  win.loadURL(task.url);
+  let referrer = task.headers ? task.headers['Referer'] : null;
+  let userAgent = task.headers ? task.headers['User-Agent'] : null;
+  let headers = '';
+  for(let prop in task.headers) {
+    headers += `${prop}: ${task.headers[prop]}\n`;
+  }
+  win.loadURL(task.url, {
+    'httpReferrer': referrer,
+    'extraHeaders': headers,
+    'userAgent': userAgent
+  });
 };
 
 
 app.on('ready', function() {
-  switch(connMode.toUpperCase()) {
+  switch (connMode.toUpperCase()) {
     case 'NATS':
       newNATS();
       break;
     case 'WS':
     case 'WEBSOCKET':
-  default:
+    default:
       newWebsocket();
       break;
   }

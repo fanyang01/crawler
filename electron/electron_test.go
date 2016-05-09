@@ -5,11 +5,10 @@ package electron
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"testing"
-
-	"golang.org/x/net/context"
 
 	"github.com/fanyang01/crawler"
 	"github.com/stretchr/testify/assert"
@@ -25,8 +24,10 @@ func assertResponse(t *testing.T, oldURL, newURL string, r *crawler.Response) {
 	assert.Equal(newURL, r.Request.URL.String())
 	assert.Contains(r.Header.Get("Content-Type"), "text/html")
 	assert.Contains(r.Header, "Date")
-	assert.True(bytes.Contains(r.Content, []byte("Standard library")))
 	assert.NotNil(r.Body)
+	b, err := ioutil.ReadAll(r.Body)
+	assert.NoError(err)
+	assert.True(bytes.Contains(b, []byte("Standard library")))
 }
 
 func TestElectronNats(t *testing.T) {
@@ -42,7 +43,6 @@ func TestElectronNats(t *testing.T) {
 	rq, err := http.NewRequest("GET", URL, nil)
 	req := &crawler.Request{
 		Request: rq,
-		Context: context.TODO(),
 	}
 	resp, err := conn.Do(req)
 	if err != nil {

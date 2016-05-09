@@ -48,12 +48,14 @@ func (f *fetcher) work() {
 		)
 		r, err := req.Client.Do(req)
 		if err != nil {
+			req.ctx.err = err
 			out, errOut = nil, f.ErrOut
 			logger.Error("client failed to do request", "err", err)
 			goto END
 		}
 		logger.Info(r.Status)
 		if err := f.initResponse(req, r); err != nil {
+			req.ctx.err = err
 			out, errOut = nil, f.ErrOut
 			logger.Error("initialize response", "err", err)
 			r.free()

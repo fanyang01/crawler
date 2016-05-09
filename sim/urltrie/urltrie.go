@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 )
 
 type (
@@ -186,4 +187,30 @@ func (t *Trie) Has(u *url.URL, threshold func(depth int) int) bool {
 	}
 	// Totally match
 	return true
+}
+
+type MultiHost struct {
+	mu sync.Mutex
+	m  map[string]*Trie
+	f  func(depth int) int
+}
+
+func NewMultiHost(threshold func(depth int) int) *MultiHost {
+	return &MultiHost{
+		m: make(map[string]*Trie),
+		f: threshold,
+	}
+}
+
+func (h *MultiHost) Add(u *url.URL) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	host := u.Host
+	t, ok := h.m[host]
+	if !ok {
+		t = New()
+		h.m[host] = t
+	}
+	return t.Add(u, h.f)
 }

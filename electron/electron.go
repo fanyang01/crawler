@@ -61,11 +61,6 @@ type requestMsg struct {
 	FetchCode string      `json:"fetchCode,omitempty"`
 	Injection string      `json:"injection,omitempty"`
 	Headers   http.Header `json:"headers,omitempty"`
-	// Proxy     string      `json:"proxy,omitempty"`
-	Cookies []struct {
-		Name  string `json:"name"`
-		Value string `json:"value"`
-	} `json:"cookies,omitempty"`
 }
 
 func reqToMsg(req *crawler.Request) *requestMsg {
@@ -76,12 +71,14 @@ func reqToMsg(req *crawler.Request) *requestMsg {
 	// if req.Proxy != nil {
 	// 	m.Proxy = req.Proxy.String()
 	// }
-	config := ConfigFrom(req.Context().C)
-	if config != nil {
-		m.Mode = config.Mode
-		m.Timeout = int(config.Timeout / time.Millisecond)
-		m.FetchCode = m.FetchCode
-		m.Injection = m.Injection
+	if ctx := req.Context(); ctx != nil {
+		config := ConfigFrom(ctx.C)
+		if config != nil {
+			m.Mode = config.Mode
+			m.Timeout = int(config.Timeout / time.Millisecond)
+			m.FetchCode = m.FetchCode
+			m.Injection = m.Injection
+		}
 	}
 	// for _, cookie := range req.Cookies {
 	// 	m.Cookies = append(m.Cookies, struct {
@@ -103,10 +100,6 @@ type responseMsg struct {
 	Content     string      `json:"content" mapstructure:"content"`
 	ContentType string      `json:"contentType" mapstructure:"contentType"`
 	Headers     http.Header `json:"headers" mapstructure:"headers"`
-	Cookies     []struct {
-		Name  string `json:"name" mapstructure:"name"`
-		Value string `json:"value" mapstructure:"value"`
-	} `json:"cookies" mapstructure:"cookies"`
 }
 
 func msgToResp(msg *responseMsg) *crawler.Response {

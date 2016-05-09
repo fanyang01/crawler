@@ -16,7 +16,6 @@ import:
 - package: golang.org/x/time
   subpackages:
   - rate
-- package: github.com/inconshreveable/log15
-- package: github.com/PuerkitoBio/purell
 - package: github.com/gobwas/glob
 - package: github.com/jmoiron/sqlx
+- package: gopkg.in/inconshreveable/log15.v2

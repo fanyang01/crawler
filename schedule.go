@@ -26,8 +26,8 @@ type scheduler struct {
 	queueOut <-chan *queue.Item
 	queueErr <-chan error
 
-	once sync.Once // used for closing Out
 	stop chan struct{}
+	once sync.Once // used for closing Out
 }
 
 func (cw *Crawler) newScheduler(wq queue.WaitQueue) *scheduler {
@@ -60,7 +60,6 @@ func (sd *scheduler) work() {
 		queueIn chan<- *queue.Item
 		waiting = make([]*queue.Item, 0, perPage)
 		next    *queue.Item
-		u       *url.URL
 		out     chan<- *Context
 		first   *Context
 		outFIFO []*Context
@@ -81,37 +80,34 @@ func (sd *scheduler) work() {
 		)
 		select {
 		// Input:
-		case u = <-sd.NewIn:
+		case u := <-sd.NewIn:
 			item = sd.sched(nil, u)
 			waiting = append(waiting, item)
 			continue
-		case u = <-sd.RecoverIn:
+		case u := <-sd.RecoverIn:
 			item = sd.sched(nil, u)
 			waiting = append(waiting, item)
 			continue
 		case ctx := <-sd.ErrIn:
 			switch ctx.err.(type) {
+			case FatalError, *FatalError:
+				err = ctx.err
+				goto ERROR
 			case RetryableError, *RetryableError:
-				sd.logger.Error(
-					"error occured, will retry...",
-					"err", ctx.err, "url", ctx.url,
-				)
 				if item, ok, err = sd.retry(ctx); err != nil {
 					goto ERROR
 				} else if ok {
 					waiting = append(waiting, item)
 					continue
 				}
-			case FatalError, *FatalError:
-				err = ctx.err
-				goto ERROR
-			}
-			sd.logger.Error(
-				"complete due to error",
-				"err", ctx.err, "url", ctx.url,
-			)
-			if err = sd.cw.store.Complete(ctx.url); err != nil {
-				goto ERROR
+			default:
+				if err = sd.cw.store.Complete(ctx.url); err != nil {
+					goto ERROR
+				}
+				sd.logger.Error(
+					"complete due to unknown error",
+					"err", ctx.err, "url", ctx.url,
+				)
 			}
 
 		case resp, ok := <-sd.In:
@@ -140,6 +136,9 @@ func (sd *scheduler) work() {
 				waiting = append(waiting, item)
 			}
 			switch resp.ctx.err.(type) {
+			case FatalError, *FatalError:
+				err = resp.ctx.err
+				goto ERROR
 			case RetryableError, *RetryableError:
 				if item, ok, err = sd.retry(resp.ctx); err != nil {
 					goto ERROR
@@ -147,11 +146,12 @@ func (sd *scheduler) work() {
 					waiting = append(waiting, item)
 					continue
 				}
-			case FatalError, *FatalError:
-				err = resp.ctx.err
-				goto ERROR
 			default:
-				if err = sd.cw.store.Complete(u); err != nil {
+				sd.logger.Error(
+					"complete due to unknown error",
+					"err", resp.ctx.err, "url", resp.URL,
+				)
+				if err = sd.cw.store.Complete(resp.URL); err != nil {
 					goto ERROR
 				}
 			}
@@ -208,6 +208,7 @@ func (sd *scheduler) cleanup() {
 	if err := sd.queue.Close(); err != nil {
 		sd.logger.Error("close wait queue", "err", err)
 	}
+	close(sd.quit)
 }
 
 func (sd *scheduler) exit() {
@@ -263,20 +264,30 @@ func (sd *scheduler) resched(r *Response) (
 }
 
 func (sd *scheduler) retry(ctx *Context) (*queue.Item, bool, error) {
+	defer ctx.free()
+
 	var cnt int
 	if err := sd.cw.store.UpdateFunc(ctx.url, func(uu *URL) {
 		uu.NumRetry++
 		cnt = uu.NumRetry
 	}); err != nil {
-		ctx.free()
 		return nil, false, err
 	}
+
 	delay, max := sd.cw.ctrl.Retry(ctx)
 	if cnt >= max {
+		sd.logger.Error(
+			"exceed maximum number of retries",
+			"err", ctx.err, "url", ctx.url, "retries", cnt,
+		)
 		err := sd.cw.store.Complete(ctx.url)
-		ctx.free()
 		return nil, false, err
 	}
+
+	sd.logger.Error(
+		"retry due to error",
+		"err", ctx.err, "url", ctx.url, "retries", cnt,
+	)
 	item := queue.NewItem()
 	item.URL = ctx.url
 	item.Ctx = ctx.C

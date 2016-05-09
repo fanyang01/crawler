@@ -1,5 +1,5 @@
-hash: 02dc33ffdfee7cdfd2e80297caa8bb1ca8ba922a64b0affa13b10b767d4d62cd
-updated: 2016-05-07T17:49:10.153793782+08:00
+hash: c74f63399d6e77351d8a8540db09c6a8f64dd4988dbd1c6695f08ef40d0479f5
+updated: 2016-05-09T17:01:15.2471448+08:00
 imports:
 - name: github.com/boltdb/bolt
   version: d97499360d1ecebc492ea66c7447ea948f417620
@@ -14,7 +14,7 @@ imports:
   - runes
   - strings
 - name: github.com/golang/snappy
-  version: 43fea289edce21979658cbbdb3925390890aa86e
+  version: d7b1e156f50d3c4664f683603af70e3e47fa0aa2
 - name: github.com/gorilla/websocket
   version: 1f512fc3f05332ba7117626cdfb4e07474e58e60
 - name: github.com/inconshreveable/log15
@@ -24,6 +24,12 @@ imports:
   - term
 - name: github.com/jmoiron/sqlx
   version: 398dd5876282499cdfd4cb8ea0f31a672abe9495
+  subpackages:
+  - reflectx
+- name: github.com/lib/pq
+  version: dd3290b2f71a8b30bee8e4e75a337a825263d26f
+  subpackages:
+  - oid
 - name: github.com/mattn/go-colorable
   version: 45ce6a6f60010487dd0dbab368b5fbbed1c14ef0
 - name: github.com/mattn/go-isatty
@@ -40,8 +46,6 @@ imports:
   version: a5152d67cf63cbfb5d992a395458722a45194715
 - name: github.com/PuerkitoBio/goquery
   version: 2e29ea41f0d13f4a303c75553f4eeadddc7a4c56
-- name: github.com/PuerkitoBio/purell
-  version: d69616f51cdfcd7514d6a380847a152dfc2a749d
 - name: github.com/Sirupsen/logrus
   version: cd7d1bbe41066b6c1f19780f895901052150a575
 - name: github.com/stretchr/testify
@@ -68,7 +72,7 @@ imports:
 - name: github.com/tylertreat/BoomFilters
   version: ae0b9585d4b87b2fe0b49ee09270abae7aaad179
 - name: golang.org/x/net
-  version: 35ec611a141ee705590b9eb64d673f9e6dfeb1ac
+  version: 2a35e686583654a1b89ca79c4ac78cb3d6529ca3
   subpackages:
   - html
   - proxy
@@ -103,4 +107,6 @@ imports:
   version: a4bde12657593d5e90d0533a3e4fd95e635124cb
   subpackages:
   - rate
+- name: gopkg.in/inconshreveable/log15.v2
+  version: b105bd37f74e5d9dc7b6ad7806715c7a2b83fd3f
 devImports: []

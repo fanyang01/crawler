@@ -38,7 +38,7 @@ func (e *Extractor) Extract(
 	chErr := make(chan error, 1)
 	go e.tokenLoop(r, body, chURL, chErr)
 
-	scheme, host := r.NewURL.Scheme, r.NewURL.Host
+	scheme, host := r.URL.Scheme, r.URL.Host
 	for u := range chURL {
 		if e.SameOrigin && u.Scheme != scheme {
 			continue
