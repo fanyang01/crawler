@@ -8,11 +8,9 @@ import (
 )
 
 type Ticket struct {
-	At         time.Time
-	Score      int
-	RetryMax   int
-	RetryDelay time.Duration
-	Ctx        context.Context
+	At    time.Time
+	Score int
+	Ctx   context.Context
 }
 
 // Controller controls the working progress of crawler.
@@ -20,8 +18,11 @@ type Controller interface {
 	// Prepare sets options(client, headers, ...) for a http request.
 	Prepare(req *Request)
 
-	// Handle handles a response. Handle should also extract hyperlinks
-	// from the response and send them to the channel.
+	// Handle handles a response(writing to disk/DB, ...). Handle should
+	// also extract hyperlinks from the response and send them to the
+	// channel. Note that r.NewURL may differ from r.URL if r.URL has been
+	// redirected, so r.NewURL should also be included if following
+	// redirects is expected.
 	Handle(r *Response, ch chan<- *url.URL)
 
 	// Accept determines whether a URL should be processed. It is redundant

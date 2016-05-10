@@ -64,16 +64,18 @@ func (h *handler) handle(r *Response) error {
 	}
 	ch := make(chan *url.URL, perPage)
 	go func() {
-		original := r.URL.String()
-		// Treat the new url as one found under the original url
-		if r.NewURL.String() != original {
-			newurl := *r.NewURL
-			ch <- &newurl
-		}
-		if refresh := r.Refresh.URL; refresh != nil &&
-			refresh.String() != original {
-			newurl := *refresh
-			ch <- &newurl
+		if h.cw.opt.FollowRedirect {
+			// Treat the new URL as one found under the original URL
+			original := r.URL.String()
+			if r.NewURL.String() != original {
+				newurl := *r.NewURL
+				ch <- &newurl
+			}
+			if refresh := r.Refresh.URL; refresh != nil &&
+				refresh.String() != original {
+				newurl := *refresh
+				ch <- &newurl
+			}
 		}
 		h.cw.ctrl.Handle(r, ch)
 		close(ch)

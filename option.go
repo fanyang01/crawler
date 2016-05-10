@@ -7,29 +7,21 @@ const (
 )
 
 type Option struct {
-	UserAgent     string
-	RobotAgent    string
-	EnableCache   bool
-	MaxCacheSize  int64
-	MinDelay      time.Duration
-	RetryDuration time.Duration
-	MaxRetry      int
-	RobotoAgent   string
-	MaxHTML       int64
-	NWorker       struct {
+	UserAgent      string
+	RobotAgent     string
+	MinDelay       time.Duration
+	RobotoAgent    string
+	FollowRedirect bool
+	NWorker        struct {
 		Maker, Fetcher, Handler, Scheduler int
 	}
 }
 
 var (
 	DefaultOption = &Option{
-		UserAgent:     browserAgant,
-		RobotAgent:    "gocrawler",
-		MaxCacheSize:  1024,
-		MaxHTML:       1 << 20, // iMB
-		MinDelay:      10 * time.Second,
-		RetryDuration: 10 * time.Second,
-		MaxRetry:      4,
+		UserAgent:  browserAgant,
+		RobotAgent: "gocrawler",
+		MinDelay:   10 * time.Second,
 		NWorker: struct {
 			Maker, Fetcher, Handler, Scheduler int
 		}{

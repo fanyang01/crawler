@@ -208,7 +208,11 @@ func (sd *scheduler) cleanup() {
 	if err := sd.queue.Close(); err != nil {
 		sd.logger.Error("close wait queue", "err", err)
 	}
-	close(sd.quit)
+	select {
+	case <-sd.quit: // closed
+	default:
+		close(sd.quit)
+	}
 }
 
 func (sd *scheduler) exit() {

@@ -1,7 +1,7 @@
 package fingerprint
 
 import (
-	"bytes"
+	"hash/fnv"
 	"io"
 
 	"github.com/mfonda/simhash"
@@ -27,19 +27,35 @@ func Compute(r io.Reader, N, shingle int) uint64 {
 
 	ch := make(chan uint64, 128)
 	go func() {
+		// Avoid allocation
 		s := make([][]byte, shingle)
+		joined := make([][]byte, 2*shingle-1)
+		space := []byte(" ")
+
 		var i, n int
 		for f := range chFeature {
+			// Collect enough features
 			if n < shingle {
 				s[n] = []byte(f)
-				n++
+				if n++; n == shingle {
+					goto JOIN
+				}
 				continue
 			}
+			// Shift array to produce one space
 			for i = 0; i < shingle-1; i++ {
 				s[i] = s[i+1]
 			}
 			s[i] = []byte(f)
-			ch <- simhash.NewFeature(bytes.Join(s, []byte(" "))).Sum()
+
+		JOIN:
+			for i, f := range s {
+				joined[2*i] = f
+				if i+1 != len(s) {
+					joined[2*i+1] = space
+				}
+			}
+			ch <- hash(joined...)
 		}
 		close(ch)
 	}()
@@ -85,4 +101,12 @@ func genFeature(t *html.Token, ch chan<- string) {
 		}
 	}
 	ch <- s
+}
+
+func hash(s ...[]byte) uint64 {
+	h := fnv.New64()
+	for _, b := range s {
+		h.Write(b)
+	}
+	return h.Sum64()
 }

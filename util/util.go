@@ -105,3 +105,24 @@ func Btoi64(b []byte) int64 {
 	i, _ := binary.Varint(b)
 	return i
 }
+
+// func Token(z *Tokenizer) *Token {
+// 	t := Token{Type: z.tt}
+// 	switch z.tt {
+// 	case TextToken, CommentToken, DoctypeToken:
+// 		t.Data = string(z.Text())
+// 	case StartTagToken, SelfClosingTagToken, EndTagToken:
+// 		name, moreAttr := z.TagName()
+// 		for moreAttr {
+// 			var key, val []byte
+// 			key, val, moreAttr = z.TagAttr()
+// 			t.Attr = append(t.Attr, Attribute{"", atom.String(key), string(val)})
+// 		}
+// 		if a := atom.Lookup(name); a != 0 {
+// 			t.DataAtom, t.Data = a, a.String()
+// 		} else {
+// 			t.DataAtom, t.Data = 0, string(name)
+// 		}
+// 	}
+// 	return t
+// }
