@@ -3,16 +3,11 @@ package download
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
-
-	"github.com/fanyang01/crawler/sim/bktree"
-	"github.com/fanyang01/crawler/sim/fingerprint"
 )
 
 type FreeList struct {
@@ -47,39 +42,9 @@ func (f *FreeList) Put(b *bytes.Buffer) {
 	}
 }
 
-type SimDownloader struct {
-	Dir         string
-	GenPath     func(*url.URL) string
-	PreDownload bool
-
-	Distance int
-	Shingle  int
-	MaxToken int
-
-	FreeList *FreeList
-
-	bktree struct {
-		sync.RWMutex
-		*bktree.Tree
-	}
-	once sync.Once
-}
-
-func (d *SimDownloader) init() {
-	d.once.Do(func() {
-		if !d.PreDownload && d.FreeList == nil {
-			d.FreeList = NewFreeList(32, 1<<21) // 32 * 2MB
-		}
-		if d.bktree.Tree == nil {
-			d.bktree.Tree = bktree.New()
-		}
-		if d.GenPath == nil {
-			d.GenPath = d.genPath
-		}
-		if d.MaxToken == 0 {
-			d.MaxToken = 4096
-		}
-	})
+type Downloader struct {
+	Dir     string
+	GenPath func(*url.URL) string
 }
 
 func file(pth string) (f *os.File, err error) {
@@ -94,65 +59,30 @@ func file(pth string) (f *os.File, err error) {
 	)
 }
 
-func (d *SimDownloader) Handle(u *url.URL, r io.Reader, isHTML bool) (similar bool, err error) {
-	d.init()
+func (d *Downloader) Handle(u *url.URL, r io.Reader) error {
+	var (
+		f   *os.File
+		pth string
+		err error
+	)
 
-	var f *os.File
-	var buf *bytes.Buffer
-	var tee io.Reader
-	pth := d.GenPath(u)
-
-	if !isHTML {
-		if f, err = file(pth); err != nil {
-			return
-		}
-		defer f.Close()
-
-		_, err = io.Copy(f, r)
-		return false, err
-	}
-
-	if d.PreDownload {
-		if f, err = file(pth); err != nil {
-			return
-		}
-		defer f.Close()
-		tee = io.TeeReader(r, f)
+	if d.GenPath != nil {
+		pth = d.GenPath(u)
 	} else {
-		buf = d.FreeList.Get()
-		defer d.FreeList.Put(buf)
-		tee = io.TeeReader(r, buf)
+		pth = d.genPath(u)
 	}
 
-	fp := fingerprint.Compute(tee, d.MaxToken, d.Shingle)
-	if d.hasSimilar(fp, d.Distance) {
-		similar = true
-		if d.PreDownload {
-			err = os.Remove(f.Name())
-		}
-		return
-	}
-
-	if _, err = io.Copy(ioutil.Discard, tee); err != nil {
-		return
-	} else if d.PreDownload { // content has been copy to file
-		goto DONE
-	} else if f, err = file(pth); err != nil {
-		return
+	if f, err = file(pth); err != nil {
+		return err
 	}
 	defer f.Close()
 
-	if _, err = io.Copy(f, buf); err != nil {
-		os.Remove(f.Name()) // TODO: handler error
-		return
-	}
-DONE:
-	d.addFingerprint(fp)
-	return
+	_, err = io.Copy(f, r)
+	return err
+
 }
 
-func (d *SimDownloader) genPath(u *url.URL) string {
-	// pth := u.Path
+func (d *Downloader) genPath(u *url.URL) string {
 	pth := u.EscapedPath()
 	if strings.HasSuffix(pth, "/") {
 		pth += "index.html"
@@ -160,24 +90,11 @@ func (d *SimDownloader) genPath(u *url.URL) string {
 		pth += "/index.html"
 	}
 	if u.RawQuery != "" {
-		pth += ".QUERY." + u.Query().Encode()
+		pth += "?" + u.Query().Encode()
 	}
 	return filepath.Join(
 		d.Dir,
 		u.Host,
 		filepath.FromSlash(path.Clean(pth)),
 	)
-}
-
-func (d *SimDownloader) addFingerprint(f uint64) {
-	d.bktree.Lock()
-	d.bktree.Add(f)
-	d.bktree.Unlock()
-}
-
-func (d *SimDownloader) hasSimilar(f uint64, r int) bool {
-	d.bktree.RLock()
-	ok := d.bktree.Has(f, r)
-	d.bktree.RUnlock()
-	return ok
 }

@@ -42,6 +42,28 @@ func TestAdd(t *testing.T) {
 	}
 }
 
+func TestThreshold(t *testing.T) {
+	assert := assert.New(t)
+	trie := New()
+	gen := func(i int) func(int) int {
+		return func(_ int) int {
+			return i
+		}
+	}
+	check := func(url string, threshold int, exp bool) {
+		assert.Equal(exp, trie.Add(mustParse(url), gen(threshold)))
+	}
+	check("http://localhost/pkg/net/http/httptest", 1, true)
+	check("http://localhost/pkg/net/url", 1, false)
+	check("http://localhost/pkg/net/url", 2, true)
+	check("http://localhost/pkg/net/hello", 2, false)
+	check("http://localhost/pkg/net/url?hello=world", 2, true)
+	check("http://localhost/pkg/net/url?hello=foo", 2, true)
+	check("http://localhost/pkg/net/url?hello=bar", 2, false)
+	check("http://localhost/pkg/net/url?foo=world", 2, true)
+	check("http://localhost/pkg/net/url?bar=world", 2, false)
+}
+
 func print(t *Trie) {
 	var walkQuery func(*QueryNode, string)
 	walkQuery = func(n *QueryNode, s string) {

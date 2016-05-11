@@ -9,13 +9,13 @@ import (
 	"golang.org/x/net/html"
 )
 
-func Compute(r io.Reader, N, shingle int) uint64 {
+func Compute(r io.Reader, N, shingle int) (uint64, error) {
 	if shingle < 1 {
 		shingle = 1
 	}
 	chFeature := make(chan string, 128)
+	z := html.NewTokenizer(r)
 	go func() {
-		z := html.NewTokenizer(r)
 		count := 1
 		for tt := z.Next(); count < N && tt != html.ErrorToken; tt = z.Next() {
 			t := z.Token()
@@ -70,7 +70,10 @@ func Compute(r io.Reader, N, shingle int) uint64 {
 			v[i] += (bit ^ (bit - 1))
 		}
 	}
-	return simhash.Fingerprint(v)
+	if err := z.Err(); err != io.EOF {
+		return 0, err
+	}
+	return simhash.Fingerprint(v), nil
 }
 
 func genFeature(t *html.Token, ch chan<- string) {

@@ -259,8 +259,8 @@ func (mux *Mux) Handle(r *crawler.Response, ch chan<- *url.URL) {
 	if f, ok := mux.matcher[muxHANDLE].Get(url); ok {
 		f.(Handler).Handle(r, ch)
 	} else {
-		depth, err := r.Context().Depth()
-		if err == nil && mux.follow(r, depth) {
+		depth := r.Context().Depth()
+		if mux.follow(r, depth) {
 			crawler.ExtractHref(r.NewURL, r.Body, ch)
 		}
 	}

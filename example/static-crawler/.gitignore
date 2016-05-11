@@ -1,3 +1,4 @@
-_testdata
-testdata
+_testdata/
+testdata/
 *.csv
+static-crawler

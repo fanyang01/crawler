@@ -18,7 +18,7 @@ type entry struct {
 type QueryFunc func(host string) (inteval time.Duration, burst int)
 
 // A Limit controls how frequently hosts are allowed to be crawled.
-type Limit struct {
+type Limiter struct {
 	mu   sync.Mutex
 	host map[string]*entry
 
@@ -29,8 +29,8 @@ type Limit struct {
 
 // New creates a rate limiter. Query function will be called only once for
 // each host.
-func New(query QueryFunc) *Limit {
-	return &Limit{
+func New(query QueryFunc) *Limiter {
+	return &Limiter{
 		host:  make(map[string]*entry),
 		query: query,
 	}
@@ -39,8 +39,8 @@ func New(query QueryFunc) *Limit {
 // NewUpdatable creates an updatable rate limiter. Query function will be
 // called every freq times for each host. Only frequency(interval returned
 // by query) is updatable.
-func NewUpdatable(freq int, query QueryFunc) *Limit {
-	return &Limit{
+func NewUpdatable(freq int, query QueryFunc) *Limiter {
+	return &Limiter{
 		host:      make(map[string]*entry),
 		query:     query,
 		updatable: true,
@@ -50,7 +50,7 @@ func NewUpdatable(freq int, query QueryFunc) *Limit {
 
 // Reserve returns how long the crawler should wait before crawling this
 // URL.
-func (l *Limit) Reserve(u *url.URL) time.Duration {
+func (l *Limiter) Reserve(u *url.URL) time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 

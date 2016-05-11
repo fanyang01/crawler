@@ -20,10 +20,11 @@ const (
 )
 
 type Context struct {
-	cw  *Crawler
-	url *url.URL
-	err error
-	C   context.Context
+	cw    *Crawler
+	url   *url.URL
+	depth int
+	err   error
+	C     context.Context
 }
 
 var (
@@ -35,12 +36,17 @@ var (
 	emptyContext = Context{}
 )
 
-func (cw *Crawler) newContext(u *url.URL, ctx context.Context) *Context {
+func (cw *Crawler) newContext(u *url.URL, ctx context.Context) (*Context, error) {
+	depth, err := cw.store.GetDepth(u)
+	if err != nil {
+		return nil, err
+	}
 	c := ctxFreeList.Get().(*Context)
 	c.cw = cw
 	c.url = u
+	c.depth = depth
 	c.C = ctx
-	return c
+	return c, nil
 }
 
 func (c *Context) free() {
@@ -49,6 +55,7 @@ func (c *Context) free() {
 }
 
 func (c *Context) URL() *url.URL { return c.url }
+func (c *Context) Depth() int    { return c.depth }
 
 func (c *Context) With(ctx context.Context) { c.C = ctx }
 
@@ -69,16 +76,6 @@ func (c *Context) Fatal(err error) {
 	c.err = FatalError{err}
 }
 
-func (c *Context) Depth() (depth int, err error) {
-	depth, ok := c.Value(ckDepth).(int)
-	if !ok {
-		if depth, err = c.cw.store.GetDepth(c.url); err == nil {
-			c.WithValue(ckDepth, depth)
-		}
-		return
-	}
-	return depth, nil
-}
 func (c *Context) NumVisit() (cnt int, err error) {
 	if err = c.fromStore(); err == nil {
 		cnt = c.Value(ckNumVisit).(int)

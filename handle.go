@@ -58,10 +58,7 @@ func (h *handler) work() {
 }
 
 func (h *handler) handle(r *Response) error {
-	depth, err := r.ctx.Depth()
-	if err != nil {
-		return err
-	}
+	depth := r.ctx.Depth()
 	ch := make(chan *url.URL, perPage)
 	go func() {
 		if h.cw.opt.FollowRedirect {

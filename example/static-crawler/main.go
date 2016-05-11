@@ -2,11 +2,11 @@ package main
 
 import (
 	"bufio"
-	"io"
+	"flag"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,67 +18,42 @@ import (
 	"github.com/fanyang01/crawler"
 	"github.com/fanyang01/crawler/download"
 	"github.com/fanyang01/crawler/extract"
-	"github.com/fanyang01/crawler/media"
 	"github.com/fanyang01/crawler/queue/diskqueue"
 	"github.com/fanyang01/crawler/ratelimit"
-	"github.com/fanyang01/crawler/sim/urltrie"
+	"github.com/fanyang01/crawler/sample/count"
+	"github.com/fanyang01/crawler/sample/fingerprint"
+	"github.com/fanyang01/crawler/sample/urltrie"
 	"github.com/fanyang01/crawler/storage/boltstore"
 )
 
-type Controller struct {
-	crawler.NopController
-	Extractor  *extract.Extractor
-	Downloader *download.SimDownloader
-	Trie       *urltrie.MultiHost
-	Limiter    *ratelimit.Limit
-	logger     log15.Logger
-}
+var (
+	dir           string
+	seedfile      string
+	offset, nseed int
 
-var freelist = download.NewFreeList(1<<20, 32)
-
-func (c *Controller) Handle(r *crawler.Response, ch chan<- *url.URL) {
-	buf := freelist.Get()
-	defer freelist.Put(buf)
-
-	tee := io.TeeReader(r.Body, buf)
-	isHTML := media.IsHTML(r.ContentType)
-	similar, err := c.Downloader.Handle(r.URL, tee, isHTML)
-	if err != nil {
-		c.logger.Error("download error", "err", err, "url", r.URL)
-		return
-	}
-	depth, _ := r.Context().Depth()
-	c.logger.Info("",
-		"url", r.URL, "depth", depth,
-		"isHTML", isHTML, "similar", similar,
-	)
-	if isHTML && !similar {
-		if err := c.Extractor.Extract(r, buf, ch); err != nil {
-			c.logger.Error("extract link", "err", err)
-		}
-	}
-}
-
-func (c *Controller) Accept(r *crawler.Response, u *url.URL) bool {
-	return r.URL.Host == u.Host && c.Trie.Add(u)
-}
-
-func (c *Controller) Sched(r *crawler.Response, u *url.URL) crawler.Ticket {
-	d := c.Limiter.Reserve(u)
-	return crawler.Ticket{At: time.Now().Add(d)}
-}
+	ctrl *Controller
+)
 
 func rate(host string) (time.Duration, int) {
-	return time.Second, 2
+	return time.Second, 10
 }
 
 func threshold(depth int) int {
 	if depth <= 2 {
 		depth = 0
-	} else if depth > 8 {
-		depth = 8
+	} else if depth > 6 {
+		depth = 6
 	}
-	return 20 - 2*depth
+	return 14 - 2*depth
+}
+
+func init() {
+	flag.StringVar(&dir, "dir", "_testdata", "output directory")
+	flag.StringVar(&seedfile, "f", "1000.csv", "file that provides seed URLs(one per line)")
+	flag.IntVar(&offset, "offset", 1, "line offset in seeds file")
+	flag.IntVar(&nseed, "n", 100, "number of lines starting from offset")
+
+	flag.Parse()
 }
 
 func main() {
@@ -86,7 +61,7 @@ func main() {
 
 	logger := log15.Root()
 	logger.SetHandler(log15.MultiHandler(
-		log15.Must.FileHandler("_testdata/crawler.log", log15.LogfmtFormat()),
+		log15.Must.FileHandler(filepath.Join(dir, "crawler.log"), log15.LogfmtFormat()),
 		log15.StdoutHandler,
 	))
 
@@ -105,8 +80,8 @@ func main() {
 		// 	"*.mp4", "*.mkv",
 		// },
 	}
-	ctrl := &Controller{
-		Extractor: &extract.Extractor{
+	ctrl = &Controller{
+		extractor: &extract.Extractor{
 			Matcher:  extract.MustCompile(pattern),
 			MaxDepth: 4,
 			Pos: []struct{ Tag, Attr string }{
@@ -118,27 +93,26 @@ func main() {
 			SniffFlags: extract.SniffWindowLocation,
 			Redirect:   true,
 		},
-		Downloader: &download.SimDownloader{
-			Dir:      "_testdata",
-			Distance: 0,
-			Shingle:  4,
-			MaxToken: 4096,
+		downloader: &download.Downloader{
+			Dir: dir,
 		},
-		Trie:    urltrie.NewMultiHost(threshold),
-		Limiter: ratelimit.New(rate),
-		logger:  logger.New("worker", "controller"),
+		trie:        urltrie.NewHosts(threshold),
+		count:       count.NewHosts(),
+		fingerprint: fingerprint.NewStore(0, 4, 4096),
+		limiter:     ratelimit.New(rate),
+		logger:      logger.New("worker", "controller"),
 	}
 
-	store, err := boltstore.New("_testdata/bolt.db", nil, nil)
+	store, err := boltstore.New(filepath.Join(dir, "bolt.db"), nil, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	queue, err := diskqueue.NewDefault("_testdata/queue.db")
+	queue, err := diskqueue.NewDefault(filepath.Join(dir, "queue.db"))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	csv, err := os.Open("1000.csv")
+	csv, err := os.Open(seedfile)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -156,7 +130,8 @@ func main() {
 	csv.Close()
 
 	go func() {
-		log.Println(http.ListenAndServe("localhost:7869", nil))
+		http.Handle("/count/", http.HandlerFunc(handleCount))
+		log.Fatal(http.ListenAndServe("localhost:7869", nil))
 	}()
 
 	cw := crawler.NewCrawler(&crawler.Config{
@@ -165,7 +140,7 @@ func main() {
 		Store:      store,
 		Queue:      queue,
 	})
-	if err := cw.Crawl(urls[100:200]...); err != nil {
+	if err := cw.Crawl(urls[offset-1 : offset-1+nseed]...); err != nil {
 		log.Fatal(err)
 	}
 	cw.Wait()

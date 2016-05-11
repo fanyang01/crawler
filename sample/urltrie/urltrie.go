@@ -117,6 +117,9 @@ func (t *Trie) Add(u *url.URL, threshold func(depth int) int) bool {
 			qnode.next = primary
 		}
 		if secondary = primary[kv.k]; secondary == nil {
+			if threshold != nil && len(primary) >= threshold(depth) {
+				return false
+			}
 			secondary = make(map[string]*QueryNode, 1)
 			primary[kv.k] = secondary
 		}
@@ -189,20 +192,20 @@ func (t *Trie) Has(u *url.URL, threshold func(depth int) int) bool {
 	return true
 }
 
-type MultiHost struct {
+type Hosts struct {
 	mu sync.Mutex
 	m  map[string]*Trie
 	f  func(depth int) int
 }
 
-func NewMultiHost(threshold func(depth int) int) *MultiHost {
-	return &MultiHost{
+func NewHosts(threshold func(depth int) int) *Hosts {
+	return &Hosts{
 		m: make(map[string]*Trie),
 		f: threshold,
 	}
 }
 
-func (h *MultiHost) Add(u *url.URL) bool {
+func (h *Hosts) Add(u *url.URL) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 

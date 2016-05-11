@@ -16,6 +16,7 @@ type scheduler struct {
 
 	NewIn     chan *url.URL
 	RecoverIn chan *url.URL
+	CancelIn  chan *Context
 	ErrIn     chan *Context
 	Out       chan *Context
 	In        chan *Response
@@ -40,6 +41,7 @@ func (cw *Crawler) newScheduler(wq queue.WaitQueue) *scheduler {
 		NewIn:     make(chan *url.URL, nworker),
 		RecoverIn: make(chan *url.URL, nworker),
 		ErrIn:     make(chan *Context, nworker),
+		CancelIn:  make(chan *Context, nworker),
 		ErrRespIn: make(chan *Response, nworker),
 		Out:       make(chan *Context, nworker),
 
@@ -88,6 +90,15 @@ func (sd *scheduler) work() {
 			item = sd.sched(nil, u)
 			waiting = append(waiting, item)
 			continue
+
+		case ctx := <-sd.CancelIn:
+			if err = sd.cw.store.Complete(ctx.url); err != nil {
+				goto ERROR
+			}
+			sd.logger.Info(
+				"complete due to canceled request",
+				"url", ctx.url,
+			)
 		case ctx := <-sd.ErrIn:
 			switch ctx.err.(type) {
 			case FatalError, *FatalError:
@@ -160,10 +171,12 @@ func (sd *scheduler) work() {
 			if item == nil { // queue has been closed
 				return
 			}
-			outFIFO = append(
-				outFIFO, sd.cw.newContext(item.URL, item.Ctx),
-			)
+			var ctx *Context
+			if ctx, err = sd.cw.newContext(item.URL, item.Ctx); err != nil {
+				goto ERROR
+			}
 			item.Free()
+			outFIFO = append(outFIFO, ctx)
 
 		// Output:
 		case queueIn <- next:

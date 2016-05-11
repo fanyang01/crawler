@@ -29,9 +29,7 @@ func (e *Extractor) Extract(
 	r *crawler.Response, body io.Reader, ch chan<- *url.URL,
 ) error {
 	if e.MaxDepth > 0 {
-		if depth, err := r.Context().Depth(); err != nil {
-			return err
-		} else if depth >= e.MaxDepth {
+		if r.Context().Depth() >= e.MaxDepth {
 			return nil
 		}
 	}

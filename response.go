@@ -26,10 +26,6 @@ const (
 )
 
 // Response contains a http response and some metadata.
-// Note the body of response may be read or not, depending on
-// the type of content and the size of content. Call ReadBody to
-// safely read and close the body. Optionally, you can access Body
-// directly but do NOT close it.
 type Response struct {
 	*http.Response
 	URL       *url.URL
