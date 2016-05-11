@@ -13,13 +13,14 @@ import (
 
 // Extractor extracts and filters URLs.
 type Extractor struct {
-	Normalize   func(*url.URL) error
-	Matcher     Matcher
-	MaxDepth    int
-	SpanHosts   bool
-	SameOrigin  bool
-	Destination []struct{ Tag, Attr string }
-	SniffFlags  int
+	Normalize  func(*url.URL) error
+	Matcher    Matcher
+	MaxDepth   int
+	SpanHosts  bool
+	SameOrigin bool
+	Pos        []struct{ Tag, Attr string }
+	Redirect   bool
+	SniffFlags int
 }
 
 // Extract parses the HTML document, extracts URLs and filters them using
@@ -35,6 +36,14 @@ func (e *Extractor) Extract(
 		}
 	}
 	chURL := make(chan *url.URL, 32)
+	if e.Redirect {
+		newurl := *r.NewURL
+		chURL <- &newurl
+		if r.Refresh.URL != nil {
+			refresh := *r.Refresh.URL
+			chURL <- &refresh
+		}
+	}
 	chErr := make(chan error, 1)
 	go e.tokenLoop(r, body, chURL, chErr)
 
@@ -61,7 +70,7 @@ func (e *Extractor) tokenLoop(
 	z := html.NewTokenizer(body)
 	base := *r.NewURL
 	normalize := e.Normalize
-	dest := e.Destination
+	dest := e.Pos
 	if normalize == nil {
 		normalize = urlx.Normalize
 	}

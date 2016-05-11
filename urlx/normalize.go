@@ -9,6 +9,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/net/idna"
 )
@@ -33,6 +34,10 @@ func validateHost(host string) (string, error) {
 }
 
 func Normalize(u *url.URL) error {
+	if !utf8.ValidString(u.String()) {
+		return fmt.Errorf("normalize URL: invalid UTF-8 string: %q", u.String())
+	}
+
 	u.Scheme = strings.ToLower(u.Scheme)
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("normalize URL: unsupported scheme: %v", u.Scheme)
@@ -56,7 +61,18 @@ func Normalize(u *url.URL) error {
 	if port != "" {
 		u.Host = net.JoinHostPort(u.Host, port)
 	}
-	u.RawPath = path.Clean(u.RawPath)
+
+	clean := func(pth string) string {
+		p := path.Clean(pth)
+		if p == "." {
+			p = ""
+		} else if strings.HasSuffix(pth, "/") && !strings.HasSuffix(p, "/") {
+			p += "/"
+		}
+		return p
+	}
+	u.Path = clean(u.Path)
+	u.RawPath = clean(u.RawPath)
 	u.Fragment = ""
 	return nil
 }

@@ -111,8 +111,9 @@ func (cw *Crawler) recover() (n int, err error) {
 	return cnt, <-chErr
 }
 
-func (cw *Crawler) Wait() {
+func (cw *Crawler) Wait() error {
 	cw.wg.Wait()
+	return cw.store.Close()
 }
 
 func (cw *Crawler) addSeeds(seeds ...string) (n int, err error) {

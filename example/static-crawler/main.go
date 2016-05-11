@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -11,9 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/inconshreveable/log15.v2"
-
 	_ "net/http/pprof"
+
+	"github.com/pkg/profile"
+	"gopkg.in/inconshreveable/log15.v2"
 
 	"github.com/fanyang01/crawler"
 	"github.com/fanyang01/crawler/download"
@@ -23,7 +23,6 @@ import (
 	"github.com/fanyang01/crawler/ratelimit"
 	"github.com/fanyang01/crawler/sim/urltrie"
 	"github.com/fanyang01/crawler/storage/boltstore"
-	"github.com/fanyang01/crawler/util"
 )
 
 type Controller struct {
@@ -35,33 +34,33 @@ type Controller struct {
 	logger     log15.Logger
 }
 
+var freelist = download.NewFreeList(1<<20, 32)
+
 func (c *Controller) Handle(r *crawler.Response, ch chan<- *url.URL) {
-	readers, readAll := util.DumpReader(io.LimitReader(r.Body, 1<<19), 2)
-	done := make(chan struct{})
-	go func() {
-		if err := c.Extractor.Extract(r, readers[0], ch); err != nil {
+	buf := freelist.Get()
+	defer freelist.Put(buf)
+
+	tee := io.TeeReader(r.Body, buf)
+	isHTML := media.IsHTML(r.ContentType)
+	similar, err := c.Downloader.Handle(r.URL, tee, isHTML)
+	if err != nil {
+		c.logger.Error("download error", "err", err, "url", r.URL)
+		return
+	}
+	depth, _ := r.Context().Depth()
+	c.logger.Info("",
+		"url", r.URL, "depth", depth,
+		"isHTML", isHTML, "similar", similar,
+	)
+	if isHTML && !similar {
+		if err := c.Extractor.Extract(r, buf, ch); err != nil {
 			c.logger.Error("extract link", "err", err)
 		}
-		io.Copy(ioutil.Discard, readers[0])
-		close(done)
-	}()
-
-	is := media.IsHTML(r.ContentType)
-	sim, err := c.Downloader.Handle(r.URL, readers[1], is)
-	if err != nil {
-		c.logger.Error("download", "err", err, "url", r.URL)
-	} else if sim {
-		c.logger.Info("found similar page, download canceled", "url", r.URL)
-	} else {
-		c.logger.Info("download finished", "url", r.URL)
 	}
-	io.Copy(ioutil.Discard, readers[1])
-	<-readAll
-	<-done
 }
 
 func (c *Controller) Accept(r *crawler.Response, u *url.URL) bool {
-	return c.Trie.Add(u)
+	return r.URL.Host == u.Host && c.Trie.Add(u)
 }
 
 func (c *Controller) Sched(r *crawler.Response, u *url.URL) crawler.Ticket {
@@ -73,11 +72,18 @@ func rate(host string) (time.Duration, int) {
 	return time.Second, 2
 }
 
-func limit(depth int) int {
-	return 64 - 2*depth
+func threshold(depth int) int {
+	if depth <= 2 {
+		depth = 0
+	} else if depth > 8 {
+		depth = 8
+	}
+	return 20 - 2*depth
 }
 
 func main() {
+	defer profile.Start(profile.MemProfile, profile.ProfilePath(".")).Stop()
+
 	logger := log15.Root()
 	logger.SetHandler(log15.MultiHandler(
 		log15.Must.FileHandler("_testdata/crawler.log", log15.LogfmtFormat()),
@@ -85,23 +91,32 @@ func main() {
 	))
 
 	pattern := &extract.Pattern{
-		ExcludeFile: []string{
-			"*.doc?", "*.xls?", "*.ppt?",
-			"*.pdf", "*.rar", "*.zip",
-			"*.ico",
+		File: []string{
+			"", "*.?htm?", `/[^\.]*/`,
+			`/.*\.(jpg|JPG|png|PNG|jpeg|JPEG|gif|GIF)/`,
+			`/.*\.(php|jsp|aspx|asp|cgi|do)/`,
+			"*.css", "*.js",
+			"*http?://*",
 		},
+		// ExcludeFile: []string{
+		// 	"*.doc?", "*.xls?", "*.ppt?",
+		// 	"*.pdf", "*.rar", "*.zip",
+		// 	"*.ico", "*.apk", "*.exe",
+		// 	"*.mp4", "*.mkv",
+		// },
 	}
 	ctrl := &Controller{
 		Extractor: &extract.Extractor{
 			Matcher:  extract.MustCompile(pattern),
 			MaxDepth: 4,
-			Destination: []struct{ Tag, Attr string }{
+			Pos: []struct{ Tag, Attr string }{
 				{"a", "href"},
 				{"img", "src"},
 				{"link", "href"},
 				{"script", "src"},
 			},
 			SniffFlags: extract.SniffWindowLocation,
+			Redirect:   true,
 		},
 		Downloader: &download.SimDownloader{
 			Dir:      "_testdata",
@@ -109,7 +124,7 @@ func main() {
 			Shingle:  4,
 			MaxToken: 4096,
 		},
-		Trie:    urltrie.NewMultiHost(limit),
+		Trie:    urltrie.NewMultiHost(threshold),
 		Limiter: ratelimit.New(rate),
 		logger:  logger.New("worker", "controller"),
 	}
@@ -150,8 +165,7 @@ func main() {
 		Store:      store,
 		Queue:      queue,
 	})
-	if err := cw.Crawl(urls[:100]...); err != nil {
-		// if err := cw.Crawl("http://www.homekoo.com"); err != nil {
+	if err := cw.Crawl(urls[100:200]...); err != nil {
 		log.Fatal(err)
 	}
 	cw.Wait()

@@ -3,11 +3,13 @@ package boltstore
 import (
 	"errors"
 	"net/url"
+	"time"
 
 	"github.com/boltdb/bolt"
 	"github.com/fanyang01/crawler"
 	"github.com/fanyang01/crawler/bloom"
 	"github.com/fanyang01/crawler/codec"
+	"github.com/fanyang01/crawler/urlx"
 	"github.com/fanyang01/crawler/util"
 )
 
@@ -15,6 +17,41 @@ type BoltStore struct {
 	DB     *bolt.DB
 	filter *bloom.Filter
 	codec  codec.Codec
+}
+
+type wrapper struct {
+	URL      string
+	Depth    int
+	Done     bool
+	Last     time.Time
+	Status   int
+	NumVisit int
+	NumRetry int
+}
+
+func (w *wrapper) To(url string) (*crawler.URL, error) {
+	uu, err := urlx.Parse(url)
+	if err != nil {
+		return nil, err
+	}
+	u := &crawler.URL{}
+	u.URL = *uu
+	u.Depth = w.Depth
+	u.Done = w.Done
+	u.Last = w.Last
+	u.Status = w.Status
+	u.NumVisit = w.NumVisit
+	u.NumRetry = w.NumRetry
+	return u, nil
+}
+func (w *wrapper) From(u *crawler.URL) *wrapper {
+	w.Depth = u.Depth
+	w.Done = u.Done
+	w.Last = u.Last
+	w.Status = u.Status
+	w.NumVisit = u.NumVisit
+	w.NumRetry = u.NumRetry
+	return w
 }
 
 var (
@@ -83,12 +120,16 @@ func (s *BoltStore) Exist(u *url.URL) (yes bool, err error) {
 }
 
 func (s *BoltStore) getFromBucket(b *bolt.Bucket, u *url.URL) (uu *crawler.URL, err error) {
-	v := b.Get([]byte(u.String()))
+	us := u.String()
+	v := b.Get([]byte(us))
 	if v == nil {
 		return nil, errors.New("boltstore: item is not found")
 	}
-	uu = &crawler.URL{}
-	err = s.codec.Unmarshal(v, uu)
+	w := &wrapper{}
+	err = s.codec.Unmarshal(v, w)
+	if err == nil {
+		uu, err = w.To(us)
+	}
 	return
 }
 
@@ -127,7 +168,8 @@ func (s *BoltStore) PutNX(u *crawler.URL) (ok bool, err error) {
 	err = s.DB.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bkURL)
 		k := []byte(u.URL.String())
-		v, err := s.codec.Marshal(u)
+		w := &wrapper{}
+		v, err := s.codec.Marshal(w.From(u))
 		if err != nil {
 			return err
 		}
@@ -156,7 +198,8 @@ func (s *BoltStore) UpdateFunc(u *url.URL, f func(*crawler.URL)) error {
 		}
 		f(uu)
 		k := []byte(u.String())
-		v, err := s.codec.Marshal(uu)
+		w := &wrapper{}
+		v, err := s.codec.Marshal(w.From(uu))
 		if err != nil {
 			return err
 		}
@@ -179,7 +222,8 @@ func (s *BoltStore) Complete(u *url.URL) error {
 		}
 		uu.Done = true
 		k := []byte(u.String())
-		v, err := s.codec.Marshal(uu)
+		w := &wrapper{}
+		v, err := s.codec.Marshal(w.From(uu))
 		if err != nil {
 			return err
 		}
@@ -223,14 +267,21 @@ func (s *BoltStore) Recover(ch chan<- *url.URL) error {
 	return s.DB.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bkURL)
 		c := b.Cursor()
-		var u crawler.URL
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if err := s.codec.Unmarshal(v, &u); err != nil {
+			w := &wrapper{}
+			if err := s.codec.Unmarshal(v, w); err != nil {
 				return err
-			} else if !u.Done {
-				ch <- &u.URL
+			} else if w.Done {
+				continue
+			} else if u, err := urlx.Parse(string(k)); err != nil {
+				return err
+			} else {
+				ch <- u
 			}
 		}
 		return nil
 	})
 }
+
+// TODO: write the bloom filter to a bucket.
+func (s *BoltStore) Close() error { return s.DB.Close() }

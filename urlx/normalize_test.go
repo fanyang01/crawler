@@ -1,6 +1,7 @@
 package urlx
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,5 +22,15 @@ func TestNormalizeURL(t *testing.T) {
 		assert.NoError(err)
 		assert.NotNil(u)
 		assert.Equal(v[1], u.String())
+	}
+	invalid := []string{
+		"http://example.com/\xB4\xBA\xBD\xDA",
+		"http://example.com/?hello=\xB4\xBA\xBD\xDA",
+	}
+	for _, v := range invalid {
+		u, err := Parse(v, Normalize)
+		fmt.Printf("%#v\n", u)
+		fmt.Println(err)
+		assert.Error(err)
 	}
 }

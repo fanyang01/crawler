@@ -23,11 +23,25 @@ type godocController struct {
 
 func (c *godocController) Handle(r *Response, ch chan<- *url.URL) {
 	if strings.HasPrefix(r.URL.Path, "/pkg/") {
+		depth, err := r.Context().Depth()
+		if err != nil {
+			c.t.Error(err)
+			return
+		}
 		pkg := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/pkg/"), "/")
-		if pkg != "" { // http://localhost:6060/pkg/
+		if pkg != "" {
+			if depth != 2 && !strings.Contains(pkg, "internal") {
+				c.t.Errorf("depth of %q: expect: 2, got %d", r.URL, depth)
+				return
+			}
 			c.Lock()
 			c.pkg[pkg]++
 			c.Unlock()
+		} else { // http://localhost:6060/pkg/
+			if depth != 1 {
+				c.t.Errorf("depth of %q: expect: 1, got %d", r.URL, depth)
+				return
+			}
 		}
 	}
 	err := ExtractHref(r.NewURL, r.Body, ch)

@@ -61,3 +61,7 @@ func (w storeWrapper) IsFinished() (bool, error) {
 	v, err := w.store.IsFinished()
 	return v, storeErr(err)
 }
+func (w storeWrapper) Close() error {
+	err := w.store.Close()
+	return storeErr(err)
+}

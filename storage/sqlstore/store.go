@@ -292,3 +292,5 @@ func (s *SQLStore) IsFinished() (is bool, err error) {
 	}
 	return
 }
+
+func (s *SQLStore) Close() error { return s.DB.Close() }

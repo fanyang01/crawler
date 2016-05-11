@@ -244,3 +244,5 @@ func (s *LevelStore) IsFinished() (is bool, err error) {
 	}
 	return
 }
+
+func (s *LevelStore) Close() error { return s.Close() }

@@ -23,6 +23,8 @@ type Store interface {
 
 	IncVisitCount() error
 	IsFinished() (bool, error)
+
+	Close() error
 }
 
 type PersistableStore interface {
@@ -145,3 +147,5 @@ func (p *MemStore) IsFinished() (bool, error) {
 	defer p.RUnlock()
 	return p.NumDone >= p.NumURL, nil
 }
+
+func (p *MemStore) Close() error { return nil }
