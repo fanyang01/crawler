@@ -83,7 +83,7 @@ func (h *handler) handle(r *Response) error {
 func (h *handler) handleLink(r *Response, ch <-chan *url.URL, depth int) error {
 	for u := range ch {
 		if err := h.cw.normalize(u); err != nil {
-			h.logger.Warn("normalize URL", "url", u, "err", err)
+			h.logger.Debug("normalize URL", "url", u, "err", err)
 			continue
 		}
 		if ok, err := h.filter(r, u, depth); err != nil {

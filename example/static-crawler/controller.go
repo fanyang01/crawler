@@ -95,9 +95,15 @@ func (c *Controller) Accept(r *crawler.Response, u *url.URL) bool {
 }
 
 func (c *Controller) Sched(r *crawler.Response, u *url.URL) crawler.Ticket {
+	var depth int
+	if r == nil {
+		depth = 0
+	} else {
+		depth = r.Context().Depth() + 1
+	}
 	c.count.Update(u.Host, func(cnt *count.Count) {
 		cnt.URL++
-		cnt.Depth[r.Context().Depth()+1]++
+		cnt.Depth[depth]++
 	})
 	d := c.limiter.Reserve(u)
 	return crawler.Ticket{At: time.Now().Add(d)}

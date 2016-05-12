@@ -62,7 +62,7 @@ func main() {
 	logger := log15.Root()
 	logger.SetHandler(log15.MultiHandler(
 		log15.Must.FileHandler(filepath.Join(dir, "crawler.log"), log15.LogfmtFormat()),
-		log15.StdoutHandler,
+		log15.LvlFilterHandler(log15.LvlError, log15.StdoutHandler),
 	))
 
 	pattern := &extract.Pattern{

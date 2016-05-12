@@ -113,18 +113,25 @@ func (c *StdClient) Do(req *Request) (r *Response, err error) {
 	}
 
 	if hr, err = c.client.Do(req.Request); err != nil {
-		return
+		return nil, RetryableError{Err: err}
 	}
 	now = time.Now()
 
 	// Only status code 2xx is OK.
 	switch {
 	case 200 <= hr.StatusCode && hr.StatusCode < 300:
-	default:
+	// 5xx and 4xx but 404 are retryable.
+	case hr.StatusCode >= 500:
+		fallthrough
+	case hr.StatusCode >= 400 && hr.StatusCode != 404:
+		hr.Body.Close()
 		err = RetryableError{
 			Err: ResponseStatusError(hr.StatusCode),
 		}
+		return
+	default:
 		hr.Body.Close()
+		err = ResponseStatusError(hr.StatusCode)
 		return
 	}
 	if c.cache != nil {
@@ -178,6 +185,15 @@ func (c *StdClient) revalidate(
 		rcc = cache.Parse(rr, time.Now())
 		if rcc == nil || !rcc.IsCacheable() {
 			c.cache.Remove(u)
+		}
+		return
+	// 5xx and 4xx but 404 are retryable.
+	case rr.StatusCode >= 500:
+		fallthrough
+	case rr.StatusCode >= 400 && rr.StatusCode != 404:
+		rr.Body.Close()
+		err = RetryableError{
+			Err: ResponseStatusError(rr.StatusCode),
 		}
 		return
 	default:

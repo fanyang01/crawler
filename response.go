@@ -101,6 +101,7 @@ func (br *bodyReader) Read(p []byte) (n int, err error) {
 			(*br.rc).Close()
 		case err != nil:
 			*br.status = BodyStatusError
+			err = RetryableError{Err: err}
 			br.err = err
 			(*br.rc).Close()
 		}

@@ -55,6 +55,7 @@ func NewCrawler(cfg *Config) *Crawler {
 
 	// additional flow
 	cw.maker.ErrOut = cw.scheduler.ErrIn
+	cw.maker.CancelOut = cw.scheduler.CancelIn
 	cw.fetcher.ErrOut = cw.scheduler.ErrIn
 	cw.handler.ErrOut = cw.scheduler.ErrRespIn
 
