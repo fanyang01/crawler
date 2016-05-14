@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/fanyang01/crawler/queue"
 	"github.com/stretchr/testify/assert"
 )
@@ -37,7 +38,11 @@ func newTestQueue(t *testing.T, size int) (tmpfile string, q *DiskQueue) {
 	}
 	tmpfile = f.Name()
 	f.Close()
-	q, err = NewDiskQueue(tmpfile, DefaultBucket, size, 256)
+	db, err := bolt.Open(tmpfile, 0644, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err = NewDiskQueue(db, DefaultBucket, size, 256)
 	if err != nil {
 		os.Remove(tmpfile)
 		t.Fatal(err)
