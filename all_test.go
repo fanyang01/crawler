@@ -41,7 +41,7 @@ func TestAll(t *testing.T) {
 		content: make(chan []byte, 2),
 	}
 
-	cw := NewCrawler(&Config{Controller: ctrl})
+	cw := New(&Config{Controller: ctrl})
 	assert.Nil(cw.Crawl(ts.URL))
 	cw.Wait()
 	content := string(<-ctrl.content)

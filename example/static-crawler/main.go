@@ -142,7 +142,7 @@ func main() {
 		log.Fatal(http.ListenAndServe("localhost:7869", nil))
 	}()
 
-	cw := crawler.NewCrawler(&crawler.Config{
+	cw := crawler.New(&crawler.Config{
 		Controller: ctrl,
 		Logger:     logger,
 		Store:      store,

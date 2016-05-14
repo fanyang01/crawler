@@ -29,8 +29,8 @@ type Crawler struct {
 	wg   sync.WaitGroup
 }
 
-// NewCrawler creates a new crawler.
-func NewCrawler(cfg *Config) *Crawler {
+// New creates a new crawler.
+func New(cfg *Config) *Crawler {
 	cfg = initConfig(cfg)
 	cw := &Crawler{
 		opt:       cfg.Option,

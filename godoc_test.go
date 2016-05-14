@@ -92,7 +92,7 @@ func TestGodoc(t *testing.T) {
 		t:   t,
 		pkg: make(map[string]int),
 	}
-	cw := NewCrawler(&Config{
+	cw := New(&Config{
 		Controller: g,
 	})
 	cw.Logger().SetHandler(log15.StdoutHandler)
