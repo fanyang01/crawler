@@ -3,7 +3,9 @@ package extract
 
 import (
 	"io"
+	"net"
 	"net/url"
+	"strings"
 
 	"github.com/fanyang01/crawler"
 	"github.com/fanyang01/crawler/urlx"
@@ -16,8 +18,13 @@ type Extractor struct {
 	Normalize  func(*url.URL) error
 	Matcher    Matcher
 	MaxDepth   int
+	SameOrigin bool // http != https
 	SpanHosts  bool
-	SameOrigin bool
+
+	// Conflict with host matcher
+	SubDomain bool // www.example.com -> {example.com, **.example.com}
+	ResolveIP bool
+
 	Pos        []struct{ Tag, Attr string }
 	Redirect   bool
 	SniffFlags int
@@ -51,10 +58,39 @@ func (e *Extractor) Extract(
 			continue
 		} else if !e.SpanHosts && u.Host != host {
 			continue
-		} else if !e.Matcher.Match(u) {
-			continue
+		} else if e.SpanHosts && u.Host != host {
+			if e.SubDomain {
+				hs := strings.Split(host, ".")
+				us := strings.Split(u.Host, ".")
+				if lh, lu := len(hs), len(us); lh > 1 && lu > 1 {
+					if hs[lh-2] == us[lu-2] && hs[lh-1] == us[lu-1] {
+						goto MATCH
+					}
+				}
+			}
+			if e.ResolveIP {
+				if ip0, err := net.LookupIP(host); err != nil {
+					continue
+				} else if ip1, err := net.LookupIP(u.Host); err != nil {
+					continue
+				} else {
+					for _, i0 := range ip0 {
+						for _, i1 := range ip1 {
+							if i0.Equal(i1) {
+								goto MATCH
+							}
+						}
+					}
+				}
+			}
+			if !e.Matcher.MatchPart(u, PartHost) {
+				continue
+			}
 		}
-		ch <- u
+	MATCH:
+		if e.Matcher.Match(u) {
+			ch <- u
+		}
 	}
 	return <-chErr
 }

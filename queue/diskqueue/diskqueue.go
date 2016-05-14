@@ -80,7 +80,6 @@ type DiskQueue struct {
 
 	db     *bolt.DB
 	bucket []byte
-	file   string
 }
 
 func compare(x, y interface{}) int {
@@ -95,26 +94,22 @@ func compare(x, y interface{}) int {
 }
 
 // NewDefault creates a wait queue using the default configuration.
-func NewDefault(filename string) (q queue.WaitQueue, err error) {
-	return New(filename, DefaultBucket, DefaultMemQueueSize, DefaultBufSize)
+func NewDefault(db *bolt.DB) (q queue.WaitQueue, err error) {
+	return New(db, DefaultBucket, DefaultMemQueueSize, DefaultBufSize)
 }
 
 // New creates a wait queue. 0 <= writeBufSize < memQueueSize.
 // The bucket will be created if it does not exist. Otherwise,
 // the bucket will be deleted and created again.
-func New(filename string, bucket []byte, memQueueSize, writeBufSize int) (wq queue.WaitQueue, err error) {
-	q, err := newDiskQueue(filename, bucket, memQueueSize, writeBufSize)
+func New(db *bolt.DB, bucket []byte, memQueueSize, writeBufSize int) (wq queue.WaitQueue, err error) {
+	q, err := NewDiskQueue(db, bucket, memQueueSize, writeBufSize)
 	if err != nil {
 		return
 	}
 	return queue.WithChannel(q), nil
 }
 
-func newDiskQueue(filename string, bucket []byte, memQueueSize, writeBufSize int) (q *DiskQueue, err error) {
-	db, err := bolt.Open(filename, 0644, nil)
-	if err != nil {
-		return
-	}
+func NewDiskQueue(db *bolt.DB, bucket []byte, memQueueSize, writeBufSize int) (q *DiskQueue, err error) {
 	var (
 		dbCount  int
 		dbMinKey []byte
@@ -145,7 +140,6 @@ func newDiskQueue(filename string, bucket []byte, memQueueSize, writeBufSize int
 		tree:     rbtree.New(compare),
 		limit:    memQueueSize,
 		db:       db,
-		file:     filename,
 		dbCount:  dbCount,
 		dbMinKey: dbMinKey,
 		bucket:   bucket,

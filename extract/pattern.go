@@ -12,6 +12,7 @@ import (
 // A Matcher matches a URL and returns true if it is accepted.
 type Matcher interface {
 	Match(u *url.URL) bool
+	MatchPart(u *url.URL, part int) bool
 }
 
 // Pattern matches URLs.
@@ -79,29 +80,55 @@ type pattern struct {
 	ExcludeFile []matcher
 }
 
-func (p *pattern) Match(u *url.URL) bool {
-	f := func(s string, reject, accept []matcher) bool {
-		for _, rule := range reject {
-			if rule.Match(s) {
-				return false
-			}
+func matchString(s string, reject, accept []matcher) bool {
+	for _, rule := range reject {
+		if rule.Match(s) {
+			return false
 		}
-		if len(accept) == 0 {
+	}
+	if len(accept) == 0 {
+		return true
+	}
+	for _, rule := range accept {
+		if rule.Match(s) {
 			return true
 		}
-		for _, rule := range accept {
-			if rule.Match(s) {
-				return true
-			}
-		}
-		return false
 	}
+	return false
+}
+
+func (p *pattern) Match(u *url.URL) bool {
 	us, uh, up := u.String(), u.Host, u.EscapedPath()
 	dir, file := path.Split(up)
+	f := matchString
 	return f(us, p.Reject, p.Accept) &&
 		f(uh, p.ExcludeHost, p.Host) &&
 		f(dir, p.ExcludeDir, p.Dir) &&
 		f(file, p.ExcludeFile, p.File)
+}
+
+const (
+	PartURL = iota
+	PartHost
+	PartDir
+	PartFile
+)
+
+func (p *pattern) MatchPart(u *url.URL, part int) bool {
+	us, uh, up := u.String(), u.Host, u.EscapedPath()
+	dir, file := path.Split(up)
+	f := matchString
+	switch part {
+	case PartURL:
+		return f(us, p.Reject, p.Accept)
+	case PartHost:
+		return f(uh, p.ExcludeHost, p.Host)
+	case PartDir:
+		return f(dir, p.ExcludeDir, p.Dir)
+	case PartFile:
+		return f(file, p.ExcludeFile, p.File)
+	}
+	return false
 }
 
 // MustCompiles will panic if it fails to compile the pattern.

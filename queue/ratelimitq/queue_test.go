@@ -1,12 +1,16 @@
 package ratelimitq
 
 import (
+	"io/ioutil"
 	"net/url"
+	"os"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/fanyang01/crawler/queue"
+	"github.com/fanyang01/crawler/queue/ratelimitq/diskheap"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -26,8 +30,8 @@ func mustParseInt(s string) int {
 	return int(i)
 }
 
-func TestPriority(t *testing.T) {
-	pq := newRateLimit(100, nil)
+func testPriority(t *testing.T, secondary Secondary) {
+	pq := New(&Option{MaxHosts: 100, Secondary: secondary})
 	now := time.Now()
 	pq.Push(&queue.Item{
 		Score: 300,
@@ -52,8 +56,8 @@ func TestPriority(t *testing.T) {
 	assert.Equal(t, "/100", item.URL.Path)
 }
 
-func TestTime(t *testing.T) {
-	wq := newRateLimit(100, nil)
+func testTime(t *testing.T, secondary Secondary) {
+	wq := New(&Option{MaxHosts: 100, Secondary: secondary})
 	now := time.Now()
 	items := []*queue.Item{
 		{
@@ -85,7 +89,7 @@ func TestTime(t *testing.T) {
 	}
 }
 
-func TestRateLimit(t *testing.T) {
+func testRateLimit(t *testing.T, secondary Secondary) {
 	f := func(host string) time.Duration {
 		switch host {
 		case "a.example.com":
@@ -96,7 +100,7 @@ func TestRateLimit(t *testing.T) {
 			return 0
 		}
 	}
-	wq := newRateLimit(100, f)
+	wq := New(&Option{MaxHosts: 100, Limit: f, Secondary: secondary})
 	now := time.Now()
 	items := []*queue.Item{
 		{
@@ -126,4 +130,48 @@ func TestRateLimit(t *testing.T) {
 		item, _ := wq.Pop()
 		assert.Equal(t, exp[i], item.URL.Path)
 	}
+}
+
+func tmpfile() string {
+	f, _ := ioutil.TempFile("", "ratelimitq")
+	name := f.Name()
+	f.Close()
+	return name
+}
+
+func newDiskHeap(t *testing.T, name string, bufsize int) *diskheap.DiskHeap {
+	db, err := bolt.Open(name, 0644, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return diskheap.New(db, nil, bufsize)
+}
+
+func TestTime(t *testing.T) {
+	testTime(t, nil)
+	name := tmpfile()
+	defer os.Remove(name)
+	testTime(t, newDiskHeap(t, name, 0))
+
+	name = tmpfile()
+	defer os.Remove(name)
+	testTime(t, newDiskHeap(t, name, 2))
+}
+
+func TestPriority(t *testing.T) {
+	testPriority(t, nil)
+	name := tmpfile()
+	defer os.Remove(name)
+	testPriority(t, newDiskHeap(t, name, 1))
+}
+
+func TestRateLimit(t *testing.T) {
+	testRateLimit(t, nil)
+	name := tmpfile()
+	defer os.Remove(name)
+	testRateLimit(t, newDiskHeap(t, name, 0))
+
+	name = tmpfile()
+	defer os.Remove(name)
+	testRateLimit(t, newDiskHeap(t, name, 3))
 }

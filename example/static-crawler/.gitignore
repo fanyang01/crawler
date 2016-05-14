@@ -1,4 +1,6 @@
 _testdata/
 testdata/
 *.csv
+*.txt
+*.pprof
 static-crawler

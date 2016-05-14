@@ -18,7 +18,8 @@ import (
 	"github.com/fanyang01/crawler"
 	"github.com/fanyang01/crawler/download"
 	"github.com/fanyang01/crawler/extract"
-	"github.com/fanyang01/crawler/queue/diskqueue"
+	"github.com/fanyang01/crawler/queue/ratelimitq"
+	"github.com/fanyang01/crawler/queue/ratelimitq/diskheap"
 	"github.com/fanyang01/crawler/ratelimit"
 	"github.com/fanyang01/crawler/sample/count"
 	"github.com/fanyang01/crawler/sample/fingerprint"
@@ -57,13 +58,33 @@ func init() {
 }
 
 func main() {
-	defer profile.Start(profile.MemProfile, profile.ProfilePath(".")).Stop()
+	defer profile.Start(profile.CPUProfile, profile.ProfilePath(".")).Stop()
 
 	logger := log15.Root()
 	logger.SetHandler(log15.MultiHandler(
-		log15.Must.FileHandler(filepath.Join(dir, "crawler.log"), log15.LogfmtFormat()),
+		log15.LvlFilterHandler(
+			log15.LvlInfo,
+			log15.Must.FileHandler(filepath.Join(dir, "crawler.log"), log15.LogfmtFormat()),
+		),
 		log15.LvlFilterHandler(log15.LvlError, log15.StdoutHandler),
 	))
+
+	csv, err := os.Open(seedfile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var urls []string
+	scanner := bufio.NewScanner(csv)
+	for scanner.Scan() {
+		url := scanner.Text()
+		if !strings.HasPrefix(url, "#") {
+			urls = append(urls, url)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
+	csv.Close()
 
 	pattern := &extract.Pattern{
 		File: []string{
@@ -71,7 +92,6 @@ func main() {
 			`/.*\.(jpg|JPG|png|PNG|jpeg|JPEG|gif|GIF)/`,
 			`/.*\.(php|jsp|aspx|asp|cgi|do)/`,
 			"*.css", "*.js",
-			"*http?://*",
 		},
 		// ExcludeFile: []string{
 		// 	"*.doc?", "*.xls?", "*.ppt?",
@@ -92,6 +112,9 @@ func main() {
 			},
 			SniffFlags: extract.SniffWindowLocation,
 			Redirect:   true,
+			SpanHosts:  true,
+			SubDomain:  true,
+			ResolveIP:  true,
 		},
 		downloader: &download.Downloader{
 			Dir: dir,
@@ -102,32 +125,17 @@ func main() {
 		limiter:     ratelimit.New(rate),
 		logger:      logger.New("worker", "controller"),
 	}
+	ctrl.complete.hosts = make(map[string]bool)
 
 	store, err := boltstore.New(filepath.Join(dir, "bolt.db"), nil, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	queue, err := diskqueue.NewDefault(filepath.Join(dir, "queue.db"))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	csv, err := os.Open(seedfile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	var urls []string
-	scanner := bufio.NewScanner(csv)
-	for scanner.Scan() {
-		url := scanner.Text()
-		if !strings.HasPrefix(url, "#") {
-			urls = append(urls, url)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
-	}
-	csv.Close()
+	// queue, err := diskqueue.NewDefault(store.DB)
+	queue := ratelimitq.NewWaitQueue(&ratelimitq.Option{
+		Limit:     ctrl.Interval,
+		Secondary: diskheap.New(store.DB, []byte("HEAP"), 16),
+	})
 
 	go func() {
 		http.Handle("/count/", http.HandlerFunc(handleCount))

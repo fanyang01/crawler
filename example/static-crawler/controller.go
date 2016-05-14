@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/fanyang01/crawler"
@@ -26,6 +27,10 @@ type Controller struct {
 	downloader  *download.Downloader
 	fingerprint *fingerprint.Store
 
+	complete struct {
+		hosts map[string]bool
+		sync.RWMutex
+	}
 	logger log15.Logger
 }
 
@@ -81,17 +86,40 @@ LOG:
 		"html", html, "similar", similar,
 		"error", err != nil,
 	)
+	if err != nil {
+		r.Context().Retry(err)
+		return
+	}
+
+	var nresp, nsimilar int
 	c.count.Update(r.URL.Host, func(cnt *count.Count) {
 		cnt.Response.Count++
 		cnt.Response.Depth[depth]++
 		if similar {
 			cnt.KV["SIMILAR"]++
 		}
+		nresp = cnt.Response.Count
+		nsimilar = cnt.KV["SIMILAR"]
 	})
+	if nresp > 500 && nsimilar*2 > nresp {
+		c.complete.Lock()
+		c.complete.hosts[r.URL.Host] = true
+		c.complete.Unlock()
+	}
 }
 
+var htmlMatcher = extract.MustCompile(&extract.Pattern{
+	File: []string{
+		"", "*.?htm?", `/[^\.]*/`,
+		`/.*\.(php|jsp|aspx|asp|cgi|do)/`,
+	},
+})
+
 func (c *Controller) Accept(r *crawler.Response, u *url.URL) bool {
-	return r.URL.Host == u.Host && c.trie.Add(u)
+	if htmlMatcher.Match(u) {
+		return c.trie.Add(u)
+	}
+	return true
 }
 
 func (c *Controller) Sched(r *crawler.Response, u *url.URL) crawler.Ticket {
@@ -105,18 +133,29 @@ func (c *Controller) Sched(r *crawler.Response, u *url.URL) crawler.Ticket {
 		cnt.URL++
 		cnt.Depth[depth]++
 	})
-	d := c.limiter.Reserve(u)
-	return crawler.Ticket{At: time.Now().Add(d)}
+	// d := c.limiter.Reserve(u)
+	return crawler.Ticket{
+		// rate limit queue takes over time scheduling.
+		// At:    time.Now().Add(d),
+		Score: 1000 - depth*100,
+	}
 }
 
 func (c *Controller) Prepare(req *crawler.Request) {
-	var resp, similar int
-	host := req.Context().URL().Host
-	c.count.Update(host, func(cnt *count.Count) {
-		resp = cnt.Response.Count
-		similar = cnt.KV["SIMILAR"]
-	})
-	if resp > 400 && similar*2 > resp {
+	c.complete.RLock()
+	complete := c.complete.hosts[req.Context().URL().Host]
+	c.complete.RUnlock()
+	if complete {
 		req.Cancel()
 	}
+}
+
+func (c *Controller) Interval(host string) time.Duration {
+	c.complete.RLock()
+	complete := c.complete.hosts[host]
+	c.complete.RUnlock()
+	if complete {
+		return 0
+	}
+	return time.Second
 }

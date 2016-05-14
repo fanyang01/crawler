@@ -37,9 +37,9 @@ func TestFingerprint(t *testing.T) {
 </body>
 </html>
 `
-	f1 := Compute(strings.NewReader(s1), 4096, 2)
-	f2 := Compute(strings.NewReader(s2), 4096, 2)
-	f3 := Compute(strings.NewReader(s3), 4096, 2)
+	f1, _ := Compute(strings.NewReader(s1), 4096, 2)
+	f2, _ := Compute(strings.NewReader(s2), 4096, 2)
+	f3, _ := Compute(strings.NewReader(s3), 4096, 2)
 	if d := simhash.Compare(f1, f2); d > 3 {
 		t.Errorf("distance should <= 3, actual: %d\n", d)
 	}

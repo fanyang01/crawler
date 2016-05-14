@@ -20,7 +20,7 @@ type primaryItem struct {
 // 2. S[i].secondary.Len > 0
 // 3. len(M) = len(S)
 type primaryHeap struct {
-	M map[string]*secondaryEntry
+	M map[string]int
 	S []*primaryItem
 }
 
@@ -29,16 +29,12 @@ func (q *primaryHeap) Top() *primaryItem  { return q.S[0] }
 func (q *primaryHeap) Len() int           { return len(q.S) }
 func (q *primaryHeap) Swap(i, j int) {
 	hi, hj := q.S[i].Host, q.S[j].Host
-	q.M[hi].idx, q.M[hj].idx = j, i
+	q.M[hi], q.M[hj] = j, i
 	q.S[i], q.S[j] = q.S[j], q.S[i]
 }
 func (q *primaryHeap) Push(x interface{}) {
 	it := x.(*primaryItem)
-	h := &secondaryHeap{}
-	it.secondary = h
-	q.M[it.Host] = &secondaryEntry{
-		idx: len(q.S), secondary: h,
-	}
+	q.M[it.Host] = len(q.S)
 	q.S = append(q.S, it)
 }
 func (q *primaryHeap) Pop() interface{} {
@@ -49,38 +45,52 @@ func (q *primaryHeap) Pop() interface{} {
 	return it
 }
 
-type secondaryEntry struct {
-	idx       int
-	secondary *secondaryHeap
+type Secondary interface {
+	Top(host string) (*queue.Item, error)
+	Len(host string) (int, error)
+	Push(host string, item *queue.Item) error
+	Pop(host string) (*queue.Item, error)
+	Close() error
 }
 
 type secondaryHeap struct {
-	S []*queue.Item
+	M map[string]*queue.Heap
 }
 
-// Less compares compound priority of items.
-func (q *secondaryHeap) Less(i, j int) bool {
-	if q.S[i].Next.Before(q.S[j].Next) {
-		return true
+func newSecondaryHeap() *secondaryHeap {
+	return &secondaryHeap{
+		M: make(map[string]*queue.Heap),
 	}
-	ti := q.S[i].Next.Round(time.Microsecond)
-	tj := q.S[j].Next.Round(time.Microsecond)
-	if ti.After(tj) {
-		return false
+}
+
+func (q *secondaryHeap) Top(host string) (*queue.Item, error) {
+	return q.M[host].Top(), nil
+}
+func (q *secondaryHeap) Len(host string) (int, error) {
+	if h, ok := q.M[host]; !ok {
+		return 0, nil
+	} else {
+		return h.Len(), nil
 	}
-	// ti = tj
-	return q.S[i].Score > q.S[j].Score
 }
-func (q *secondaryHeap) Top() *queue.Item   { return q.S[0] }
-func (q *secondaryHeap) Len() int           { return len(q.S) }
-func (q *secondaryHeap) Swap(i, j int)      { q.S[i], q.S[j] = q.S[j], q.S[i] }
-func (q *secondaryHeap) Push(x interface{}) { q.S = append(q.S, x.(*queue.Item)) }
-func (q *secondaryHeap) Pop() interface{} {
-	n := len(q.S)
-	v := q.S[n-1]
-	q.S = q.S[0 : n-1]
-	return v
+func (q *secondaryHeap) Push(host string, item *queue.Item) error {
+	h, ok := q.M[host]
+	if !ok {
+		h = &queue.Heap{}
+		q.M[host] = h
+	}
+	heap.Push(h, item)
+	return nil
 }
+func (q *secondaryHeap) Pop(host string) (*queue.Item, error) {
+	h := q.M[host]
+	item := heap.Pop(h).(*queue.Item)
+	if h.Len() == 0 {
+		delete(q.M, host)
+	}
+	return item, nil
+}
+func (q *secondaryHeap) Close() error { return nil }
 
 type RateLimitQueue struct {
 	mu       sync.Mutex
@@ -89,31 +99,45 @@ type RateLimitQueue struct {
 	timer    *time.Timer
 	closed   bool
 
-	primary primaryHeap
-	maxHost int
+	primary   primaryHeap
+	secondary Secondary
+	maxHost   int
 	// TODO: use a background goroutine to clean timewait periodically
 	timewait map[string]time.Time
 	interval func(string) time.Duration
+	err      error
 }
 
-// New creates a rate limit wait queue.
-func New(maxHost int, limit func(host string) time.Duration) queue.WaitQueue {
-	return queue.WithChannel(
-		newRateLimit(maxHost, limit),
-	)
+type Option struct {
+	MaxHosts  int
+	Secondary Secondary
+	Limit     func(host string) time.Duration
 }
 
-func newRateLimit(maxHost int, limit func(host string) time.Duration) *RateLimitQueue {
-	if limit == nil {
-		limit = func(string) time.Duration { return 0 }
+// NewWaitQueue creates a rate limit wait queue.
+func NewWaitQueue(opt *Option) queue.WaitQueue {
+	return queue.WithChannel(New(opt))
+}
+
+func New(opt *Option) *RateLimitQueue {
+	if opt == nil {
+		opt = &Option{}
 	}
+	if opt.Secondary == nil {
+		opt.Secondary = newSecondaryHeap()
+	}
+	if opt.Limit == nil {
+		opt.Limit = func(string) time.Duration { return 0 }
+	}
+
 	q := &RateLimitQueue{
 		primary: primaryHeap{
-			M: make(map[string]*secondaryEntry),
+			M: make(map[string]int),
 		},
-		maxHost:  maxHost,
-		timewait: make(map[string]time.Time),
-		interval: limit,
+		maxHost:   opt.MaxHosts,
+		secondary: opt.Secondary,
+		interval:  opt.Limit,
+		timewait:  make(map[string]time.Time),
 	}
 	q.popCond = sync.NewCond(&q.mu)
 	q.pushCond = sync.NewCond(&q.mu)
@@ -127,9 +151,9 @@ func maxTime(a, b time.Time) time.Time {
 	return b
 }
 
-func (q *RateLimitQueue) getSecondary(host string) *secondaryHeap {
-	if v, ok := q.primary.M[host]; ok {
-		return v.secondary
+func (q *RateLimitQueue) create(host string) {
+	if _, ok := q.primary.M[host]; ok {
+		return
 	}
 	pi := &primaryItem{
 		Host: host,
@@ -139,38 +163,47 @@ func (q *RateLimitQueue) getSecondary(host string) *secondaryHeap {
 		pi.Last = last
 	}
 	heap.Push(&q.primary, pi)
-	return q.primary.M[host].secondary
 }
 
-func (q *RateLimitQueue) updatePrimary(host string, d time.Duration) {
-	v := q.primary.M[host]
-	item := q.primary.S[v.idx]
-	item.Next = maxTime(item.Last.Add(d), v.secondary.Top().Next)
-	heap.Fix(&q.primary, v.idx)
+func (q *RateLimitQueue) update(host string, d time.Duration) error {
+	idx := q.primary.M[host]
+	item := q.primary.S[idx]
+	top, err := q.secondary.Top(host)
+	if err != nil {
+		return err
+	}
+	item.Next = maxTime(item.Last.Add(d), top.Next)
+	heap.Fix(&q.primary, idx)
+	return nil
 }
 
 func (q *RateLimitQueue) Push(item *queue.Item) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	for !q.closed && q.primary.Len() >= q.maxHost {
+	for q.err == nil && !q.closed &&
+		(q.maxHost > 0 && q.primary.Len() >= q.maxHost) {
 		q.pushCond.Wait()
 	}
-	if q.closed {
+	if q.err != nil {
+		return q.err
+	} else if q.closed {
 		return queue.ErrPushClosed
 	}
 
 	host := item.URL.Host
-	h := q.getSecondary(host)
-	heap.Push(h, item)
-	q.updatePrimary(host, q.interval(host))
+	q.create(host)
+	q.secondary.Push(host, item)
+	if q.err = q.update(host, q.interval(host)); q.err != nil {
+		return q.err
+	}
 	q.popCond.Signal()
 	return nil
 }
 
 // Pop will block if heap is empty or none of items should be removed at now.
 // It will return nil without error if the queue is closed.
-func (q *RateLimitQueue) Pop() (item *queue.Item, _ error) {
+func (q *RateLimitQueue) Pop() (item *queue.Item, err error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -179,31 +212,36 @@ func (q *RateLimitQueue) Pop() (item *queue.Item, _ error) {
 	wait := false
 
 WAIT:
-	for !q.closed && (q.primary.Len() == 0 || wait) {
+	for q.err == nil && !q.closed && (q.primary.Len() == 0 || wait) {
 		q.popCond.Wait()
 		wait = false
 	}
-	if q.closed {
-		return
+	if q.err != nil {
+		return nil, q.err
+	} else if q.closed {
+		return nil, nil
 	}
 
 	pi = q.primary.Top()
 	now = time.Now()
 
 	if pi.Next.Before(now) {
-		host := pi.Host
-		interval := q.interval(host)
-		h := pi.secondary
-		si := heap.Pop(h).(*queue.Item)
-
-		if h.Len() == 0 {
+		var (
+			host     = pi.Host
+			interval = q.interval(host)
+			len      int
+		)
+		if item, q.err = q.secondary.Pop(host); q.err != nil {
+			return nil, q.err
+		} else if len, q.err = q.secondary.Len(host); q.err != nil {
+			return nil, q.err
+		} else if len <= 0 {
 			heap.Pop(&q.primary)
 			q.timewait[host] = now
 		} else {
 			pi.Last = now
-			q.updatePrimary(host, interval)
+			q.update(host, interval)
 		}
-		item = si
 		q.pushCond.Signal()
 		return
 	}
